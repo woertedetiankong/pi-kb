@@ -1,0 +1,221 @@
+# pi-kb
+
+[中文](README.md) · English
+
+A personal knowledge base for [pi](https://pi.dev): add PDFs, Office documents, images and Markdown notes, and the agent searches them when it answers, citing the page. Switch it on and off at any time with `/kb on` / `/kb off`.
+
+## Install
+
+```bash
+pi install /path/to/pi-kb     # local development
+pi -e ./src/index.ts          # or load it for this run only
+```
+
+Requires Node.js 22.19+. Importing Word / PowerPoint / Excel files needs LibreOffice: `brew install --cask libreoffice`.
+
+## Usage
+
+| Command | What it does |
+|---|---|
+| `/kb` or `/kb status` | Show whether it is on and how much it holds |
+| `/kb on` / `/kb off` | Turn on / off (saved). When off, the tools and the prompt section are removed and take no context |
+| `/kb add <file or folder…>` | Import material; dragging paths into the terminal works |
+| `/kb add <note.md…> --note` | Add as experience notes in the wiki |
+| `/kb note [focus]` | Ask the agent to review this conversation and save what is worth keeping as wiki notes |
+| `/kb list` | List documents and notes |
+| `/kb search <keywords>` | Search it yourself |
+| `/kb remove <id>` | Delete (a note's file is deleted too) |
+| `/kb sync` | Re-index after editing the wiki by hand (also done at startup) |
+| `/kb semantic [status\|api\|local\|off]` | Semantic search: show status, use an online API, use a local model, turn off |
+| `/kb eval [init\|draft\|run]` | Measure retrieval: create the question file, let the agent draft questions, run the evaluation |
+| `/kb open` | Open the knowledge base folder |
+| `/kb web` | Open the knowledge base page in the browser (`/kb web url` prints the full address, `/kb web stop` closes it) |
+| `/kb lang zh\|en\|auto` | Switch the interface language |
+
+The flags `pi --kb off` / `--kb on` apply to this run only.
+
+## Semantic search (optional)
+
+By default only keyword search is used. With semantic search on you can ask in plain language ("how many volts can the chip take at most" finds the page that says "absolute maximum rating 4.0V"), and Chinese and English find each other. Keyword and semantic results are merged by rank (RRF); results found only by meaning are marked "semantic", and the agent checks them with `kb_read` before citing.
+
+Two ways, pick one:
+
+| | Online API `/kb semantic api` | Local model `/kb semantic local` |
+|---|---|---|
+| Model | Any OpenAI-compatible `/embeddings` endpoint; default OpenAI `text-embedding-3-small` | `Qwen3-Embedding-0.6B` (Alibaba Qwen, Apache 2.0; strong in Chinese, English and across the two) |
+| Install | Nothing extra | On first use, installs a runtime (about 500 MB) into `~/.pi/kb`, then downloads the model (about 610 MB, pinned to the tested revision) |
+| Privacy | **The text of your documents and notes is sent to the provider** (you are asked to confirm when turning it on) | Everything stays on your machine |
+| Cost | Billed by the provider | Free |
+
+- Why Qwen3-Embedding-0.6B: three local models were compared on the same material (40+ English pi docs plus Chinese material, 502 chunks; 23 questions with known answers, including Chinese↔English; 8 questions the knowledge base cannot answer; Apple silicon Mac):
+
+  | | Qwen3-Embedding-0.6B (chosen) | bge-m3 | Granite R2 311M |
+  |---|---|---|---|
+  | Right document first / in top 3 | **15 / 21** | 13 / 20 | 14 / 21 |
+  | MRR | **0.794** | 0.737 | 0.768 |
+  | Score gap between relevant and unrelated questions | **0.068** | 0.051 | 0.018 |
+  | Indexing 502 chunks | 127 s | 87 s | 41 s |
+  | Download | 614 MB | 570 MB | 313 MB |
+  | License | Apache 2.0 | MIT | Apache 2.0 (tokenizer under Gemma terms) |
+
+  The sample is small and the top two differ by one or two questions; Qwen3 won mainly because it best separates "has an answer" from "has no answer", and its license is the cleanest.
+- For Qwen3, semantic results below a similarity of 0.43 are dropped by default (questions with an answer scored ≥ 0.46 for their best result, questions without one ≤ 0.39), so asking about something the knowledge base does not have returns nothing instead of a forced match. Adjust with `semantic.minScore` in `config.json`.
+- Indexing uses about 2–3 GB of memory (2 chunks at a time; 8 at a time goes above 5 GB without being faster). A 300-page manual takes about 3–6 minutes, in the background; keyword search keeps working meanwhile. A query takes about 45 ms.
+- The API key is read from, in order: the `PI_KB_EMBEDDING_API_KEY` environment variable → the key entered in `/kb semantic api` (stored in `config.json` with file mode 0600) → `OPENAI_API_KEY` when using OpenAI. Local services such as Ollama (`http://localhost…`) need no key.
+- Other common online endpoints (enter the address and model in `/kb semantic api`):
+
+  | Service | Endpoint | Model | Notes |
+  |---|---|---|---|
+  | OpenAI (default) | `https://api.openai.com/v1` | `text-embedding-3-small` | No default similarity floor yet; only the number of semantic-only results is limited |
+  | SiliconFlow (international) | `https://api.siliconflow.com/v1` | e.g. `Qwen/Qwen3-Embedding-0.6B` or `BAAI/bge-m3` | Same models as the local option: queries get the instruction Qwen3 needs, and each uses its measured floor (0.43 / 0.51) |
+  | SiliconFlow (mainland China) | `https://api.siliconflow.cn/v1` | same | For users in mainland China; may be unreachable from elsewhere |
+  | Ollama (local) | `http://localhost:11434/v1` | e.g. `qwen3-embedding:0.6b` | No key; data stays on your machine |
+- Imported material is searchable by keyword right away; vectors are built in the background with progress in the status bar (`🧠 120/600`, then `🧠` when done). Changing the model rebuilds them.
+- If HuggingFace or npm is hard to reach (for example in mainland China): set `"hfEndpoint": "https://hf-mirror.com"` (model download) and `"npmRegistry": "https://registry.npmmirror.com"` (runtime install) under `semantic.local` in `config.json`. Off by default; the official sources are used.
+
+```json
+"semantic": {
+  "provider": "local",
+  "api": { "baseUrl": "https://api.openai.com/v1", "model": "text-embedding-3-small" },
+  "local": { "model": "onnx-community/Qwen3-Embedding-0.6B-ONNX" }
+}
+```
+
+## Measuring retrieval
+
+Measure whether the knowledge base actually finds the answers in your own material, or compare settings. Only retrieval is measured (was the right page found, at what rank); no model is called, nothing is billed, and it runs in seconds.
+
+1. `/kb eval init` creates `~/.pi/kb/eval/questions.txt` (with instructions in Chinese and English), or `/kb eval draft` has the agent read your material and draft about 15 questions.
+2. Write one question per line:
+
+   ```
+   芯片的最大供电电压是多少 | xr100-manual.pdf p.1
+   how do I configure the SPI clock divider | xr100-manual.pdf p.2; SPI 时钟分频踩坑
+   what's for lunch today | -
+   ```
+
+   Right of the bar is where the answer is (part of a file name or note title, optionally with a page; separate several acceptable answers with `;`); `-` means the knowledge base has no answer. Phrase questions the way customers really ask, not copied from the text.
+3. Run `/kb eval`. The terminal shows a summary, and `~/.pi/kb/eval/reports/` keeps a per-question report (rank in each mode, and what came first).
+
+With semantic search on, three modes are compared: keyword only, keyword + semantic (what the agent uses), and semantic only.
+
+Example results (pi docs + Chinese material, 502 chunks; 29 answerable questions, 6 of them exact terms like `CTRL_REG` or `setActiveTools`; 14 unanswerable, 6 of them like "docker interview questions" where one word is in the knowledge base and the other is not; local Qwen3):
+
+| Mode | Hit at 1 | Hit in top 3 | Hit in top 8 | MRR | Empty when no answer |
+|---|---|---|---|---|---|
+| Keyword | 34% | 34% | 45% | 0.36 | 100% |
+| Keyword + semantic | 69% | 90% | 97% | 0.80 | 71% |
+| Semantic only | 69% | 86% | 97% | 0.79 | 71% |
+
+The unanswerable questions that still returned results all came from semantic search: "docker interview questions" finds documents about Docker (on topic, but no interview questions). Such results are marked "semantic", and the agent checks them before citing.
+
+This question set is mostly natural language and cross-language, which is hard for keyword search; if customers mostly ask with part numbers and register names, keyword search does much better. The fusion method was chosen with this evaluation too: weighting keyword results by term coverage or giving semantic results more weight both broke exact-term queries, so standard RRF stayed.
+
+## Web page
+
+`/kb web` opens a local page (listening on `127.0.0.1` only, access token required):
+
+- Drop files on the page to import them: the left half as documents, the right half (Markdown) as experience notes
+- Search results show pages and open right at that page; for PDFs, "View page" opens the original at that page in the browser
+- Browse the converted text (tables and headings rendered as Markdown), create and edit notes, delete, and turn the knowledge base on or off
+- 中文 / English switch; add `?lang=en` or `?lang=zh` to a link to choose the language, `?q=<keywords>` to search directly, `?doc=<id>&page=<n>` to open a page of a document
+
+The page is served by the shared pi-web server (`src/hub.ts`). When [pi-sessions](https://github.com/woertedetiankong/pi-newsession) is installed too, both live under one address (`/sessions/` and `/kb/`) with a switcher at the top, sharing the access token in `~/.pi/agent/pi-web/token`. `src/hub.ts` must stay identical in both repositories.
+
+## Interface language
+
+The interface (status bar, messages, lists, the note confirmation, the request sent by `/kb note`) is available in Chinese and English, chosen in this order:
+
+1. The `PI_KB_LANG=zh|en` environment variable
+2. The setting saved by `/kb lang zh|en` (`language` in `config.json`)
+3. `auto` (default): `LC_ALL`, `LC_MESSAGES`, `LANG` (ignoring `C` / `POSIX`), then the macOS system language, then Node's locale; English if none is recognized
+
+Tool descriptions and the system prompt the model sees are always English: models follow English instructions most reliably, and the answer still follows the user's language.
+
+When on, the agent has four tools:
+
+- `kb_search`: keyword search, returning citations like `[manual.pdf p.12]` and document ids
+- `kb_read`: read the original text by id and pages (e.g. `pages: "12-14"`)
+- `kb_add`: import files when the user asks to "put this in the knowledge base"
+- `kb_note`: write experience as a wiki note. The agent calls it on its own after solving a non-obvious problem (a root cause found by debugging, a gotcha, a workaround) or learning something lasting about your setup; every note is previewed first and you choose **Save / Edit, then save / Don't save**. A note with the same title is not duplicated but extended (`append`) or rewritten (`replace`)
+
+## Experience note format
+
+```markdown
+---
+title: "XR-100 Flash reads wrong: set the SPI divider first"
+tags: [spi, xr100]
+created: 2026-09-24
+updated: 2026-09-24
+project: "firmware"
+---
+
+# XR-100 Flash reads wrong: set the SPI divider first
+
+Symptom / root cause / fix / how to recognize it next time
+```
+
+Hand-written notes (front matter optional) placed in `wiki/` are indexed too. Each write appends a line to `wiki/log.md`. The index holds the body and `#tags`, not front matter field names.
+
+A small catalog (counts, wiki note titles, recent documents) is added to the system prompt so the agent knows what the knowledge base holds.
+
+## Storage
+
+`~/.pi/kb` by default (change with `PI_KB_DIR`), all plain files:
+
+```
+raw/<id>/<original file>  copy of the original
+converted/<id>.md         converted Markdown with <!-- kb:page N --> page markers
+wiki/**/*.md              experience notes; edit them with Obsidian or any editor
+kb.db                     SQLite FTS5 index (trigram tokenizer, works for Chinese and English)
+config.json               { "enabled", "language", "ocrLanguage", "ocrServerUrl", "semantic" }
+tessdata/                 OCR language data (downloaded on first OCR)
+runtime/, models/         runtime and model files for local semantic search (only after /kb semantic local)
+```
+
+## Parsing and search
+
+- Parsing uses [LiteParse](https://github.com/run-llama/liteparse): PDFs become Markdown with headings and tables, keeping physical page numbers; images and scanned pages go through Tesseract OCR (`eng+chi_sim` by default).
+- Search uses Node's built-in `node:sqlite` with FTS5 trigram, so there are no native dependencies. Terms of 3+ characters use the index, 1–2 character terms (such as 电压) use LIKE; long Chinese sentences are split into trigrams for fuzzy matching, ranked by term coverage plus BM25.
+- English function words like how / the, Chinese question words like 怎么、如何、什么, and lone Chinese characters (such as 用) are ignored.
+- With several terms, more than half must match: with two terms both must appear, unless the other term is on another page of the same document (so "Python 列表排序" does not match a page just because it mentions Python).
+- English matches at word starts (`compact` matches `compaction`, `pi` does not match `api`), and plurals match singulars (`shortcuts` → `shortcut`).
+- On import, spaces OCR inserts between Chinese characters and Markdown escapes (`CTRL\_REG` → `CTRL_REG`) are removed so the original terms can be found.
+
+### Known limitations
+
+- Tesseract is mediocre on Chinese scans: word order within a line can be scrambled. For many scans, configure a PaddleOCR server: set `"ocrServerUrl"` (LiteParse's OCR HTTP interface) in `config.json`.
+- Vector search always returns the "closest" chunks, even when nothing is relevant: semantic-only results are capped in number and marked separately; the tested models (Qwen3-0.6B, bge-m3) also have a similarity floor, other models (such as OpenAI) only the cap for now.
+- The floors were measured on the material above (Qwen3 has a margin of about 0.03–0.04 on each side); for very different material you may need to tune `semantic.minScore`.
+- Imports have no background queue: `/kb add` waits until every file is processed (progress in the status bar).
+
+## Development
+
+```bash
+npm install
+npm run typecheck
+npm test
+```
+
+### Checking with a real model
+
+Unit tests do not call a model. To see whether a model actually uses the knowledge base on its own, run:
+
+```bash
+node scripts/model-check/run.ts                      # default openai-codex/gpt-5.5, 12 scenarios, 2 runs each
+node scripts/model-check/run.ts --model <provider/id> --runs 5 --only debug-note,missing
+```
+
+Each run gets a fresh copy of a fictional knowledge base (XR-100 chip manual, Orbit deploy runbook, YF-20 printer FAQ, one SPI lesson note, plus a few unrelated documents) and runs `pi -p --mode json` in an empty project folder with only this extension loaded; your `~/.pi/kb` is not touched. The scenarios are in `scripts/model-check/scenarios.ts` and check:
+
+- `kb_search` is called when the documents may hold the answer (Chinese, English, across languages, a symptom with no mention of documents), and general programming questions get no citations
+- `kb_note` is called after debugging a non-obvious root cause or learning a fact about the user's setup; an existing related note is extended with `append`; routine edits and lookups are not noted
+- Citations match what `kb_search` / `kb_read` printed exactly (`[xr100-manual.pdf p.1]`), and the answer says so first when the documents do not answer directly
+
+It calls the model for real and is billed (12 × 2 runs take a few minutes). Every run's result and full answer go to `report.md` in the output folder.
+
+Results with gpt-5.5 (2026-09-24): it searched whenever it should and invented no citations; it saved a note after debugging 8/8 times, used `append` for an existing note, and did not note routine work. Still uneven: asked "does the XR-100 support USB-C power?" (not in the documents), it said the manual doesn't mention it first in about 5 of 8 runs; otherwise it went straight to a conclusion inferred from the voltage range.
+
+## License
+
+MIT

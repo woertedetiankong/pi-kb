@@ -1,5 +1,7 @@
 # pi-kb
 
+中文 · [English](README.en.md)
+
 给 [pi](https://pi.dev) 用的个人知识库：把 PDF、Office 文档、图片、Markdown 笔记放进来，agent 回答时自动检索并带页码引用；随时 `/kb on` / `/kb off` 开关。
 
 ## 安装
@@ -194,3 +196,26 @@ npm install
 npm run typecheck
 npm test
 ```
+
+### 用真实模型检查
+
+单元测试不调用模型。想确认模型会不会主动用知识库，运行：
+
+```bash
+node scripts/model-check/run.ts                      # 默认 openai-codex/gpt-5.5，12 个场景各跑 2 次
+node scripts/model-check/run.ts --model <provider/id> --runs 5 --only debug-note,missing
+```
+
+每次运行都复制一份全新的虚构资料库（XR-100 芯片手册、Orbit 部署手册、YF-20 打印机 FAQ、一条 SPI 踩坑笔记，外加几篇无关文档），在空项目目录里执行 `pi -p --mode json`，只加载本扩展，不会动你的 `~/.pi/kb`。场景在 `scripts/model-check/scenarios.ts`，检查：
+
+- 该查资料时是否调用 `kb_search`（中文、英文、中英互查、只描述症状不提资料），通用编程问题是否没有乱引用
+- 调试出不明显的根因、得知环境信息时是否调用 `kb_note`；已有相关笔记时是否用 `append` 追加；改代码、查资料这类日常工作是否不记
+- 引用是否和 `kb_search` / `kb_read` 输出的完全一致（`[xr100-manual.pdf p.1]`），资料没有直接答案时是否先说明
+
+会真实调用模型、产生费用（12 × 2 次约几分钟）。逐次结果和回答原文写在输出目录的 `report.md`。
+
+gpt-5.5 的结果（2026-09-24）：该搜时都搜了、没有编造引用；调试后记笔记 8/8、补充已有笔记都用了 `append`、日常工作没有乱记。仍不稳定的一点：问"XR-100 支持 USB-C 供电吗"（资料没写）时，约 5/8 次会先说明"手册没提到"，其余直接从电压范围推断出结论。
+
+## 许可证
+
+MIT
