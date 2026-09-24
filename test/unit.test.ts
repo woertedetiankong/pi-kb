@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { chunkPages } from "../src/chunk.ts";
 import { normalizeText } from "../src/convert.ts";
 import { padDisplay, splitArgs } from "../src/index.ts";
-import { coverage, planQuery } from "../src/search.ts";
+import { containsTerm, coverage, planQuery } from "../src/search.ts";
 
 test("splitArgs handles quotes and drag-and-drop escapes", () => {
 	assert.deepEqual(splitArgs('add "My Docs/a b.pdf" ~/x\\ y.md --note'), ["add", "My Docs/a b.pdf", "~/x y.md", "--note"]);
@@ -44,4 +44,20 @@ test("padDisplay aligns Chinese and ASCII labels to the same column", () => {
 	assert.equal(padDisplay("PDF", 7), "PDF    ");
 	assert.equal(padDisplay("文本", 7), "文本   ");
 	assert.equal(padDisplay("toolongname", 4), "toolongname ");
+});
+
+test("planQuery drops stop words and Chinese question words, unless nothing else is left", () => {
+	assert.deepEqual(planQuery("how to bake bread").terms, ["bake", "bread"]);
+	assert.deepEqual(planQuery("怎么切换模型").terms, ["切换模型"]);
+	assert.deepEqual(planQuery("芯片最高能承受多少伏吗").terms, ["芯片最高能承受多少伏"]);
+	assert.deepEqual(planQuery("the").terms, ["the"]);
+});
+
+test("containsTerm matches English at word starts, short words whole, Chinese anywhere", () => {
+	assert.ok(containsTerm("use the pi cli", "pi"));
+	assert.ok(!containsTerm("call the api", "pi"), "short words must be whole words");
+	assert.ok(containsTerm("auto compaction runs", "compact"), "longer words match at a word start");
+	assert.ok(!containsTerm("impact", "pact"));
+	assert.ok(containsTerm("set ctrl_reg first", "ctrl_reg"));
+	assert.ok(containsTerm("芯片的供电电压", "供电"));
 });

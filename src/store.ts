@@ -1,7 +1,8 @@
 import { createRequire } from "node:module";
 import type { DatabaseSync as Database } from "node:sqlite";
 import type { Chunk } from "./chunk.ts";
-import { type Candidate, planQuery, score, snippet } from "./search.ts";
+import { type Candidate, coverage, MIN_COVERAGE, planQuery, score, snippet } from "./search.ts";
+import { VECTOR_SCHEMA } from "./semantic/vectors.ts";
 
 const require = createRequire(import.meta.url);
 
@@ -38,6 +39,8 @@ export interface DocRecord {
 }
 
 export interface SearchHit {
+	/** Chunk rowid, used to merge keyword and semantic results. */
+	chunk: number;
 	docId: string;
 	title: string;
 	collection: Collection;
@@ -45,6 +48,8 @@ export interface SearchHit {
 	heading: string;
 	snippet: string;
 	score: number;
+	/** How the chunk matched; set by hybrid search. */
+	match?: "keyword" | "semantic" | "both";
 }
 
 const SCHEMA = `
@@ -74,6 +79,7 @@ export class Store {
 		this.db = new DatabaseSync(file);
 		this.db.exec("PRAGMA journal_mode = WAL;");
 		this.db.exec(SCHEMA);
+		this.db.exec(VECTOR_SCHEMA);
 	}
 
 	close(): void {
@@ -106,6 +112,8 @@ export class Store {
 		this.db.exec("BEGIN");
 		try {
 			this.db.prepare("DELETE FROM chunks WHERE doc_id = ?").run(doc.id);
+			// New chunks get new rowids; their vectors are rebuilt in the background.
+			this.db.prepare("DELETE FROM vectors WHERE doc_id = ?").run(doc.id);
 			this.db
 				.prepare(
 					`INSERT OR REPLACE INTO docs (id, title, collection, kind, source, path, pages, chars, hash, added_at)
@@ -125,12 +133,38 @@ export class Store {
 		this.db.exec("BEGIN");
 		try {
 			this.db.prepare("DELETE FROM chunks WHERE doc_id = ?").run(id);
+			this.db.prepare("DELETE FROM vectors WHERE doc_id = ?").run(id);
 			this.db.prepare("DELETE FROM docs WHERE id = ?").run(id);
 			this.db.exec("COMMIT");
 		} catch (error) {
 			this.db.exec("ROLLBACK");
 			throw error;
 		}
+	}
+
+	/** Chunks by rowid (for semantic hits), with a snippet from the start of each chunk. */
+	chunks(rowids: number[]): Map<number, Omit<SearchHit, "score">> {
+		const out = new Map<number, Omit<SearchHit, "score">>();
+		const get = this.db.prepare(
+			"SELECT c.rowid AS rowid, c.doc_id AS doc_id, c.page AS page, c.title AS title, c.heading AS heading, c.content AS content, d.collection AS collection FROM chunks c JOIN docs d ON d.id = c.doc_id WHERE c.rowid = ?",
+		);
+		for (const rowid of rowids) {
+			const r = get.get(rowid) as
+				| { rowid: number; doc_id: string; page: number | null; title: string; heading: string; content: string; collection: Collection }
+				| undefined;
+			if (!r) continue;
+			const text = r.content.replace(/\s+/g, " ").trim();
+			out.set(rowid, {
+				chunk: r.rowid,
+				docId: r.doc_id,
+				title: r.title,
+				collection: r.collection,
+				page: r.page,
+				heading: r.heading,
+				snippet: text.length > 360 ? `${text.slice(0, 360)}…` : text,
+			});
+		}
+		return out;
 	}
 
 	search(query: string, options: { limit?: number; collection?: Collection } = {}): SearchHit[] {
@@ -165,11 +199,13 @@ export class Store {
 			for (const r of matched) if (!rows.has(r.rowid)) rows.set(r.rowid, r);
 		}
 		return [...rows.values()]
-			.map((r) => ({ row: r, score: score(plan, r) }))
-			.filter((x) => x.score > 0)
+			.map((r) => ({ row: r, score: score(plan, r), coverage: coverage(plan, r) }))
+			// One common word out of several is not a match.
+			.filter((x) => x.score > 0 && (plan.terms.length < 2 || x.coverage >= MIN_COVERAGE))
 			.sort((a, b) => b.score - a.score)
 			.slice(0, limit)
 			.map(({ row, score }) => ({
+				chunk: row.rowid,
 				docId: row.doc_id,
 				title: row.title,
 				collection: row.collection,

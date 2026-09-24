@@ -52,7 +52,9 @@ export class KbWebApp implements WebApp {
 			switch (route) {
 				case "GET /status": {
 					const stats = kb.store.stats();
-					return { enabled: this.host.enabled(), root: kb.root, ...stats };
+					const { state, done, total, download, problem } = kb.indexer.status;
+					const semantic = { provider: kb.config.semantic.provider, state, done, total, download: download?.progress, problem };
+					return { enabled: this.host.enabled(), root: kb.root, ...stats, semantic };
 				}
 				case "GET /docs":
 					return { docs: kb.store.listDocs() };
@@ -60,7 +62,7 @@ export class KbWebApp implements WebApp {
 					const q = (req.query.get("q") ?? "").trim();
 					const scope = req.query.get("scope");
 					const collection: Collection | undefined = scope === "docs" || scope === "wiki" ? scope : undefined;
-					return { hits: q ? kb.search(q, { limit: 30, collection }) : [] };
+					return { hits: q ? await kb.find(q, { limit: 30, collection }) : [] };
 				}
 				case "GET /doc": {
 					const { doc, text } = kb.read(id);

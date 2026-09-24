@@ -3,9 +3,13 @@ import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readF
 import { homedir } from "node:os";
 import { basename, extname, join, relative, resolve, sep } from "node:path";
 import { chunkPages } from "./chunk.ts";
-import { type KbConfig, loadConfig, saveConfig } from "./config.ts";
+import { defaultMinScore, type KbConfig, loadConfig, saveConfig } from "./config.ts";
 import { type ConvertedPage, Converter, isMarkdown, normalizeText, sourceKind } from "./convert.ts";
 import { type Note, normalizeTags, now, parseNote, renderNote, slugify, today } from "./notes.ts";
+import { fuse } from "./search.ts";
+import { type IndexerStatus, SemanticIndexer } from "./semantic/indexer.ts";
+import { createProvider, type EmbeddingProvider } from "./semantic/providers.ts";
+import { VectorIndex } from "./semantic/vectors.ts";
 import { type Collection, type DocRecord, type SearchHit, Store } from "./store.ts";
 
 export interface NoteInput {
@@ -38,6 +42,14 @@ export interface AddResult {
 	message?: string;
 }
 
+/**
+ * Vector search always returns the "closest" chunks, even when nothing is related, and small
+ * models give unrelated queries similarities as high as related ones. So chunks found only by
+ * meaning are capped: a few next to keyword hits, a few more when keywords found nothing
+ * (for example a question in another language).
+ */
+const SEMANTIC_ONLY_WITH_KEYWORDS = 3;
+const SEMANTIC_ONLY_ALONE = 5;
 const sha = (data: string | Buffer) => createHash("sha256").update(data).digest("hex");
 const PAGE_MARK = /^<!-- kb:page (\d+) -->$/m;
 /** Files kept in the wiki folder for navigation and history rather than as knowledge. */
@@ -61,8 +73,13 @@ export function formatCitation(hit: Pick<SearchHit, "title" | "page">): string {
 export class KnowledgeBase {
 	readonly store: Store;
 	readonly converter: Converter;
+	readonly vectors: VectorIndex;
+	readonly indexer: SemanticIndexer;
 	readonly root: string;
 	config: KbConfig;
+	/** Called whenever background embedding makes progress or fails. */
+	onSemantic?: (status: IndexerStatus) => void;
+	private provider?: EmbeddingProvider;
 
 	constructor(root: string) {
 		this.root = root;
@@ -74,6 +91,15 @@ export class KnowledgeBase {
 			tessdataDir: process.env.PI_KB_TESSDATA || join(root, "tessdata"),
 			ocrServerUrl: this.config.ocrServerUrl,
 		});
+		this.vectors = new VectorIndex(this.store.db);
+		this.indexer = new SemanticIndexer(this.vectors, (status) => this.onSemantic?.(status));
+		this.applySemantic();
+	}
+
+	/** (Re)create the embedding provider from the config; call kick() on the indexer to start embedding. */
+	private applySemantic(): void {
+		this.provider = createProvider(this.config.semantic, this.root);
+		this.indexer.use(this.provider);
 	}
 
 	get wikiDir(): string {
@@ -81,11 +107,17 @@ export class KnowledgeBase {
 	}
 
 	updateConfig(change: Partial<KbConfig>): void {
+		const semanticBefore = JSON.stringify(this.config.semantic);
 		this.config = { ...this.config, ...change };
 		saveConfig(this.root, this.config);
+		if (JSON.stringify(this.config.semantic) !== semanticBefore) {
+			this.applySemantic();
+			void this.indexer.kick();
+		}
 	}
 
 	close(): void {
+		this.indexer.stop();
 		this.converter.close();
 		this.store.close();
 	}
@@ -160,6 +192,7 @@ export class KnowledgeBase {
 				added_at: new Date().toISOString(),
 			};
 			this.store.putDoc(doc, chunkPages(converted.pages));
+			void this.indexer.kick();
 			return { path, status: "added", doc };
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
@@ -203,6 +236,7 @@ export class KnowledgeBase {
 		// Index the body and tags, not the front matter keys, so "created:" and the like never match.
 		const tags = note.meta.tags.map((t) => `#${t}`).join(" ");
 		this.store.putDoc(doc, chunkPages([{ page: null, markdown: tags ? `${note.body}\n\n${tags}` : note.body }]));
+		void this.indexer.kick();
 		return doc;
 	}
 
@@ -323,8 +357,72 @@ ${content}` : content;
 		appendFileSync(join(this.wikiDir, "log.md"), `- ${now()} ${verb} [[${link}]] ${title}\n`);
 	}
 
+	/** Keyword search only (synchronous). */
 	search(query: string, options: { limit?: number; collection?: Collection } = {}): SearchHit[] {
 		return this.store.search(query, options);
+	}
+
+	/**
+	 * Hybrid search: keyword and semantic results fused by rank. Falls back to keywords
+	 * when semantic search is off, not indexed yet, or the query cannot be embedded.
+	 */
+	async find(query: string, options: { limit?: number; collection?: Collection } = {}): Promise<SearchHit[]> {
+		const limit = options.limit ?? 8;
+		const keyword = this.store.search(query, { limit: 40, collection: options.collection });
+		const semantic = await this.semanticChunks(query, options.collection);
+		if (!semantic) return keyword.slice(0, limit).map((h) => ({ ...h, match: "keyword" as const }));
+		let semanticOnly = keyword.length ? SEMANTIC_ONLY_WITH_KEYWORDS : SEMANTIC_ONLY_ALONE;
+		const fused = fuse(
+			keyword.map((h) => h.chunk),
+			semantic.map((h) => h.rowid),
+		)
+			.filter((f) => f.match !== "semantic" || semanticOnly-- > 0)
+			.slice(0, limit);
+		const byChunk = new Map(keyword.map((h) => [h.chunk, h]));
+		const extra = this.store.chunks(fused.filter((f) => !byChunk.has(f.chunk)).map((f) => f.chunk));
+		return fused.flatMap((f) => {
+			const hit = byChunk.get(f.chunk) ?? extra.get(f.chunk);
+			return hit ? [{ ...hit, score: f.score, match: f.match }] : [];
+		});
+	}
+
+	/** Semantic search alone (for evaluation): the chunks above the similarity floor, best first. */
+	async findSemantic(query: string, options: { limit?: number; collection?: Collection } = {}): Promise<SearchHit[]> {
+		const semantic = (await this.semanticChunks(query, options.collection)) ?? [];
+		const top = semantic.slice(0, options.limit ?? 8);
+		const hits = this.store.chunks(top.map((h) => h.rowid));
+		return top.flatMap((h) => {
+			const hit = hits.get(h.rowid);
+			return hit ? [{ ...hit, score: h.score, match: "semantic" as const }] : [];
+		});
+	}
+
+	/** Whether semantic search can answer now (provider set and some chunks embedded). */
+	semanticReady(): boolean {
+		return !!this.provider && this.vectors.progress(this.provider.key).done > 0;
+	}
+
+	/**
+	 * Chunks close in meaning, filtered by the model's similarity floor. Undefined when semantic
+	 * search is off, not indexed yet, or the query cannot be embedded (offline, no key).
+	 */
+	private async semanticChunks(query: string, collection?: Collection) {
+		const provider = this.provider;
+		if (!provider || !query.trim() || !this.semanticReady()) return undefined;
+		let vector: Float32Array;
+		try {
+			[vector] = await provider.embed([query], "query");
+		} catch {
+			return undefined;
+		}
+		const cfg = this.config.semantic;
+		const minScore = cfg.minScore ?? defaultMinScore(cfg.provider === "api" ? cfg.api.model : cfg.local.model);
+		return this.vectors.search(provider.key, vector, 40, collection).filter((h) => minScore === undefined || h.score >= minScore);
+	}
+
+	/** Start embedding whatever is new (no-op when semantic search is off). */
+	indexSemantic(): Promise<void> {
+		return this.indexer.kick();
 	}
 
 	/** Read a document's Markdown, optionally limited to a page range such as "3" or "3-5". */

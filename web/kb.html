@@ -91,6 +91,8 @@ main { overflow-y: auto; border-right: 1px solid var(--line); }
 .kind { font-size: 11px; font-weight: 600; border-radius: 4px; padding: 0 6px; background: var(--user); color: var(--muted); flex: none; }
 .kind.note { background: var(--accent-soft); color: var(--accent-text); }
 .cite { color: var(--accent-text); font-weight: 600; }
+.sem { font-size: 11px; font-weight: 600; border-radius: 4px; padding: 0 6px; background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
+.sem-line { font-size: 13px; color: var(--muted); margin: 0 0 14px; }
 .tag { color: var(--accent-text); }
 .empty { padding: 60px 24px; text-align: center; color: var(--faint); }
 .empty .btn { margin-top: 14px; }
@@ -252,6 +254,10 @@ const T = {
     overview: "知识库概览", ovDocs: "份文档", ovPages: "页", ovNotes: "条经验笔记",
     ovTips: ["把文件拖到页面上导入：左边作为资料，右边作为经验笔记。", "知识库开启时，pi 的 agent 会先检索这里，回答时带上 [文件名 p.页码] 引用。", "解决难题后，agent 会提议把经验记成笔记；也可以在 pi 里运行 /kb note。", "笔记是普通 Markdown 文件，可以用 Obsidian 打开 wiki 文件夹编辑。"],
     ovStatusOff: "知识库当前已关闭，agent 不会使用它。",
+    semanticHit: "语义相近", semanticHitTip: "意思相关，但不一定包含你搜索的词",
+    semOff: "语义检索未开启：只按关键词搜索。在 pi 里运行 /kb semantic 开启后，可以用自然语言提问，中英文也能互相搜到。",
+    semIndexing: (d, t) => `语义检索：正在建立索引 ${d}/${t}`, semReady: t => `语义检索已开启：${t} 个片段`, semDownload: p => `语义检索：正在下载模型 ${p}%`,
+    semError: "语义检索出错，暂时只按关键词搜索。在 pi 里运行 /kb semantic 查看原因。",
   },
   en: {
     title: "pi Knowledge", brand: "Knowledge", loading: "Loading the knowledge base…",
@@ -278,6 +284,10 @@ const T = {
     overview: "Overview", ovDocs: "documents", ovPages: "pages", ovNotes: "experience notes",
     ovTips: ["Drop files on the page to import them: left side as documents, right side as experience notes.", "While the knowledge base is on, pi's agent searches it first and cites answers as [file p.N].", "After solving a hard problem the agent offers to save the lesson as a note; you can also run /kb note in pi.", "Notes are plain Markdown files; open the wiki folder in Obsidian to edit them."],
     ovStatusOff: "The knowledge base is off, so the agent does not use it.",
+    semanticHit: "semantic", semanticHitTip: "Related in meaning; may not contain your words",
+    semOff: "Semantic search is off, so only keywords match. Run /kb semantic in pi to ask in natural language and search across Chinese and English.",
+    semIndexing: (d, t) => `Semantic search: indexing ${d}/${t}`, semReady: t => `Semantic search on: ${t} chunks`, semDownload: p => `Semantic search: downloading the model ${p}%`,
+    semError: "Semantic search failed, so only keywords match for now. Run /kb semantic in pi to see why.",
   },
 }[LANG];
 
@@ -448,7 +458,7 @@ function renderList() {
           return `<button class="card${state.selected === h.docId && state.focusPage === h.page ? " on" : ""}" data-id="${esc(h.docId)}" data-page="${h.page ?? ""}">
             <div class="row1"><span class="kind${h.collection === "wiki" ? " note" : ""}">${esc(h.collection === "wiki" ? T.kinds.note : T.docs)}</span><span class="title cite">${esc(cite)}</span></div>
             <div class="summary">${highlight(h.snippet, state.q)}</div>
-            ${h.heading ? `<div class="meta">§ ${esc(h.heading)}</div>` : ""}
+            ${h.heading || h.match === "semantic" ? `<div class="meta">${h.match === "semantic" ? `<span class="sem" title="${esc(T.semanticHitTip)}">${esc(T.semanticHit)}</span>` : ""}${h.heading ? `§ ${esc(h.heading)}` : ""}</div>` : ""}
           </button>`;
         }).join("")
       : `<div class="empty">${esc(T.noHits(state.q))}<br><small>${esc(T.noHitsHint)}</small></div>`;
@@ -512,6 +522,13 @@ async function renderPreview() {
   if (state.focusPage) document.getElementById("p-" + state.focusPage)?.scrollIntoView({ block: "start" });
 }
 
+function semanticLine(sem) {
+  if (!sem || sem.provider === "off") return T.semOff;
+  if (sem.state === "error") return T.semError;
+  if (sem.download != null) return T.semDownload(Math.round(sem.download));
+  if (sem.done < sem.total) return T.semIndexing(sem.done, sem.total);
+  return T.semReady(sem.total);
+}
 function overview() {
   const st = state.status;
   if (!st) return "";
@@ -519,6 +536,7 @@ function overview() {
   return `<div class="pv"><h1>${esc(T.overview)}</h1>
     <div class="stats">${stat(st.docs, T.ovDocs)}${stat(st.pages, T.ovPages)}${stat(st.wiki, T.ovNotes)}</div>
     ${st.enabled ? "" : `<p class="warn-line">${esc(T.ovStatusOff)}</p>`}
+    <p class="${st.semantic?.state === "error" ? "warn-line" : "sem-line"}">🧠 ${esc(semanticLine(st.semantic))}</p>
     <ul class="tips">${T.ovTips.map(t => `<li>${esc(t)}</li>`).join("")}</ul></div>`;
 }
 
@@ -668,9 +686,12 @@ document.addEventListener("drop", e => {
 });
 
 renderAll();
-// Deep link: /kb/?doc=<id>&page=<n> opens a document at a page.
+// Deep links: /kb/?q=<query> runs a search; /kb/?doc=<id>&page=<n> opens a document at a page.
 const link = new URLSearchParams(location.search);
-refresh().then(() => { if (link.get("doc")) select(link.get("doc"), Number(link.get("page")) || null); });
+refresh().then(() => {
+  if (link.get("q")) { state.q = link.get("q"); $("q").value = state.q; search(); }
+  if (link.get("doc")) select(link.get("doc"), Number(link.get("page")) || null);
+});
 setInterval(() => { if (!document.hidden) refresh(); }, 10000);
 window.addEventListener("focus", refresh);
 </script>

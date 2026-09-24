@@ -1,0 +1,181 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { after, before, test } from "node:test";
+import { DEFAULT_SEMANTIC, defaultMinScore } from "../src/config.ts";
+import { KnowledgeBase } from "../src/kb.ts";
+import { fuse } from "../src/search.ts";
+import { profileFor } from "../src/semantic/models.ts";
+import { ApiProvider, LocalProvider, SemanticError } from "../src/semantic/providers.ts";
+
+const fixtures = join(import.meta.dirname, "fixtures");
+
+/** A fake embeddings service: one dimension per concept, in Chinese and English alike. */
+const CONCEPTS = [/电压|伏|voltage|volt/gi, /spi|时钟|clock|分频|divider/gi, /擦除|烧录|erase|flash/gi, /面|lunch|noodle/gi];
+function embedText(text: string): number[] {
+	return [...CONCEPTS.map((re) => (text.match(re) ?? []).length), 0.01];
+}
+
+let server: Server;
+let baseUrl: string;
+const requests: { auth?: string; model: string; inputs: number; first: string }[] = [];
+let failNext = 0;
+
+before(async () => {
+	process.env.PI_KB_TESSDATA ??= join(tmpdir(), "pi-kb-test-tessdata");
+	server = createServer((req, res) => {
+		let body = "";
+		req.on("data", (c) => {
+			body += c;
+		});
+		req.on("end", () => {
+			const { model, input } = JSON.parse(body) as { model: string; input: string[] };
+			requests.push({ auth: req.headers.authorization, model, inputs: input.length, first: input[0] });
+			if (failNext > 0) {
+				failNext--;
+				res.writeHead(model === "broken" ? 400 : 429).end("slow down");
+				return;
+			}
+			if (model === "broken") {
+				res.writeHead(400).end("bad model");
+				return;
+			}
+			// Answer out of order: the provider must sort by index.
+			const data = input.map((text, index) => ({ index, embedding: embedText(text) })).reverse();
+			res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data }));
+		});
+	});
+	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+	baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`;
+});
+after(() => server.close());
+
+test("fuse ranks by reciprocal rank and marks where each chunk matched", () => {
+	const fused = fuse([1, 2, 3], [3, 4]);
+	assert.deepEqual(
+		fused.map((f) => [f.chunk, f.match]),
+		[
+			[3, "both"],
+			[1, "keyword"],
+			[2, "keyword"],
+			[4, "semantic"],
+		],
+		"equal ranks tie; the keyword list comes first",
+	);
+});
+
+test("API provider: sorts by index, normalizes, sends the key, retries rate limits", async () => {
+	const provider = new ApiProvider({ baseUrl: `${baseUrl}/`, model: "m", apiKey: "secret" });
+	failNext = 1;
+	const [a, b] = await provider.embed(["电压 电压", "clock"], "passage");
+	assert.ok(Math.abs(a.reduce((s, x) => s + x * x, 0) - 1) < 1e-5, "unit length");
+	assert.ok(a[0] > 0.99 && b[1] > 0.99, "order follows the input, not the response");
+	assert.equal(requests.at(-1)?.auth, "Bearer secret");
+	assert.equal(requests.filter((r) => r.model === "m").length, 2, "one retry after 429");
+
+	const saved = { kb: process.env.PI_KB_EMBEDDING_API_KEY, openai: process.env.OPENAI_API_KEY };
+	delete process.env.PI_KB_EMBEDDING_API_KEY;
+	process.env.OPENAI_API_KEY = "sk-test";
+	// OPENAI_API_KEY only counts for OpenAI itself.
+	const remote = new ApiProvider({ baseUrl: "https://api.example.com/v1", model: "m" });
+	await assert.rejects(remote.embed(["x"], "query"), (e: unknown) => e instanceof SemanticError && e.problem === "no_api_key");
+	let sent: string | undefined;
+	const realFetch = globalThis.fetch;
+	globalThis.fetch = (async (_url: string, init: RequestInit) => {
+		sent = (init.headers as Record<string, string>).authorization;
+		return new Response(JSON.stringify({ data: [{ index: 0, embedding: [1, 0] }] }), { status: 200 });
+	}) as typeof fetch;
+	try {
+		await new ApiProvider(DEFAULT_SEMANTIC.api).embed(["x"], "query");
+		assert.equal(sent, "Bearer sk-test", "the default OpenAI endpoint uses OPENAI_API_KEY");
+	} finally {
+		globalThis.fetch = realFetch;
+		for (const [name, value] of [["PI_KB_EMBEDDING_API_KEY", saved.kb], ["OPENAI_API_KEY", saved.openai]] as const) {
+			if (value === undefined) delete process.env[name];
+			else process.env[name] = value;
+		}
+	}
+});
+
+test("hybrid search finds meaning across languages and keeps vectors in step with documents", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-kb-sem-"));
+	const kb = new KnowledgeBase(root);
+	try {
+		await kb.addFile(join(fixtures, "xr100-manual.pdf"));
+		await kb.addFile(join(fixtures, "spi-lesson.md"), { wiki: true });
+		assert.equal(kb.search("maximum voltage").length, 0, "keywords alone cannot bridge languages");
+		assert.deepEqual(await kb.find("maximum voltage"), [], "semantic search is off by default");
+
+		kb.updateConfig({ semantic: { ...DEFAULT_SEMANTIC, provider: "api", api: { baseUrl, model: "concepts" } } });
+		await kb.indexSemantic();
+		const { done, total } = kb.vectors.progress(`api:${baseUrl}|concepts`);
+		assert.ok(total > 0 && done === total, `all chunks embedded (${done}/${total})`);
+		assert.equal(kb.indexer.status.state, "idle");
+
+		const [voltage] = await kb.find("maximum voltage");
+		assert.equal(voltage.title, "xr100-manual.pdf");
+		assert.equal(voltage.page, 1);
+		assert.equal(voltage.match, "semantic");
+		const clock = await kb.find("CTRL_REG 时钟", { collection: "wiki" });
+		assert.equal(clock[0].collection, "wiki");
+		assert.equal(clock[0].match, "both");
+
+		// A similarity floor drops meaning-only hits (bge-m3 gets one by default).
+		assert.equal(defaultMinScore("BAAI/bge-m3"), 0.51);
+		assert.equal(defaultMinScore("onnx-community/Qwen3-Embedding-0.6B-ONNX"), 0.43);
+		assert.equal(defaultMinScore("Qwen/Qwen3-Embedding-8B"), undefined, "only measured sizes get a floor");
+		assert.equal(defaultMinScore("text-embedding-3-small"), undefined);
+		kb.updateConfig({ semantic: { ...kb.config.semantic, minScore: 1.1 } });
+		assert.deepEqual(await kb.find("maximum voltage"), [], "a floor above every cosine drops all meaning-only hits");
+		kb.updateConfig({ semantic: { ...kb.config.semantic, minScore: undefined } });
+
+		// Removing a document removes its vectors; re-importing embeds again.
+		const pdf = kb.store.listDocs("docs")[0];
+		kb.remove(pdf.id);
+		assert.ok(kb.vectors.progress(`api:${baseUrl}|concepts`).done < done);
+		await kb.addFile(join(fixtures, "xr100-manual.pdf"));
+		await kb.indexSemantic();
+		assert.equal(kb.vectors.progress(`api:${baseUrl}|concepts`).done, done);
+
+		// Another model makes old vectors stale: they are dropped and rebuilt.
+		kb.updateConfig({ semantic: { ...kb.config.semantic, api: { baseUrl, model: "concepts-v2" } } });
+		await kb.indexSemantic();
+		assert.equal(kb.vectors.progress(`api:${baseUrl}|concepts-v2`).done, done);
+		assert.equal(kb.vectors.progress(`api:${baseUrl}|concepts`).done, 0);
+
+		// A failing service leaves keyword search working and reports the error.
+		kb.updateConfig({ semantic: { ...kb.config.semantic, api: { baseUrl, model: "broken" } } });
+		await kb.indexSemantic();
+		assert.equal(kb.indexer.status.state, "error");
+		assert.match(kb.indexer.status.error ?? "", /400/);
+		assert.equal((await kb.find("CTRL_REG"))[0].match, "keyword");
+
+		kb.updateConfig({ semantic: { ...kb.config.semantic, provider: "off" } });
+		assert.equal(kb.indexer.status.state, "off");
+	} finally {
+		kb.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("model profiles: Qwen3 queries get the instruction locally and over an API; documents never do", async () => {
+	const qwen = profileFor("onnx-community/Qwen3-Embedding-0.6B-ONNX");
+	assert.equal(qwen.pooling, "last_token");
+	assert.match(qwen.queryPrefix, /^Instruct: .*\nQuery:$/);
+	assert.equal(qwen.revision, "c25a394dd583836952667c12f008335071b3f43d", "local download pinned to the benchmarked commit");
+	assert.equal(profileFor("Xenova/bge-m3").pooling, "cls");
+	assert.deepEqual(profileFor("some-new-model"), { pooling: "mean", queryPrefix: "", revision: undefined });
+
+	const api = new ApiProvider({ baseUrl, model: "Qwen/Qwen3-Embedding-0.6B" });
+	await api.embed(["芯片最高电压"], "query");
+	assert.equal(requests.at(-1)?.first, `${qwen.queryPrefix}芯片最高电压`);
+	await api.embed(["手册正文"], "passage");
+	assert.equal(requests.at(-1)?.first, "手册正文");
+
+	const local = new LocalProvider({ model: "onnx-community/Qwen3-Embedding-0.6B-ONNX", runtimeDir: "/nonexistent", cacheDir: "/nonexistent" });
+	assert.equal(local.key, "local:onnx-community/Qwen3-Embedding-0.6B-ONNX#last_token");
+	await assert.rejects(local.embed(["x"], "query"), (e: unknown) => e instanceof SemanticError && e.problem === "runtime_missing");
+});
