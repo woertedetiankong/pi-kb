@@ -86,17 +86,18 @@ function runPi(cwd: string, kbDir: string, prompt: string): Promise<string> {
 type Json = any;
 
 function parseRun(jsonl: string): { calls: ToolCall[]; answer: string; cost: number } {
-	const end = jsonl
+	const events = jsonl
 		.split("\n")
 		.filter(Boolean)
-		.map((line) => JSON.parse(line) as Json)
-		.find((e) => e.type === "agent_end");
-	if (!end) throw new Error("no agent_end event");
+		.map((line) => JSON.parse(line) as Json);
+	// Each agent_end carries the messages of its own run; the kb_note reminder adds a second run.
+	const ends = events.filter((e) => e.type === "agent_end");
+	if (!ends.length) throw new Error("no agent_end event");
 	const calls: ToolCall[] = [];
 	const byId = new Map<string, ToolCall>();
 	const texts: string[] = [];
 	let cost = 0;
-	for (const msg of end.messages as Json[]) {
+	for (const msg of ends.flatMap((e) => e.messages as Json[])) {
 		if (msg.role === "assistant") {
 			cost += msg.usage?.cost?.total ?? 0;
 			for (const part of msg.content ?? []) {
@@ -113,6 +114,8 @@ function parseRun(jsonl: string): { calls: ToolCall[]; answer: string; cost: num
 			if (call) call.result = (msg.content ?? []).map((p: Json) => p.text ?? "").join("\n");
 		}
 	}
+	// The extension's hidden kb_note reminder (see src/nudge.ts) is not among the messages.
+	if (events.some((e) => e.type === "entry_appended" && e.entry?.customType === "kb-note-nudge")) calls.push({ name: "nudge", args: {}, result: "" });
 	return { calls, answer: texts.join("\n\n"), cost };
 }
 
@@ -143,6 +146,7 @@ function check(s: Scenario, calls: ToolCall[], answer: string, titles: string[])
 	};
 	expect(s.search, "kb_search");
 	expect(s.note, "kb_note");
+	if (s.note === "forbidden" && has("nudge")) problems.push("unwanted nudge");
 	if (s.noteMode) {
 		const notes = calls.filter((c) => c.name === "kb_note");
 		if (notes.length && !notes.some((c) => (c.args.mode ?? "create") === s.noteMode && c.args.id)) {

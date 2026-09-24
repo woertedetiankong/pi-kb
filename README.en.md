@@ -142,6 +142,8 @@ When on, the agent has four tools:
 - `kb_add`: import files when the user asks to "put this in the knowledge base"
 - `kb_note`: write experience as a wiki note. The agent calls it on its own after solving a non-obvious problem (a root cause found by debugging, a gotcha, a workaround) or learning something lasting about your setup; every note is previewed first and you choose **Save / Edit, then save / Don't save**. A note with the same title is not duplicated but extended (`append`) or rewritten (`replace`)
 
+  Some models rarely take notes on their own (gpt-6-luna in our checks stops as soon as a bug is fixed). So before a run ends, the extension checks for two cases: a command failed and a file was then changed (a bug was fixed), or you said something like "from now on…" or "remember…". If the model did not call `kb_note`, the extension adds a hidden reminder asking whether to save a note. It asks at most once per run; routine edits and questions do not trigger it.
+
 ## Experience note format
 
 ```markdown
@@ -225,6 +227,8 @@ Each run gets a fresh copy of a fictional knowledge base (XR-100 chip manual, Or
 It calls the model for real and is billed (12 × 2 runs take a few minutes). Every run's result and full answer go to `report.md` in the output folder.
 
 Results with gpt-5.5 (2026-09-24): it searched whenever it should and invented no citations; it saved a note after debugging 8/8 times, used `append` for an existing note, and did not note routine work. Still uneven: asked "does the XR-100 support USB-C power?" (not in the documents), it said the manual doesn't mention it first in about 5 of 8 runs; otherwise it went straight to a conclusion inferred from the voltage range.
+
+Results with gpt-6-luna (2026-09-24, 3 runs per scenario): 34/36 in the end. Before the changes it often searched with `scope: "docs"`, which left out wiki notes; put section names inside citations; saved a note after debugging 0/3 times; and twice told the user it would remember something it never saved. The current system prompt, the `scope` description and the reminder above fixed these: notes after debugging 3/3, setup facts 3/3, no false reminders in routine scenarios.
 
 ## License
 
