@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { parseLanguage, systemLanguage } from "./hub.ts";
 
 /**
  * User-facing text only. Tool descriptions, the system prompt section and tool
@@ -152,40 +152,9 @@ export function messages(language: Language): Messages {
 	return MESSAGES[language];
 }
 
-export function parseLanguage(value: string | undefined): Language | undefined {
-	const v = value?.trim().toLowerCase();
-	if (!v || v === "c" || v.startsWith("c.") || v === "posix") return undefined;
-	if (v.startsWith("zh")) return "zh";
-	if (v.startsWith("en")) return "en";
-	return undefined;
-}
-
-let systemLanguage: Language | undefined;
-
-/** macOS keeps the UI language outside the environment; terminals often export LANG=C.UTF-8. */
-function appleLanguage(): Language | undefined {
-	if (process.platform !== "darwin") return undefined;
-	try {
-		const out = execFileSync("defaults", ["read", "-g", "AppleLanguages"], { encoding: "utf8", timeout: 2000 });
-		const first = /"?([A-Za-z-]+)"?/.exec(out.replace(/^\s*\(\s*/, ""))?.[1];
-		return parseLanguage(first) ?? "en";
-	} catch {
-		return undefined;
-	}
-}
-
-function detectSystemLanguage(): Language {
-	systemLanguage ??=
-		parseLanguage(process.env.LC_ALL) ??
-		parseLanguage(process.env.LC_MESSAGES) ??
-		parseLanguage(process.env.LANG) ??
-		appleLanguage() ??
-		parseLanguage(Intl.DateTimeFormat().resolvedOptions().locale) ??
-		"en";
-	return systemLanguage;
-}
+export { parseLanguage };
 
 /** PI_KB_LANG, then the saved setting, then the system language. */
 export function resolveLanguage(setting: LanguageSetting | undefined): Language {
-	return parseLanguage(process.env.PI_KB_LANG) ?? (setting && setting !== "auto" ? setting : detectSystemLanguage());
+	return parseLanguage(process.env.PI_KB_LANG) ?? (setting && setting !== "auto" ? setting : systemLanguage());
 }
