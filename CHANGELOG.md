@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Importing
+
+- `/kb add` imports in the background: it returns at once, the status bar shows progress (`📥 2/5 manual.pdf 3:12`), and a summary appears when all files are done. Each file is searchable as soon as it is done.
+- `/kb cancel` stops the import in progress; files already imported are kept.
+- PDFs and images are parsed in a child process, so pi stays responsive and Tesseract's debug output no longer scribbles over the terminal. Converted text is byte-identical to before (checked on 7 files, 216 pages).
+- `kb_add` waits up to 30 seconds, then leaves the import to finish in the background and tells the agent so.
+
+### Docs
+
+- Supported material is PDF, images and Markdown / text; Word, PowerPoint and Excel are marked experimental (need LibreOffice, untested).
+- `scripts/model-check` defaults to `openai-codex/gpt-6-luna`.
+
 ## v0.2.0 — 2026-09-24
 
 First tagged release. 0.1.0 was never tagged; everything up to now is listed here.

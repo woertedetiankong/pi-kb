@@ -12,7 +12,12 @@ export type LanguageSetting = Language | "auto";
 const en = {
 	statusOn: (docs: number, notes: number) => `📚 KB · ${docs} docs · ${notes} notes`,
 	statusOff: "📚 KB off",
-	importing: (i: number, n: number, name: string) => `📚 importing ${i}/${n} ${name}`,
+	importBadge: (i: number, n: number, name: string, elapsed: string) => ` · 📥 ${i}/${n} ${name} ${elapsed}`,
+	importStarted: (n: number, queued: boolean) =>
+		`${queued ? `Added ${n} file(s) to the import queue` : `Importing ${n} file(s) in the background`}. Keep working; you'll be notified when it's done. /kb cancel stops it.`,
+	importing: (done: number, total: number) => ` · importing ${done}/${total}`,
+	cancelNone: "Nothing is being imported",
+	cancelled: (n: number) => `Import cancelled (${n} file(s) not imported). Files already imported are kept.`,
 	enabled: "Knowledge base enabled",
 	disabled: "Knowledge base disabled",
 	status: (on: boolean, docs: number, pages: number, notes: number, root: string) =>
@@ -29,6 +34,7 @@ const en = {
 		no_text: "no text could be extracted",
 		not_markdown: "only Markdown files can become wiki notes",
 		needs_libreoffice: "Office files need LibreOffice: brew install --cask libreoffice",
+		cancelled: "cancelled",
 	},
 	listTitle: (n: number) => `📚 Knowledge base · ${n} item(s)`,
 	listEmpty: "Empty. Add files with /kb add <path>, or put Markdown notes in the wiki folder (/kb open).",
@@ -116,7 +122,8 @@ const en = {
 		on: "Enable the knowledge base",
 		off: "Disable the knowledge base (removes its tools and prompt)",
 		status: "Show what the knowledge base holds",
-		add: "Import files or folders: /kb add <path…> [--note]",
+		add: "Import files or folders in the background: /kb add <path…> [--note]",
+		cancel: "Stop the import in progress",
 		list: "List documents and wiki notes",
 		search: "Search the knowledge base: /kb search <query>",
 		note: "Save lessons from this conversation as wiki notes: /kb note [focus]",
@@ -135,7 +142,12 @@ export type Messages = typeof en;
 const zh: Messages = {
 	statusOn: (docs, notes) => `📚 知识库 · ${docs} 份文档 · ${notes} 条笔记`,
 	statusOff: "📚 知识库已关闭",
-	importing: (i, n, name) => `📚 正在导入 ${i}/${n} ${name}`,
+	importBadge: (i, n, name, elapsed) => ` · 📥 ${i}/${n} ${name} ${elapsed}`,
+	importStarted: (n, queued) =>
+		`${queued ? `已把 ${n} 个文件加入导入队列` : `开始在后台导入 ${n} 个文件`}，可以继续使用，完成后会通知。/kb cancel 可以取消。`,
+	importing: (done, total) => ` · 正在导入 ${done}/${total}`,
+	cancelNone: "当前没有正在导入的文件",
+	cancelled: (n) => `已取消导入（${n} 个文件未导入），已导入的文件会保留。`,
 	enabled: "知识库已开启",
 	disabled: "知识库已关闭",
 	status: (on, docs, pages, notes, root) =>
@@ -151,6 +163,7 @@ const zh: Messages = {
 		no_text: "没有提取到文字",
 		not_markdown: "只有 Markdown 文件可以作为 wiki 笔记",
 		needs_libreoffice: "Office 文件需要安装 LibreOffice：brew install --cask libreoffice",
+		cancelled: "已取消",
 	},
 	listTitle: (n) => `📚 知识库 · 共 ${n} 项`,
 	listEmpty: "知识库是空的。用 /kb add <路径> 导入文件，或把 Markdown 笔记放进 wiki 文件夹（/kb open）。",
@@ -237,7 +250,8 @@ const zh: Messages = {
 		on: "开启知识库",
 		off: "关闭知识库（移除相关工具和提示词）",
 		status: "查看知识库状态",
-		add: "导入文件或文件夹：/kb add <路径…> [--note]",
+		add: "在后台导入文件或文件夹：/kb add <路径…> [--note]",
+		cancel: "取消正在进行的导入",
 		list: "列出文档和 wiki 笔记",
 		search: "搜索知识库：/kb search <关键词>",
 		note: "把本次对话的经验存为 wiki 笔记：/kb note [重点]",

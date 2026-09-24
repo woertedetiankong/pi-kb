@@ -31,7 +31,7 @@ export interface PreparedNote {
 }
 
 /** Known failure reasons, so the interface can explain them in the user's language. */
-export type AddReason = "not_found" | "unsupported" | "no_text" | "not_markdown" | "needs_libreoffice";
+export type AddReason = "not_found" | "unsupported" | "no_text" | "not_markdown" | "needs_libreoffice" | "cancelled";
 
 export interface AddResult {
 	path: string;
@@ -152,9 +152,12 @@ export class KnowledgeBase {
 	/**
 	 * Import one file. Documents are converted and indexed; Markdown sent with
 	 * `wiki: true` is copied into the wiki folder as a note instead.
+	 * Aborting `signal` stops the conversion and nothing is saved.
 	 */
-	async addFile(path: string, options: { wiki?: boolean; source?: string } = {}): Promise<AddResult> {
+	async addFile(path: string, options: { wiki?: boolean; source?: string; signal?: AbortSignal } = {}): Promise<AddResult> {
+		const cancelled = (): AddResult => ({ path, status: "skipped", reason: "cancelled", message: "import cancelled" });
 		try {
+			if (options.signal?.aborted) return cancelled();
 			if (options.wiki) {
 				if (!isMarkdown(path)) return { path, status: "skipped", reason: "not_markdown", message: "only Markdown files can become wiki notes" };
 				return this.addWikiFile(path);
@@ -168,7 +171,8 @@ export class KnowledgeBase {
 			const existing = this.store.getDoc(id);
 			if (existing) return { path, status: "exists", doc: existing };
 
-			const converted = await this.converter.convert(path);
+			const converted = await this.converter.convert(path, options.signal);
+			if (options.signal?.aborted) return cancelled();
 			const text = converted.pages.map((p) => p.markdown).join("");
 			if (!text.trim()) return { path, status: "failed", reason: "no_text", message: "no text could be extracted" };
 
@@ -195,6 +199,7 @@ export class KnowledgeBase {
 			void this.indexer.kick();
 			return { path, status: "added", doc };
 		} catch (error) {
+			if (options.signal?.aborted) return cancelled();
 			const message = error instanceof Error ? error.message : String(error);
 			return { path, status: "failed", reason: /LibreOffice/.test(message) ? "needs_libreoffice" : undefined, message };
 		}

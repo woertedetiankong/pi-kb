@@ -1,7 +1,8 @@
+import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
-import type { LiteParse } from "@llamaindex/liteparse";
+import { fileURLToPath } from "node:url";
 
 /** One page of converted Markdown. `page` is the 1-based physical page, or null for unpaged sources. */
 export interface ConvertedPage {
@@ -104,35 +105,69 @@ async function ensureVerticalModels(dir: string, language: string): Promise<void
 	}
 }
 
+/** What the worker process sends back. */
+type WorkerReply = { ok: true; pages: { pageNum: number; markdown: string }[] } | { ok: false; error: string };
+
+const WORKER = fileURLToPath(new URL("./parse-worker.mjs", import.meta.url));
+
+/**
+ * Run one LiteParse conversion in a child process. Tesseract prints debug lines straight to
+ * the terminal, which would scribble over pi's interface, so the child's stdout is dropped and
+ * stderr kept only for error messages. Aborting kills the child, which also stops a long PDF
+ * part-way (LiteParse itself cannot be interrupted).
+ */
+function runParse(path: string, config: Record<string, unknown>, children: Set<ChildProcess>, signal?: AbortSignal) {
+	signal?.throwIfAborted();
+	return new Promise<WorkerReply & { ok: true }>((resolve, reject) => {
+		const child = spawn(process.execPath, [WORKER], { stdio: ["ignore", "ignore", "pipe", "ipc"], windowsHide: true });
+		children.add(child);
+		let settled = false;
+		let stderr = "";
+		const finish = (error?: Error, reply?: WorkerReply & { ok: true }) => {
+			if (settled) return;
+			settled = true;
+			children.delete(child);
+			signal?.removeEventListener("abort", abort);
+			child.kill();
+			if (error) reject(error);
+			else resolve(reply!);
+		};
+		const abort = () => finish(signal?.reason instanceof Error ? signal.reason : new Error("conversion aborted"));
+		signal?.addEventListener("abort", abort, { once: true });
+		child.stderr?.on("data", (chunk) => (stderr = (stderr + String(chunk)).slice(-3000)));
+		child.on("error", (error) => finish(error));
+		child.on("exit", (code) => finish(new Error(`parser process exited (${code})${stderr ? `: ${stderr.trim().split("\n").pop()}` : ""}`)));
+		child.on("message", (reply: WorkerReply) => (reply.ok ? finish(undefined, reply) : finish(new Error(reply.error))));
+		child.send({ path, config });
+	});
+}
+
 export class Converter {
-	private parser: LiteParse | undefined;
 	private readonly options: ConvertOptions;
+	private readonly children = new Set<ChildProcess>();
+	private verticalReady?: Promise<void>;
 
 	constructor(options: ConvertOptions) {
 		this.options = options;
 	}
 
-	private async liteparse(): Promise<LiteParse> {
-		if (!this.parser) {
-			if (!this.options.ocrServerUrl) await ensureVerticalModels(this.options.tessdataDir, this.options.ocrLanguage);
-			const { LiteParse } = await import("@llamaindex/liteparse");
-			this.parser = new LiteParse({
-				outputFormat: "markdown",
-				ocrEnabled: true,
-				ocrLanguage: this.options.ocrLanguage,
-				tessdataPath: this.options.tessdataDir,
-				ocrServerUrl: this.options.ocrServerUrl,
-				// Keep native text when OCR fails (for example, language data cannot be downloaded).
-				ocrFailureFatal: false,
-				continueOnPageError: true,
-				maxPages: 5000,
-				quiet: true,
-			});
-		}
-		return this.parser;
+	private get parseConfig(): Record<string, unknown> {
+		return {
+			outputFormat: "markdown",
+			ocrEnabled: true,
+			ocrLanguage: this.options.ocrLanguage,
+			tessdataPath: this.options.tessdataDir,
+			ocrServerUrl: this.options.ocrServerUrl,
+			// Keep native text when OCR fails (for example, language data cannot be downloaded).
+			ocrFailureFatal: false,
+			continueOnPageError: true,
+			maxPages: 5000,
+			quiet: true,
+		};
 	}
 
-	async convert(path: string): Promise<Converted> {
+	/** Convert a file to Markdown pages. Aborting stops the conversion and rejects. */
+	async convert(path: string, signal?: AbortSignal): Promise<Converted> {
 		const kind = sourceKind(path);
 		if (!kind) throw new Error(`Unsupported file type: ${extname(path) || path}`);
 		if (kind === "text") {
@@ -140,10 +175,13 @@ export class Converter {
 			const text = HTML.has(extname(path).toLowerCase()) ? htmlToText(raw) : raw;
 			return { kind, pages: [{ page: null, markdown: normalizeText(text) }] };
 		}
-		const parser = await this.liteparse();
-		let result: Awaited<ReturnType<LiteParse["parse"]>>;
+		if (!this.options.ocrServerUrl) {
+			this.verticalReady ??= ensureVerticalModels(this.options.tessdataDir, this.options.ocrLanguage);
+			await this.verticalReady;
+		}
+		let result: WorkerReply & { ok: true };
 		try {
-			result = await parser.parse(path);
+			result = await runParse(path, this.parseConfig, this.children, signal);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			if (/LibreOffice is not installed/i.test(message)) {
@@ -155,8 +193,9 @@ export class Converter {
 		return { kind, pages };
 	}
 
+	/** Stop every running conversion. */
 	close(): void {
-		this.parser?.close();
-		this.parser = undefined;
+		for (const child of this.children) child.kill();
+		this.children.clear();
 	}
 }

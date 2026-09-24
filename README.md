@@ -2,7 +2,7 @@
 
 中文 · [English](README.en.md)
 
-给 [pi](https://pi.dev) 用的个人知识库：把 PDF、Office 文档、图片、Markdown 笔记放进来，agent 回答时自动检索并带页码引用；随时 `/kb on` / `/kb off` 开关。
+给 [pi](https://pi.dev) 用的个人知识库：把 PDF、图片（含扫描件）、Markdown 笔记放进来，agent 回答时自动检索并带页码引用；随时 `/kb on` / `/kb off` 开关。
 
 ## 安装
 
@@ -11,7 +11,9 @@ pi install /path/to/pi-kb     # 本地开发
 pi -e ./src/index.ts          # 或只在本次运行加载
 ```
 
-需要 Node.js 22.19+。导入 Word / PowerPoint / Excel 需要 LibreOffice：`brew install --cask libreoffice`。
+需要 Node.js 22.19+。
+
+支持的资料：PDF、图片（PNG / JPG 等，走 OCR）、Markdown 和纯文本。Word / PowerPoint / Excel 属于实验性功能：需要另装 LibreOffice（`brew install --cask libreoffice`），尚未经过测试。
 
 ## 使用
 
@@ -19,7 +21,8 @@ pi -e ./src/index.ts          # 或只在本次运行加载
 |---|---|
 | `/kb` 或 `/kb status` | 查看开关状态和收录数量 |
 | `/kb on` / `/kb off` | 开启 / 关闭（持久保存）。关闭后工具和提示词都会移除，不占上下文 |
-| `/kb add <文件或文件夹…>` | 导入资料；支持拖拽路径 |
+| `/kb add <文件或文件夹…>` | 在后台导入资料，命令立即返回，可以继续对话；支持拖拽路径 |
+| `/kb cancel` | 取消正在进行的导入（已导入完的文件保留） |
 | `/kb add <笔记.md…> --note` | 作为经验笔记放进 wiki |
 | `/kb note [重点]` | 让 agent 回顾本次对话，把值得保留的经验写成 wiki 笔记 |
 | `/kb list` | 列出文档和笔记 |
@@ -173,6 +176,13 @@ tessdata/                OCR 语言包（首次 OCR 时自动下载）
 runtime/, models/        本机语义模型的运行时和模型文件（只在 /kb semantic local 后出现）
 ```
 
+## 导入
+
+- `/kb add` 把文件放进队列后立即返回，文件在后台逐个处理，状态栏显示进度（`📥 2/5 手册.pdf 3:12`），全部完成后弹出汇总。每个文件处理完就能搜到，不用等整批结束。
+- 解析在独立的子进程里进行，不会卡住 pi；Tesseract 的调试输出也不会打乱终端界面。`/kb cancel` 会立即结束当前文件的解析。
+- 参考速度（Apple 芯片 Mac）：162 页的 datasheet 约 1.5 分钟，1530 页的技术参考手册约 14 分钟。
+- agent 用 `kb_add` 导入时最多等 30 秒；没导完就告诉你"正在后台导入"，完成后同样会通知。
+
 ## 解析与检索
 
 - 解析用 [LiteParse](https://github.com/run-llama/liteparse)：PDF 输出带标题和表格的 Markdown，按物理页保留页码；图片和扫描页走 Tesseract OCR（默认 `eng+chi_sim`）。
@@ -187,7 +197,7 @@ runtime/, models/        本机语义模型的运行时和模型文件（只在 
 - Tesseract 识别中文扫描件质量一般：同一行的词序可能被打乱。扫描件多时建议配置 PaddleOCR 服务：在 `config.json` 里设置 `"ocrServerUrl"`（LiteParse 的 OCR HTTP 接口）。
 - 向量检索总会返回"最接近"的片段，即使库里没有相关内容：纯语义结果有数量上限、单独标注；测过的模型（Qwen3-0.6B、bge-m3）还有相似度下限，其他模型（如 OpenAI）暂时只有数量上限。
 - 下限是在上面那批数据上测出来的（Qwen3 两侧余量约 0.03–0.04）；资料类型差别很大时，可能需要用 `semantic.minScore` 微调。
-- 导入没有后台队列：`/kb add` 会一直等到全部文件处理完（状态栏显示进度）。
+- 退出 pi、`/reload`、`/new`、`/resume` 会中断正在进行的导入；已导入完的文件保留，重新 `/kb add` 时会跳过它们。
 
 ## 开发
 
@@ -202,7 +212,7 @@ npm test
 单元测试不调用模型。想确认模型会不会主动用知识库，运行：
 
 ```bash
-node scripts/model-check/run.ts                      # 默认 openai-codex/gpt-5.5，12 个场景各跑 2 次
+node scripts/model-check/run.ts                      # 默认 openai-codex/gpt-6-luna，12 个场景各跑 2 次
 node scripts/model-check/run.ts --model <provider/id> --runs 5 --only debug-note,missing
 ```
 

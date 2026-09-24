@@ -2,7 +2,7 @@
 
 [中文](README.md) · English
 
-A personal knowledge base for [pi](https://pi.dev): add PDFs, Office documents, images and Markdown notes, and the agent searches them when it answers, citing the page. Switch it on and off at any time with `/kb on` / `/kb off`.
+A personal knowledge base for [pi](https://pi.dev): add PDFs, images (scans included) and Markdown notes, and the agent searches them when it answers, citing the page. Switch it on and off at any time with `/kb on` / `/kb off`.
 
 ## Install
 
@@ -11,7 +11,9 @@ pi install /path/to/pi-kb     # local development
 pi -e ./src/index.ts          # or load it for this run only
 ```
 
-Requires Node.js 22.19+. Importing Word / PowerPoint / Excel files needs LibreOffice: `brew install --cask libreoffice`.
+Requires Node.js 22.19+.
+
+Supported material: PDF, images (PNG / JPG etc., via OCR), Markdown and plain text. Word / PowerPoint / Excel are experimental: they need LibreOffice (`brew install --cask libreoffice`) and are not tested yet.
 
 ## Usage
 
@@ -19,7 +21,8 @@ Requires Node.js 22.19+. Importing Word / PowerPoint / Excel files needs LibreOf
 |---|---|
 | `/kb` or `/kb status` | Show whether it is on and how much it holds |
 | `/kb on` / `/kb off` | Turn on / off (saved). When off, the tools and the prompt section are removed and take no context |
-| `/kb add <file or folder…>` | Import material; dragging paths into the terminal works |
+| `/kb add <file or folder…>` | Import material in the background; the command returns at once and you can keep working. Dragging paths into the terminal works |
+| `/kb cancel` | Stop the import in progress (files already imported are kept) |
 | `/kb add <note.md…> --note` | Add as experience notes in the wiki |
 | `/kb note [focus]` | Ask the agent to review this conversation and save what is worth keeping as wiki notes |
 | `/kb list` | List documents and notes |
@@ -173,6 +176,13 @@ tessdata/                 OCR language data (downloaded on first OCR)
 runtime/, models/         runtime and model files for local semantic search (only after /kb semantic local)
 ```
 
+## Importing
+
+- `/kb add` queues the files and returns at once; they are processed one by one in the background with progress in the status bar (`📥 2/5 manual.pdf 3:12`) and a summary when all are done. Each file is searchable as soon as it is done.
+- Parsing runs in a separate process, so pi stays responsive and Tesseract's debug output does not scribble over the terminal. `/kb cancel` stops the current file right away.
+- Rough speed (Apple silicon Mac): a 162-page datasheet takes about 1.5 minutes, a 1530-page technical reference manual about 14 minutes.
+- When the agent imports with `kb_add`, it waits up to 30 seconds; if the import is not done by then it tells you it is importing in the background, and you are notified when it finishes.
+
 ## Parsing and search
 
 - Parsing uses [LiteParse](https://github.com/run-llama/liteparse): PDFs become Markdown with headings and tables, keeping physical page numbers; images and scanned pages go through Tesseract OCR (`eng+chi_sim` by default).
@@ -187,7 +197,7 @@ runtime/, models/         runtime and model files for local semantic search (onl
 - Tesseract is mediocre on Chinese scans: word order within a line can be scrambled. For many scans, configure a PaddleOCR server: set `"ocrServerUrl"` (LiteParse's OCR HTTP interface) in `config.json`.
 - Vector search always returns the "closest" chunks, even when nothing is relevant: semantic-only results are capped in number and marked separately; the tested models (Qwen3-0.6B, bge-m3) also have a similarity floor, other models (such as OpenAI) only the cap for now.
 - The floors were measured on the material above (Qwen3 has a margin of about 0.03–0.04 on each side); for very different material you may need to tune `semantic.minScore`.
-- Imports have no background queue: `/kb add` waits until every file is processed (progress in the status bar).
+- Quitting pi, `/reload`, `/new` or `/resume` stops an import in progress; files already imported are kept, and running `/kb add` again skips them.
 
 ## Development
 
@@ -202,7 +212,7 @@ npm test
 Unit tests do not call a model. To see whether a model actually uses the knowledge base on its own, run:
 
 ```bash
-node scripts/model-check/run.ts                      # default openai-codex/gpt-5.5, 12 scenarios, 2 runs each
+node scripts/model-check/run.ts                      # default openai-codex/gpt-6-luna, 12 scenarios, 2 runs each
 node scripts/model-check/run.ts --model <provider/id> --runs 5 --only debug-note,missing
 ```
 

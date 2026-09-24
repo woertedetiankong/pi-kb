@@ -2,7 +2,7 @@
  * Check how a real model uses the knowledge base: does it call kb_search and kb_note on its own,
  * and does it cite exactly what kb_search printed?
  *
- *   node scripts/model-check/run.ts [--model openai-codex/gpt-5.5] [--runs 2] [--only id,id] [--jobs 4] [--out dir]
+ *   node scripts/model-check/run.ts [--model openai-codex/gpt-6-luna] [--runs 2] [--only id,id] [--jobs 4] [--out dir]
  *
  * Every run gets a fresh copy of a small fictional knowledge base and an empty project folder,
  * and runs `pi -p --mode json` with only this extension loaded. Your own ~/.pi/kb is not touched.
@@ -19,7 +19,7 @@ import { type Expect, type Scenario, scenarios } from "./scenarios.ts";
 const repo = join(import.meta.dirname, "..", "..");
 const { values: args } = parseArgs({
 	options: {
-		model: { type: "string", default: "openai-codex/gpt-5.5" },
+		model: { type: "string", default: "openai-codex/gpt-6-luna" },
 		runs: { type: "string", default: "2" },
 		only: { type: "string" },
 		jobs: { type: "string", default: "4" },

@@ -11,10 +11,13 @@ import type { SearchHit } from "./store.ts";
 import { KbWebApp } from "./web.ts";
 import { initQuestions, parseQuestions, questionsFile, readQuestions, runEval, summaryRows, writeReport } from "./eval.ts";
 import { installRuntime, runtimeInstalled } from "./semantic/providers.ts";
+import { type ImportJob, ImportQueue } from "./queue.ts";
 
 const TOOLS = ["kb_search", "kb_read", "kb_add", "kb_note"];
 const READ_LIMIT = 30_000;
-const SUBCOMMANDS = ["on", "off", "status", "add", "list", "search", "note", "remove", "sync", "semantic", "eval", "open", "web", "lang"];
+/** How long kb_add waits for an import before leaving it to finish in the background. */
+const KB_ADD_WAIT = 30_000;
+const SUBCOMMANDS = ["on", "off", "status", "add", "cancel", "list", "search", "note", "remove", "sync", "semantic", "eval", "open", "web", "lang"];
 /** Model-facing text is English regardless of the interface language. */
 const MODEL = messages("en");
 
@@ -136,10 +139,19 @@ export default function piKb(pi: ExtensionAPI) {
 		if (!ctx.hasUI) return;
 		if (on) {
 			const { docs, wiki } = open().store.stats();
-			ctx.ui.setStatus("kb", t().statusOn(docs, wiki) + semanticBadge());
+			ctx.ui.setStatus("kb", t().statusOn(docs, wiki) + semanticBadge() + importBadge());
 		} else {
-			ctx.ui.setStatus("kb", t().statusOff);
+			ctx.ui.setStatus("kb", t().statusOff + importBadge());
 		}
+	};
+
+	/** " · 📥 2/5 manual.pdf 3:12" while importing. */
+	const importBadge = () => {
+		const st = imports.status;
+		if (!imports.active || !st.current) return "";
+		const seconds = Math.floor((Date.now() - (st.startedAt ?? Date.now())) / 1000);
+		const elapsed = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+		return t().importBadge(st.done + 1, st.total, basename(st.current), elapsed);
 	};
 
 	/** " · 🧠 120/600" while indexing, " · 🧠" when ready, nothing when semantic search is off. */
@@ -157,15 +169,37 @@ export default function piKb(pi: ExtensionAPI) {
 		else console.log(`${title}\n${body}`);
 	};
 
-	const importPaths = async (paths: string[], cwd: string, note: boolean, progress?: (text: string) => void) => {
-		const base = open();
-		const { files, skipped } = base.collectFiles(paths, cwd);
-		const results: AddResult[] = [...skipped];
-		for (const [i, file] of files.entries()) {
-			progress?.(t().importing(i + 1, files.length, basename(file)));
-			results.push(await base.addFile(file, { wiki: note }));
-		}
-		return results;
+	/** Repaints the status bar every second while importing, so the elapsed time moves. */
+	let ticker: NodeJS.Timeout | undefined;
+	const imports = new ImportQueue(
+		(item, signal) => open().addFile(item.path, { wiki: item.wiki, signal }),
+		() => {
+			if (imports.active && !ticker) {
+				ticker = setInterval(() => lastCtx && refresh(lastCtx), 1000);
+				ticker.unref();
+			} else if (!imports.active && ticker) {
+				clearInterval(ticker);
+				ticker = undefined;
+			}
+			if (lastCtx) refresh(lastCtx);
+		},
+	);
+
+	/** Queue files and folders for import; the job resolves when all of them are done. */
+	const startImport = (paths: string[], cwd: string, note: boolean): ImportJob => {
+		const { files, skipped } = open().collectFiles(paths, cwd);
+		return imports.enqueue(files.map((path) => ({ path, wiki: note })), skipped);
+	};
+
+	/** Tell the user how a background import went. */
+	const reportImport = (results: AddResult[]) => {
+		const ctx = lastCtx;
+		// Nothing but cancelled files: /kb cancel has already said so.
+		if (!ctx || (results.some((r) => r.reason === "cancelled") && results.every((r) => r.status === "skipped"))) return;
+		const m = t();
+		const summary = summarizeAdds(results, m);
+		show(ctx, m.importTitle, summary);
+		ctx.ui.notify(summary.split("\n")[0], results.some((r) => r.status === "failed") ? "warning" : "info");
 	};
 
 	pi.registerFlag("kb", { description: "Knowledge base for this run / 本次运行的知识库: on | off", type: "string" });
@@ -185,6 +219,8 @@ export default function piKb(pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", async (event) => {
 		lastCtx = undefined;
+		// The runtime is torn down (quit, reload, or a session switch): stop importing; finished files are kept.
+		imports.cancel();
 		kb?.close();
 		kb = undefined;
 		// Reload brings new code: leave the shared hub (it stops once every app has left) and remount on session_start.
@@ -270,18 +306,28 @@ export default function piKb(pi: ExtensionAPI) {
 		name: "kb_add",
 		label: "KB Add",
 		description:
-			"Import files or folders into the user's knowledge base. Use only when the user asks to save something to the knowledge base. Markdown sent with as_note=true becomes a wiki note.",
+			"Import files or folders into the user's knowledge base. Use only when the user asks to save something to the knowledge base. Markdown sent with as_note=true becomes a wiki note. Large files may finish importing in the background.",
 		parameters: Type.Object({
 			paths: Type.Array(Type.String(), { minItems: 1, description: "Files or folders to import" }),
 			as_note: Type.Optional(Type.Boolean({ description: "Store Markdown files as wiki notes (experience, lessons)" })),
 		}),
 		executionMode: "sequential",
 		async execute(_id, params, _signal, _onUpdate, ctx) {
-			const results = await importPaths(params.paths, ctx.cwd, params.as_note ?? false, (text) => {
-				if (ctx.hasUI) ctx.ui.setStatus("kb", text);
-			});
-			refresh(ctx);
-			return { content: [{ type: "text", text: summarizeAdds(results, MODEL) }], details: undefined };
+			const job = startImport(params.paths, ctx.cwd, params.as_note ?? false);
+			let timer: NodeJS.Timeout | undefined;
+			const finished = await Promise.race([
+				job.done.then(() => true),
+				new Promise<false>((resolve) => (timer = setTimeout(() => resolve(false), KB_ADD_WAIT))),
+			]);
+			clearTimeout(timer);
+			if (finished) return { content: [{ type: "text", text: summarizeAdds(job.results, MODEL) }], details: undefined };
+			// A long manual: let it finish in the background and tell the user then.
+			void job.done.then(reportImport);
+			const text = [
+				`Still importing in the background: ${job.results.length} of ${job.total} file(s) done so far. Each file becomes searchable as soon as it is done, and the user is notified when all are finished. Do not wait or poll for it; tell the user it is importing.`,
+				job.results.length ? summarizeAdds(job.results, MODEL) : "",
+			].filter(Boolean).join("\n");
+			return { content: [{ type: "text", text }], details: undefined };
 		},
 	});
 
@@ -341,7 +387,7 @@ export default function piKb(pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("kb", {
-		description: "Knowledge base / 知识库: on | off | status | add | note | list | search | remove | sync | open | lang",
+		description: "Knowledge base / 知识库: on | off | status | add | cancel | note | list | search | remove | sync | open | lang",
 		getArgumentCompletions: (prefix) => {
 			if (prefix.includes(" ")) return null;
 			const descriptions = t().subcommands;
@@ -367,7 +413,8 @@ export default function piKb(pi: ExtensionAPI) {
 				}
 				case "status": {
 					const { docs, wiki, pages } = base.store.stats();
-					ctx.ui.notify(m.status(enabled(), docs, pages, wiki, base.root), "info");
+					const importing = imports.active ? m.importing(imports.status.done, imports.status.total) : "";
+					ctx.ui.notify(m.status(enabled(), docs, pages, wiki, base.root) + importing, "info");
 					return;
 				}
 				case "add": {
@@ -377,12 +424,19 @@ export default function piKb(pi: ExtensionAPI) {
 						ctx.ui.notify(m.usageAdd, "warning");
 						return;
 					}
-					const results = await importPaths(paths, ctx.cwd, note, (text) => ctx.ui.setStatus("kb", text));
-					refresh(ctx);
-					const failed = results.some((r) => r.status === "failed");
-					const summary = summarizeAdds(results, m);
-					show(ctx, m.importTitle, summary);
-					ctx.ui.notify(summary.split("\n")[0], failed ? "warning" : "info");
+					const job = startImport(paths, ctx.cwd, note);
+					const queued = job.total - job.results.length;
+					if (!queued) {
+						reportImport(job.results);
+						return;
+					}
+					ctx.ui.notify(m.importStarted(queued, imports.status.total > queued), "info");
+					void job.done.then(reportImport);
+					return;
+				}
+				case "cancel": {
+					const dropped = imports.cancel();
+					ctx.ui.notify(dropped ? m.cancelled(dropped) : m.cancelNone, "info");
 					return;
 				}
 				case "list": {
