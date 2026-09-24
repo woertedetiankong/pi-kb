@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import type { DatabaseSync as Database } from "node:sqlite";
 import type { Chunk } from "./chunk.ts";
-import { type Candidate, coverage, MIN_COVERAGE, planQuery, score, snippet } from "./search.ts";
+import { type Candidate, MIN_COVERAGE, planQuery, score, snippet, termScores } from "./search.ts";
 import { VECTOR_SCHEMA } from "./semantic/vectors.ts";
 
 const require = createRequire(import.meta.url);
@@ -198,10 +198,28 @@ export class Store {
 				.all(like, ...extra) as unknown as Row[];
 			for (const r of matched) if (!rows.has(r.rowid)) rows.set(r.rowid, r);
 		}
-		return [...rows.values()]
-			.map((r) => ({ row: r, score: score(plan, r), coverage: coverage(plan, r) }))
-			// One common word out of several is not a match.
-			.filter((x) => x.score > 0 && (plan.terms.length < 2 || x.coverage >= MIN_COVERAGE))
+		const scored = [...rows.values()].map((r) => {
+			const terms = termScores(plan, r);
+			return { row: r, score: score(plan, r), terms, coverage: terms.reduce((sum, t) => sum + t, 0) / (terms.length || 1) };
+		});
+		// Terms found anywhere in each document: a page may hold one word and the next page the other.
+		const docTerms = new Map<string, number[]>();
+		for (const x of scored) {
+			const best = docTerms.get(x.row.doc_id);
+			docTerms.set(x.row.doc_id, best ? best.map((b, i) => Math.max(b, x.terms[i])) : x.terms);
+		}
+		const docCoverage = (docId: string) => {
+			const terms = docTerms.get(docId) ?? [];
+			return terms.reduce((sum, t) => sum + t, 0) / (terms.length || 1);
+		};
+		const over = (c: number) => c > MIN_COVERAGE + 1e-9;
+		return scored
+			// One word out of two is not a match, unless the document holds the other word too.
+			.filter(
+				(x) =>
+					x.score > 0 &&
+					(plan.terms.length < 2 || over(x.coverage) || (x.coverage >= MIN_COVERAGE - 1e-9 && over(docCoverage(x.row.doc_id)))),
+			)
 			.sort((a, b) => b.score - a.score)
 			.slice(0, limit)
 			.map(({ row, score }) => ({

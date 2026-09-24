@@ -16,7 +16,10 @@ const STOP_WORDS = new Set(
 );
 const CJK_QUESTION = /怎么样|怎么|怎样|如何|什么|为什么|为何|哪些|哪个|是否|能不能|可不能|吗|呢/g;
 
-/** With several terms, keyword hits must contain at least this share of them. */
+/**
+ * With several terms, keyword hits must contain more than this share of them: with two words,
+ * one alone is not enough ("Python 列表排序" must not match any page that mentions Python).
+ */
 export const MIN_COVERAGE = 0.5;
 
 const quote = (term: string) => `"${term.replace(/"/g, '""')}"`;
@@ -45,8 +48,9 @@ export function planQuery(query: string): QueryPlan {
 				.filter(Boolean),
 		),
 	];
-	// Drop words like "how" and "the" that match everything, unless nothing else is left.
-	const content = all.filter((t) => !STOP_WORDS.has(t));
+	// Drop words like "how" and "the", and single Chinese characters such as 用 or 的, which match
+	// nearly every passage; keep them only when nothing else is left.
+	const content = all.filter((t) => !STOP_WORDS.has(t) && !(CJK_RUN.test(t) && [...t].length === 1));
 	const terms = content.length ? content : all;
 	const phrases = new Set<string>();
 	const short: string[] = [];
@@ -81,22 +85,25 @@ const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 export function containsTerm(text: string, term: string): boolean {
 	if (!/^[a-z0-9]/i.test(term) || CJK_RUN.test(term)) return text.includes(term);
 	const end = term.length <= 2 ? "(?![a-z0-9])" : "";
-	return new RegExp(`(?<![a-z0-9])${escapeRegExp(term)}${end}`, "i").test(text);
+	// Plurals: "shortcuts" also matches "shortcut", "matches" also "match".
+	const stems = [term, ...(/^[a-z]{4,}es$/i.test(term) ? [term.slice(0, -2)] : []), ...(/^[a-z]{4,}s$/i.test(term) ? [term.slice(0, -1)] : [])];
+	return stems.some((stem) => new RegExp(`(?<![a-z0-9])${escapeRegExp(stem)}${end}`, "i").test(text));
+}
+
+/** How well a chunk contains each query term, 0..1 per term (long Chinese terms can match partly). */
+export function termScores(plan: QueryPlan, candidate: Candidate): number[] {
+	const haystack = `${candidate.title}\n${candidate.heading}\n${candidate.content}`.toLowerCase();
+	return plan.terms.map((term) => {
+		if (containsTerm(haystack, term)) return 1;
+		const grams = CJK_RUN.test(term) ? trigrams(term) : [];
+		return grams.length ? grams.filter((g) => haystack.includes(g)).length / grams.length : 0;
+	});
 }
 
 export function coverage(plan: QueryPlan, candidate: Candidate): number {
 	if (!plan.terms.length) return 0;
-	const haystack = `${candidate.title}\n${candidate.heading}\n${candidate.content}`.toLowerCase();
-	let total = 0;
-	for (const term of plan.terms) {
-		if (containsTerm(haystack, term)) {
-			total += 1;
-			continue;
-		}
-		const grams = CJK_RUN.test(term) ? trigrams(term) : [];
-		if (grams.length) total += grams.filter((g) => haystack.includes(g)).length / grams.length;
-	}
-	return total / plan.terms.length;
+	const scores = termScores(plan, candidate);
+	return scores.reduce((sum, s) => sum + s, 0) / scores.length;
 }
 
 export function score(plan: QueryPlan, candidate: Candidate): number {

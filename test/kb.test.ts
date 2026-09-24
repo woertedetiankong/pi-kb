@@ -32,6 +32,15 @@ test("imports a PDF once and cites its pages", async () => {
 	assert.equal(kb.search("CTRL_REG 地址")[0].page, 2);
 	assert.equal(kb.search("芯片的供电电压范围是多少")[0].page, 1);
 	assert.match(kb.read(hit.docId, "2").text, /CTRL_REG/);
+
+	// Two words: one alone is not a match, but words on different pages of one document are.
+	assert.equal(kb.search("CTRL_REG 恋爱").length, 0, "the other word is nowhere");
+	const split = kb.search("供电电压 寄存器");
+	assert.deepEqual(
+		split.filter((h) => h.title === "xr100-manual.pdf").map((h) => h.page).sort(),
+		[1, 2],
+		"page 1 has one word, page 2 the other",
+	);
 	assert.doesNotMatch(kb.read(hit.docId, "2").text, /供电/);
 });
 

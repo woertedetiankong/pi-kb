@@ -60,4 +60,12 @@ test("containsTerm matches English at word starts, short words whole, Chinese an
 	assert.ok(!containsTerm("impact", "pact"));
 	assert.ok(containsTerm("set ctrl_reg first", "ctrl_reg"));
 	assert.ok(containsTerm("芯片的供电电压", "供电"));
+	assert.ok(containsTerm("keyboard shortcut list", "shortcuts"), "plural matches singular");
+	assert.ok(containsTerm("pattern match rules", "matches"));
+	assert.ok(!containsTerm("a bus error", "buses"), "stems need four letters");
+});
+
+test("planQuery drops single Chinese characters left over from question words", () => {
+	assert.deepEqual(planQuery("怎么用 tmux").terms, ["tmux"]);
+	assert.deepEqual(planQuery("用").terms, ["用"], "kept when it is all there is");
 });
