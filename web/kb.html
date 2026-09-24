@@ -1,0 +1,678 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pi 知识库</title>
+<script src="/hub.js"></script>
+<style>
+:root {
+  --bg: #f6f6f3; --panel: #ffffff; --side: #efefea; --line: #e4e3dc; --line-strong: #d3d2c9;
+  --text: #1f1f1c; --muted: #6d6c64; --faint: #9c9b92;
+  --accent: #3d5afe; --accent-soft: #e8ecff; --accent-text: #2a3fc2;
+  --ok: #2e9d6a; --idle: #b5b4ab; --warn: #c98a12; --danger: #d4453b;
+  --mark: #fff1a8; --user: #f1f0ea; --shadow: 0 1px 2px rgba(20,20,10,.05), 0 4px 16px rgba(20,20,10,.04);
+  --r: 10px;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161615; --panel: #1e1e1c; --side: #1a1a18; --line: #2c2c29; --line-strong: #3a3a36;
+    --text: #ecebe6; --muted: #a09f97; --faint: #6f6e67;
+    --accent: #7b8cff; --accent-soft: #262b4a; --accent-text: #aab6ff;
+    --ok: #4cc38a; --idle: #5c5b55; --warn: #e0a83a; --danger: #f07167;
+    --mark: #5a4e14; --user: #262624; --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161615; --panel: #1e1e1c; --side: #1a1a18; --line: #2c2c29; --line-strong: #3a3a36;
+  --text: #ecebe6; --muted: #a09f97; --faint: #6f6e67;
+  --accent: #7b8cff; --accent-soft: #262b4a; --accent-text: #aab6ff;
+  --ok: #4cc38a; --idle: #5c5b55; --warn: #e0a83a; --danger: #f07167;
+  --mark: #5a4e14; --user: #262624; --shadow: none;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font: 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1px; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 12px; }
+
+.app { display: grid; grid-template-columns: 232px minmax(320px, 1fr) minmax(360px, 1.2fr); grid-template-rows: 56px 1fr; height: 100vh; }
+header { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.brand { font-weight: 650; letter-spacing: .2px; white-space: nowrap; display: flex; align-items: center; gap: 8px; min-width: 200px; }
+.pi-web-multi .brand-name { display: none; }
+.pi-web-multi .brand { min-width: 0; }
+.brand .logo { width: 22px; height: 22px; border-radius: 6px; background: var(--accent); color: #fff; display: grid; place-items: center; font-size: 13px; }
+.search { flex: 1; max-width: 560px; position: relative; }
+.search input { width: 100%; height: 36px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); border-radius: 8px; padding: 0 34px; font: inherit; outline: none; }
+.search input:focus { border-color: var(--accent); background: var(--panel); box-shadow: 0 0 0 3px var(--accent-soft); }
+.search svg { position: absolute; left: 11px; top: 10px; color: var(--faint); }
+.search kbd { position: absolute; right: 10px; top: 8px; }
+kbd { font: 11px var(--mono); color: var(--faint); border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; }
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 8px; overflow: hidden; }
+.seg button { padding: 5px 10px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.seg button + button { border-left: 1px solid var(--line-strong); }
+.seg button.on { background: var(--accent-soft); color: var(--accent-text); font-weight: 600; }
+.seg button.on.off { background: var(--user); color: var(--muted); }
+.spacer { flex: 1; }
+
+aside { background: var(--side); border-right: 1px solid var(--line); overflow-y: auto; padding: 12px 8px 24px; display: flex; flex-direction: column; }
+.nav-label { font-size: 11px; font-weight: 600; color: var(--faint); letter-spacing: .6px; padding: 12px 10px 4px; }
+.nav { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px; border-radius: 7px; text-align: left; color: var(--text); }
+.nav:hover { background: color-mix(in srgb, var(--line) 70%, transparent); }
+.nav.on { background: var(--panel); box-shadow: var(--shadow); font-weight: 600; }
+.nav .ico { width: 16px; text-align: center; color: var(--muted); flex: none; }
+.nav .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav .cnt { font: 11.5px var(--mono); color: var(--faint); }
+.nav.sub { padding-left: 34px; font-size: 13px; color: var(--muted); }
+.nav.sub.on { color: var(--text); }
+.side-foot { margin-top: auto; padding: 16px 10px 0; font-size: 12px; color: var(--faint); overflow-wrap: anywhere; }
+.side-foot button { color: var(--accent-text); font-size: 12px; }
+
+main { overflow-y: auto; border-right: 1px solid var(--line); }
+.list-head { position: sticky; top: 0; z-index: 2; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(8px); padding: 14px 20px 10px; border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.list-head h2 { margin: 0; font-size: 16px; font-weight: 650; }
+.list-head .sub { color: var(--muted); font-size: 12.5px; }
+.progress { width: 100%; font-size: 12.5px; color: var(--muted); }
+.spin { display: inline-block; width: 11px; height: 11px; border: 2px solid var(--accent-soft); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -1px; margin-right: 6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.group { padding: 4px 12px 8px; }
+.card { display: block; width: 100%; text-align: left; padding: 10px 12px; border-radius: var(--r); border: 1px solid transparent; margin-bottom: 2px; }
+.card:hover { background: var(--panel); border-color: var(--line); }
+.card.on { background: var(--panel); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.card .row1 { display: flex; align-items: center; gap: 8px; }
+.card .title { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card .time { color: var(--muted); flex: none; }
+.card .summary { color: var(--muted); font-size: 13px; margin: 3px 0 0 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.card .meta { display: flex; gap: 6px; align-items: center; margin: 5px 0 0; font-size: 11.5px; color: var(--faint); flex-wrap: wrap; }
+.kind { font-size: 11px; font-weight: 600; border-radius: 4px; padding: 0 6px; background: var(--user); color: var(--muted); flex: none; }
+.kind.note { background: var(--accent-soft); color: var(--accent-text); }
+.cite { color: var(--accent-text); font-weight: 600; }
+.tag { color: var(--accent-text); }
+.empty { padding: 60px 24px; text-align: center; color: var(--faint); }
+.empty .btn { margin-top: 14px; }
+
+section.preview { overflow-y: auto; background: var(--panel); }
+.pv { padding: 22px 26px 60px; max-width: 820px; }
+.pv h1 { font-size: 19px; margin: 0 0 4px; line-height: 1.35; overflow-wrap: anywhere; }
+.facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 12.5px; margin: 14px 0 16px; padding: 12px 14px; background: var(--bg); border-radius: 8px; }
+.facts dt { color: var(--faint); }
+.facts dd { margin: 0; overflow-wrap: anywhere; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+.btn { height: 32px; padding: 0 12px; border-radius: 7px; border: 1px solid var(--line-strong); font-size: 13px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.btn:hover { background: var(--bg); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.08); background: var(--accent); }
+.btn.danger { color: var(--danger); }
+.btn:disabled { opacity: .5; cursor: default; }
+.back { display: none; }
+
+.page-mark { display: flex; align-items: center; gap: 8px; margin: 26px 0 10px; font-size: 12px; color: var(--faint); scroll-margin-top: 12px; }
+.page-mark::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.page-mark button { color: var(--accent-text); font-size: 12px; }
+.page-mark.hit { color: var(--accent-text); font-weight: 600; }
+.md { font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; }
+.md h1, .md h2, .md h3, .md h4 { line-height: 1.35; margin: 20px 0 8px; }
+.md h1 { font-size: 18px; } .md h2 { font-size: 16px; } .md h3, .md h4 { font-size: 14.5px; }
+.md p { margin: 0 0 10px; }
+.md ul, .md ol { margin: 0 0 10px; padding-left: 22px; }
+.md code { font: 12.5px var(--mono); background: var(--bg); border-radius: 4px; padding: 1px 4px; }
+.md pre { font: 12.5px/1.5 var(--mono); background: var(--bg); border-radius: 8px; padding: 10px 12px; overflow-x: auto; }
+.md pre code { background: none; padding: 0; }
+.md blockquote { margin: 0 0 10px; padding: 2px 12px; border-left: 3px solid var(--line-strong); color: var(--muted); }
+.md table { border-collapse: collapse; margin: 0 0 12px; font-size: 13px; display: block; overflow-x: auto; }
+.md th, .md td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; }
+.md th { background: var(--bg); }
+.md hr { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
+.md a { color: var(--accent-text); }
+.stats { display: flex; gap: 12px; margin: 16px 0 18px; flex-wrap: wrap; }
+.stat { flex: 1; min-width: 120px; background: var(--bg); border-radius: 10px; padding: 14px 16px; display: grid; gap: 2px; }
+.stat b { font-size: 24px; font-weight: 650; }
+.stat span { color: var(--muted); font-size: 12.5px; }
+.tips { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13.5px; line-height: 1.8; }
+.warn-line { color: var(--warn); font-size: 13px; }
+.pv img.orig { max-width: 100%; border-radius: 8px; border: 1px solid var(--line); margin-bottom: 16px; }
+textarea.editor { width: 100%; min-height: 420px; border: 1px solid var(--line-strong); border-radius: 8px; padding: 12px; font: 13px/1.6 var(--mono); background: var(--bg); color: var(--text); resize: vertical; outline: none; }
+textarea.editor:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px); background: var(--text); color: var(--bg); padding: 9px 16px; border-radius: 8px; font-size: 13px; opacity: 0; transition: .2s; pointer-events: none; max-width: calc(100vw - 32px); z-index: 30; }
+.toast.show { opacity: 1; transform: translateX(-50%); }
+
+dialog.dlg { width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--panel); color: var(--text); box-shadow: 0 16px 48px rgba(0,0,0,.25); }
+dialog.dlg::backdrop { background: rgba(0,0,0,.35); }
+.dlg-head { display: flex; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.dlg-head h2 { margin: 0; font-size: 16px; flex: 1; }
+.dlg-head button { width: 28px; height: 28px; border-radius: 6px; color: var(--muted); }
+.dlg-head button:hover { background: var(--bg); }
+.dlg form { padding: 14px 18px 16px; display: grid; gap: 10px; }
+.dlg label { font-size: 12.5px; color: var(--muted); display: grid; gap: 4px; }
+.dlg input[type=text] { height: 34px; border: 1px solid var(--line-strong); border-radius: 7px; padding: 0 10px; font: inherit; background: var(--bg); color: var(--text); outline: none; }
+.dlg input[type=text]:focus { border-color: var(--accent); }
+.dlg textarea.editor { min-height: 220px; }
+.dlg .row { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+.dlg .fine { font-size: 12px; color: var(--muted); margin-right: auto; }
+.dlg .fine button { color: var(--accent-text); text-decoration: underline; font-size: 12px; }
+.dlg .err { color: var(--danger); font-size: 12.5px; }
+
+.drop { position: fixed; inset: 0; z-index: 20; background: color-mix(in srgb, var(--bg) 80%, transparent); backdrop-filter: blur(3px); display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 40px; }
+.drop div { border: 2px dashed var(--line-strong); border-radius: 16px; display: grid; place-content: center; text-align: center; gap: 6px; background: var(--panel); transition: .1s; }
+.drop div b { font-size: 18px; }
+.drop div span { color: var(--muted); font-size: 13px; max-width: 320px; }
+.drop div.over { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); }
+
+@media (max-width: 1080px) {
+  .app { grid-template-columns: 210px minmax(0, 1fr); }
+  section.preview { display: none; }
+  .app.detail section.preview { display: block; position: fixed; inset: 56px 0 0 auto; width: min(620px, 100vw); box-shadow: -8px 0 24px rgba(0,0,0,.12); z-index: 5; }
+  .back { display: inline-flex; }
+}
+@media (max-width: 720px) {
+  .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto 1fr; height: auto; min-height: 100vh; }
+  header { flex-wrap: wrap; padding: 10px 16px; gap: 10px; }
+  .brand { min-width: 0; }
+  .search { order: 3; flex-basis: 100%; max-width: none; }
+  aside { flex-direction: row; flex-wrap: wrap; padding: 6px 8px; border-right: 0; border-bottom: 1px solid var(--line); }
+  aside .nav { width: auto; }
+  .nav-label, .side-foot { display: none; }
+  .app.detail section.preview { inset: 0; width: 100vw; }
+  .drop { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <header>
+    <div class="brand"><span class="logo">π</span><span class="brand-name" data-t="brand"></span></div>
+    <nav id="pi-web-nav"></nav>
+    <label class="search">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" autocomplete="off">
+      <kbd>/</kbd>
+    </label>
+    <div class="spacer"></div>
+    <div class="seg" id="enabledSeg"><button data-v="on"></button><button data-v="off"></button></div>
+    <button class="btn primary" id="upload"></button>
+    <input type="file" id="files" multiple hidden>
+    <input type="file" id="noteFiles" multiple accept=".md,.markdown,.mdx" hidden>
+  </header>
+  <aside id="side"></aside>
+  <main id="list"><div class="empty" data-t="loading"></div></main>
+  <section class="preview" id="preview"></section>
+</div>
+
+<div class="drop" id="drop" hidden>
+  <div data-zone="docs"><b data-t="dropDocs"></b><span data-t="dropDocsHint"></span></div>
+  <div data-zone="note"><b data-t="dropNotes"></b><span data-t="dropNotesHint"></span></div>
+</div>
+
+<dialog class="dlg" id="newNote">
+  <div class="dlg-head"><h2 data-t="newNote"></h2><button data-close aria-label="close">✕</button></div>
+  <form method="dialog">
+    <label><span data-t="noteTitle"></span><input type="text" name="title" required></label>
+    <label><span data-t="noteTags"></span><input type="text" name="tags"></label>
+    <label><span data-t="noteBody"></span><textarea class="editor" name="body" required></textarea></label>
+    <div class="err" id="newNoteErr" hidden></div>
+    <div class="row"><span class="fine"><button type="button" id="importNotes" data-t="importNotes"></button></span><button type="button" class="btn" data-close data-t="cancel"></button><button class="btn primary" data-t="save"></button></div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const LANG = window.piWeb && window.piWeb.lang === "en" ? "en" : "zh";
+const TOKEN = window.piWeb ? window.piWeb.token : "";
+document.documentElement.lang = LANG === "zh" ? "zh-CN" : "en";
+
+const T = {
+  zh: {
+    title: "pi 知识库", brand: "知识库", loading: "正在读取知识库…",
+    search: "搜索文档和笔记，例如 VDD 供电电压", on: "已开启", off: "已关闭", upload: "导入文件",
+    enabledTip: "开启后 pi 的 agent 会使用知识库；关闭后相关工具和提示词都会移除",
+    views: "浏览", all: "全部", docs: "文档", notes: "经验笔记",
+    kinds: { pdf: "PDF", office: "Office", image: "图片", text: "文本", note: "笔记" },
+    actions: "操作", newNote: "新建笔记", sync: "同步 wiki 文件夹", folder: "位置",
+    empty: "知识库还是空的", emptyHint: "把 PDF、Word、图片或 Markdown 拖到页面上即可导入",
+    emptyView: "这里还没有内容", noHits: q => `没有找到“${q}”`, noHitsHint: "换几个关键词，或者试试同义词、另一种语言",
+    results: n => `${n} 条结果`, items: n => `${n} 项`, pages: n => `${n} 页`,
+    dropDocs: "导入资料", dropDocsHint: "PDF、Office、图片、文本：转换后按页检索",
+    dropNotes: "存为经验笔记", dropNotesHint: "Markdown 文件放进 wiki，和 agent 记的经验在一起",
+    importing: (i, n, name) => `正在导入 ${i}/${n}：${name}`,
+    imported: (a, e, s, f) => `新增 ${a}，已存在 ${e}，跳过 ${s}，失败 ${f}`,
+    reasons: { not_found: "文件不存在", unsupported: "不支持的文件类型", no_text: "没有提取到文字", not_markdown: "只有 Markdown 可以作为笔记", needs_libreoffice: "Office 文件需要安装 LibreOffice" },
+    type: "类型", pageCount: "页数", source: "来源", added: "导入时间", id: "ID", tags: "标签", updated: "更新", created: "创建", project: "项目",
+    openOriginal: "查看原文件", viewPage: "看原页", page: n => `第 ${n} 页`, remove: "删除", edit: "编辑", save: "保存", cancel: "取消", back: "← 返回",
+    confirmRemoveDoc: t => `删除“${t}”？知识库里保存的副本也会删除。`, confirmRemoveNote: t => `删除笔记“${t}”？笔记文件会被删除。`,
+    removed: "已删除", saved: "已保存", synced: (u, r) => `wiki 已同步：更新 ${u}，移除 ${r}`,
+    noteTitle: "标题", noteTags: "标签（用逗号分隔，可不填）", noteBody: "内容（Markdown）", importNotes: "或导入 Markdown 文件",
+    offline: "连接不到 pi。pi 可能已经退出，在 pi 中运行 /kb web 重新打开。",
+    kbOn: "知识库已开启", kbOff: "知识库已关闭", loadingDoc: "正在读取…",
+    overview: "知识库概览", ovDocs: "份文档", ovPages: "页", ovNotes: "条经验笔记",
+    ovTips: ["把文件拖到页面上导入：左边作为资料，右边作为经验笔记。", "知识库开启时，pi 的 agent 会先检索这里，回答时带上 [文件名 p.页码] 引用。", "解决难题后，agent 会提议把经验记成笔记；也可以在 pi 里运行 /kb note。", "笔记是普通 Markdown 文件，可以用 Obsidian 打开 wiki 文件夹编辑。"],
+    ovStatusOff: "知识库当前已关闭，agent 不会使用它。",
+  },
+  en: {
+    title: "pi Knowledge", brand: "Knowledge", loading: "Loading the knowledge base…",
+    search: "Search documents and notes, e.g. VDD supply voltage", on: "On", off: "Off", upload: "Import files",
+    enabledTip: "When on, pi's agent uses the knowledge base; when off, its tools and prompt are removed",
+    views: "Browse", all: "All", docs: "Documents", notes: "Experience notes",
+    kinds: { pdf: "PDF", office: "Office", image: "Image", text: "Text", note: "Note" },
+    actions: "Actions", newNote: "New note", sync: "Sync wiki folder", folder: "Location",
+    empty: "The knowledge base is empty", emptyHint: "Drop PDFs, Word files, images or Markdown on the page to import them",
+    emptyView: "Nothing here yet", noHits: q => `No results for "${q}"`, noHitsHint: "Try other keywords, synonyms, or the other language",
+    results: n => `${n} result${n === 1 ? "" : "s"}`, items: n => `${n} item${n === 1 ? "" : "s"}`, pages: n => `${n} pages`,
+    dropDocs: "Import documents", dropDocsHint: "PDF, Office, images, text: converted and searchable by page",
+    dropNotes: "Save as experience notes", dropNotesHint: "Markdown files go to the wiki, next to the lessons the agent records",
+    importing: (i, n, name) => `Importing ${i}/${n}: ${name}`,
+    imported: (a, e, s, f) => `Added ${a}, already present ${e}, skipped ${s}, failed ${f}`,
+    reasons: { not_found: "file not found", unsupported: "unsupported file type", no_text: "no text could be extracted", not_markdown: "only Markdown can become a note", needs_libreoffice: "Office files need LibreOffice" },
+    type: "Type", pageCount: "Pages", source: "Source", added: "Imported", id: "ID", tags: "Tags", updated: "Updated", created: "Created", project: "Project",
+    openOriginal: "Open original", viewPage: "View page", page: n => `Page ${n}`, remove: "Delete", edit: "Edit", save: "Save", cancel: "Cancel", back: "← Back",
+    confirmRemoveDoc: t => `Delete "${t}"? Its stored copy is deleted too.`, confirmRemoveNote: t => `Delete the note "${t}"? The note file is deleted.`,
+    removed: "Deleted", saved: "Saved", synced: (u, r) => `Wiki synced: ${u} updated, ${r} removed`,
+    noteTitle: "Title", noteTags: "Tags (comma separated, optional)", noteBody: "Content (Markdown)", importNotes: "or import Markdown files",
+    offline: "Cannot reach pi. It may have exited; run /kb web in pi to reopen this page.",
+    kbOn: "Knowledge base on", kbOff: "Knowledge base off", loadingDoc: "Loading…",
+    overview: "Overview", ovDocs: "documents", ovPages: "pages", ovNotes: "experience notes",
+    ovTips: ["Drop files on the page to import them: left side as documents, right side as experience notes.", "While the knowledge base is on, pi's agent searches it first and cites answers as [file p.N].", "After solving a hard problem the agent offers to save the lesson as a note; you can also run /kb note in pi.", "Notes are plain Markdown files; open the wiki folder in Obsidian to edit them."],
+    ovStatusOff: "The knowledge base is off, so the agent does not use it.",
+  },
+}[LANG];
+
+const state = { status: null, docs: [], view: "all", q: "", hits: null, selected: null, focusPage: null, doc: null, editing: false, uploading: "" };
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// ---- API ----
+async function api(path, { body, raw, etag } = {}) {
+  let res;
+  const headers = { "x-token": TOKEN };
+  if (etag) headers["if-none-match"] = etag;
+  const init = raw !== undefined ? { method: "POST", headers: { ...headers, "content-type": "application/octet-stream" }, body: raw }
+    : body !== undefined ? { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(body) }
+    : { headers };
+  try { res = await fetch("/api/kb" + path, init); } catch { throw new Error(T.offline); }
+  if (res.status === 304) return null;
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  if (etag !== undefined) data.etag = res.headers.get("etag");
+  return data;
+}
+
+// ---- Markdown (input is untrusted document text: escape first, then add a small set of tags) ----
+function inline(s) {
+  return esc(s)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+}
+function markdown(text, { pdf, hitPage } = {}) {
+  const lines = text.replace(/\r\n?/g, "\n").split("\n");
+  const out = [];
+  let i = 0;
+  const para = [];
+  // Keep single line breaks: notes are usually written one fact per line.
+  const flush = () => { if (para.length) { out.push(`<p>${para.map(inline).join("<br>")}</p>`); para.length = 0; } };
+  while (i < lines.length) {
+    const line = lines[i];
+    let m;
+    if ((m = /^<!-- kb:page (\d+) -->$/.exec(line))) {
+      flush();
+      const n = Number(m[1]);
+      out.push(`<div class="page-mark${n === hitPage ? " hit" : ""}" id="p-${n}">${esc(T.page(n))}${pdf ? ` <button data-page="${n}">${esc(T.viewPage)} ↗</button>` : ""}</div>`);
+      i++; continue;
+    }
+    if (/^<!-- kb:source .* -->$/.test(line)) { i++; continue; }
+    if (/^```/.test(line)) {
+      flush();
+      const code = [];
+      i++;
+      while (i < lines.length && !/^```/.test(lines[i])) code.push(lines[i++]);
+      i++;
+      out.push(`<pre><code>${esc(code.join("\n"))}</code></pre>`);
+      continue;
+    }
+    if ((m = /^(#{1,6})\s+(.*)$/.exec(line))) { flush(); const h = Math.min(4, m[1].length); out.push(`<h${h}>${inline(m[2])}</h${h}>`); i++; continue; }
+    if (/^\s*\|.*\|\s*$/.test(line)) {
+      flush();
+      const rows = [];
+      while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) rows.push(lines[i++]);
+      const cells = r => r.trim().replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+      const sep = rows[1] && /^[\s|:-]+$/.test(rows[1]);
+      const head = sep ? `<thead><tr>${cells(rows[0]).map(c => `<th>${inline(c)}</th>`).join("")}</tr></thead>` : "";
+      const bodyRows = (sep ? rows.slice(2) : rows).map(r => `<tr>${cells(r).map(c => `<td>${inline(c)}</td>`).join("")}</tr>`).join("");
+      out.push(`<table>${head}<tbody>${bodyRows}</tbody></table>`);
+      continue;
+    }
+    if (/^\s*([-*+]|\d+[.)])\s+/.test(line)) {
+      flush();
+      const ordered = /^\s*\d/.test(line);
+      const items = [];
+      while (i < lines.length && /^\s*([-*+]|\d+[.)])\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*([-*+]|\d+[.)])\s+/, ""));
+      out.push(`<${ordered ? "ol" : "ul"}>${items.map(x => `<li>${inline(x)}</li>`).join("")}</${ordered ? "ol" : "ul"}>`);
+      continue;
+    }
+    if (/^>\s?/.test(line)) {
+      flush();
+      const quote = [];
+      while (i < lines.length && /^>\s?/.test(lines[i])) quote.push(lines[i++].replace(/^>\s?/, ""));
+      out.push(`<blockquote>${inline(quote.join(" "))}</blockquote>`);
+      continue;
+    }
+    if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) { flush(); out.push("<hr>"); i++; continue; }
+    if (!line.trim()) { flush(); i++; continue; }
+    para.push(line.trim());
+    i++;
+  }
+  flush();
+  return out.join("\n");
+}
+
+/** Split "---" front matter from a note for display. */
+function splitNote(text) {
+  const m = /^---\n([\s\S]*?)\n---\n?/.exec(text.replace(/\r\n?/g, "\n"));
+  if (!m) return { fields: {}, body: text };
+  const fields = {};
+  for (const line of m[1].split("\n")) { const kv = /^([A-Za-z_]+):\s*(.*)$/.exec(line); if (kv) fields[kv[1]] = kv[2].replace(/^"(.*)"$/, "$1"); }
+  return { fields, body: text.slice(m[0].length) };
+}
+
+// ---- rendering ----
+const fmtDate = iso => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleDateString(LANG === "zh" ? "zh-CN" : "en-US", { year: "numeric", month: "short", day: "numeric" }); };
+const kindOf = d => d.collection === "wiki" ? "note" : d.kind;
+function highlight(text, q) {
+  let html = esc(text);
+  const words = q.toLowerCase().split(/\s+/).filter(w => w.length > 0).sort((a, b) => b.length - a.length);
+  for (const w of words) {
+    const re = new RegExp(esc(w).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+    html = html.replace(re, x => `<mark>${x}</mark>`);
+  }
+  return html;
+}
+
+function renderHeader() {
+  document.title = T.title;
+  document.querySelectorAll("[data-t]").forEach(el => { const v = T[el.dataset.t]; if (typeof v === "string") el.textContent = v; });
+  $("q").placeholder = T.search;
+  $("upload").textContent = T.upload;
+  const seg = $("enabledSeg");
+  seg.title = T.enabledTip;
+  const on = state.status?.enabled;
+  seg.querySelector('[data-v="on"]').textContent = T.on;
+  seg.querySelector('[data-v="off"]').textContent = T.off;
+  seg.querySelector('[data-v="on"]').classList.toggle("on", on === true);
+  const offBtn = seg.querySelector('[data-v="off"]');
+  offBtn.classList.toggle("on", on === false);
+  offBtn.classList.toggle("off", on === false);
+}
+
+function renderSide() {
+  const docs = state.docs, count = k => docs.filter(d => kindOf(d) === k).length;
+  const nav = (view, ico, name, cnt, sub) => `<button class="nav${sub ? " sub" : ""}${state.view === view && !state.hits ? " on" : ""}" data-view="${view}"><span class="ico">${ico}</span><span class="name">${esc(name)}</span><span class="cnt">${cnt}</span></button>`;
+  const kinds = ["pdf", "office", "image", "text"].filter(k => count(k));
+  $("side").innerHTML = `
+    <div class="nav-label">${esc(T.views)}</div>
+    ${nav("all", "◎", T.all, docs.length)}
+    ${nav("docs", "▤", T.docs, docs.filter(d => d.collection === "docs").length)}
+    ${kinds.map(k => nav("kind:" + k, "", T.kinds[k], count(k), true)).join("")}
+    ${nav("wiki", "✎", T.notes, count("note"))}
+    <div class="nav-label">${esc(T.actions)}</div>
+    <button class="nav" id="newNoteBtn"><span class="ico">＋</span><span class="name">${esc(T.newNote)}</span></button>
+    <button class="nav" id="syncBtn"><span class="ico">↻</span><span class="name">${esc(T.sync)}</span></button>
+    <div class="side-foot">${esc(T.folder)}<br>${esc(state.status?.root ?? "")}</div>`;
+}
+
+function visibleDocs() {
+  const v = state.view;
+  return state.docs.filter(d => v === "all" || (v === "docs" && d.collection === "docs") || (v === "wiki" && d.collection === "wiki") || (v.startsWith("kind:") && kindOf(d) === v.slice(5)));
+}
+
+function card(d, extra = "") {
+  const k = kindOf(d);
+  return `<button class="card${state.selected === d.id ? " on" : ""}" data-id="${esc(d.id)}">
+    <div class="row1"><span class="kind${k === "note" ? " note" : ""}">${esc(T.kinds[k] ?? k)}</span><span class="title">${esc(d.title)}</span><span class="time num">${esc(fmtDate(d.added_at))}</span></div>
+    ${extra}
+    <div class="meta">${d.pages ? `<span>${esc(T.pages(d.pages))}</span>` : ""}<span class="num">${esc(d.id)}</span></div>
+  </button>`;
+}
+
+function renderList() {
+  const progress = state.uploading ? `<div class="progress"><span class="spin"></span>${esc(state.uploading)}</div>` : "";
+  if (state.hits) {
+    const hits = state.hits;
+    const body = hits.length
+      ? hits.map(h => {
+          const cite = h.page ? `${h.title} · ${T.page(h.page)}` : h.title;
+          return `<button class="card${state.selected === h.docId && state.focusPage === h.page ? " on" : ""}" data-id="${esc(h.docId)}" data-page="${h.page ?? ""}">
+            <div class="row1"><span class="kind${h.collection === "wiki" ? " note" : ""}">${esc(h.collection === "wiki" ? T.kinds.note : T.docs)}</span><span class="title cite">${esc(cite)}</span></div>
+            <div class="summary">${highlight(h.snippet, state.q)}</div>
+            ${h.heading ? `<div class="meta">§ ${esc(h.heading)}</div>` : ""}
+          </button>`;
+        }).join("")
+      : `<div class="empty">${esc(T.noHits(state.q))}<br><small>${esc(T.noHitsHint)}</small></div>`;
+    $("list").innerHTML = `<div class="list-head"><h2>${esc(state.q)}</h2><span class="sub">${esc(T.results(hits.length))}</span>${progress}</div><div class="group">${body}</div>`;
+    return;
+  }
+  const docs = visibleDocs();
+  const title = state.view === "all" ? T.all : state.view === "docs" ? T.docs : state.view === "wiki" ? T.notes : T.kinds[state.view.slice(5)];
+  const empty = state.docs.length
+    ? `<div class="empty">${esc(T.emptyView)}</div>`
+    : `<div class="empty"><b>${esc(T.empty)}</b><br>${esc(T.emptyHint)}<br><button class="btn primary" id="emptyUpload">${esc(T.upload)}</button></div>`;
+  $("list").innerHTML = `<div class="list-head"><h2>${esc(title)}</h2><span class="sub">${esc(T.items(docs.length))}</span>${progress}</div><div class="group">${docs.length ? docs.map(d => card(d)).join("") : empty}</div>`;
+}
+
+async function renderPreview() {
+  const pv = $("preview");
+  const id = state.selected;
+  if (!id) { pv.innerHTML = overview(); return; }
+  if (!state.doc || state.doc.doc.id !== id) {
+    pv.innerHTML = `<div class="pv"><div class="empty">${esc(T.loadingDoc)}</div></div>`;
+    try { state.doc = await api("/doc?id=" + encodeURIComponent(id)); }
+    catch (e) { pv.innerHTML = `<div class="pv"><div class="empty">${esc(e.message)}</div></div>`; return; }
+    if (state.selected !== id) return;
+  }
+  const { doc, text } = state.doc;
+  const back = `<button class="btn back" id="back">${esc(T.back)}</button>`;
+  if (doc.collection === "wiki") {
+    const { fields, body } = splitNote(text);
+    const facts = [
+      fields.tags && [T.tags, fields.tags.replace(/^\[|\]$/g, "").split(",").map(t => `<span class="tag">#${esc(t.trim())}</span>`).join(" ")],
+      fields.updated && [T.updated, esc(fields.updated)],
+      fields.created && [T.created, esc(fields.created)],
+      fields.project && [T.project, esc(fields.project)],
+      [T.id, `<span class="num">${esc(doc.id)}</span>`],
+    ].filter(Boolean);
+    pv.innerHTML = `<div class="pv">${back}
+      <h1>${esc(doc.title)}</h1>
+      <dl class="facts">${facts.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>
+      ${state.editing
+        ? `<textarea class="editor" id="noteText">${esc(text)}</textarea><div class="actions" style="margin-top:10px"><button class="btn primary" id="saveNote">${esc(T.save)}</button><button class="btn" id="cancelEdit">${esc(T.cancel)}</button></div>`
+        : `<div class="actions"><button class="btn" id="editNote">${esc(T.edit)}</button><button class="btn danger" id="removeDoc">${esc(T.remove)}</button></div><div class="md">${markdown(body)}</div>`}
+    </div>`;
+    return;
+  }
+  const pdf = /\.pdf$/i.test(doc.title);
+  const image = doc.kind === "image";
+  pv.innerHTML = `<div class="pv">${back}
+    <h1>${esc(doc.title)}</h1>
+    <dl class="facts">
+      <dt>${esc(T.type)}</dt><dd>${esc(T.kinds[doc.kind] ?? doc.kind)}</dd>
+      ${doc.pages ? `<dt>${esc(T.pageCount)}</dt><dd>${doc.pages}</dd>` : ""}
+      <dt>${esc(T.added)}</dt><dd>${esc(fmtDate(doc.added_at))}</dd>
+      <dt>${esc(T.source)}</dt><dd>${esc(doc.source.replace(/^upload:/, ""))}</dd>
+      <dt>${esc(T.id)}</dt><dd class="num">${esc(doc.id)}</dd>
+    </dl>
+    <div class="actions"><button class="btn" id="openOriginal" data-page="${state.focusPage ?? ""}">${esc(T.openOriginal)} ↗</button><button class="btn danger" id="removeDoc">${esc(T.remove)}</button></div>
+    ${image ? `<img class="orig" id="origImg" alt="">` : ""}
+    <div class="md">${markdown(text, { pdf, hitPage: state.focusPage })}</div>
+  </div>`;
+  if (image) loadImage(doc.id);
+  if (state.focusPage) document.getElementById("p-" + state.focusPage)?.scrollIntoView({ block: "start" });
+}
+
+function overview() {
+  const st = state.status;
+  if (!st) return "";
+  const stat = (n, label) => `<div class="stat"><b class="num">${n}</b><span>${esc(label)}</span></div>`;
+  return `<div class="pv"><h1>${esc(T.overview)}</h1>
+    <div class="stats">${stat(st.docs, T.ovDocs)}${stat(st.pages, T.ovPages)}${stat(st.wiki, T.ovNotes)}</div>
+    ${st.enabled ? "" : `<p class="warn-line">${esc(T.ovStatusOff)}</p>`}
+    <ul class="tips">${T.ovTips.map(t => `<li>${esc(t)}</li>`).join("")}</ul></div>`;
+}
+
+// ---- original files: <img> and new tabs cannot send the token header, so fetch and use blob URLs ----
+const blobs = new Map();
+async function originalUrl(id) {
+  if (!blobs.has(id)) {
+    const res = await fetch("/api/kb/file?id=" + encodeURIComponent(id), { headers: { "x-token": TOKEN } });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+    blobs.set(id, URL.createObjectURL(await res.blob()));
+  }
+  return blobs.get(id);
+}
+async function loadImage(id) { try { const url = await originalUrl(id); const img = $("origImg"); if (img) img.src = url; } catch {} }
+async function openOriginal(id, page) {
+  // Open the tab synchronously so the popup blocker allows it, then point it at the file.
+  const tab = window.open("", "_blank");
+  try { const url = await originalUrl(id); if (tab) tab.location.href = url + (page ? "#page=" + page : ""); else location.href = url; }
+  catch (e) { tab?.close(); toast(e.message); }
+}
+
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 3600); }
+function renderAll() { renderHeader(); renderSide(); renderList(); renderPreview(); }
+
+// ---- data ----
+let etags = {};
+async function refresh() {
+  try {
+    const [status, docs] = await Promise.all([api("/status", { etag: etags.status || "" }), api("/docs", { etag: etags.docs || "" })]);
+    let changed = false;
+    if (status) { etags.status = status.etag; state.status = status; changed = true; }
+    if (docs) { etags.docs = docs.etag; state.docs = docs.docs; changed = true; }
+    if (changed) { renderHeader(); renderSide(); renderList(); if (!state.selected) renderPreview(); }
+  } catch (e) { toast(e.message); }
+}
+async function search() {
+  const q = state.q.trim();
+  if (!q) { state.hits = null; renderSide(); renderList(); return; }
+  try {
+    const { hits } = await api("/search?q=" + encodeURIComponent(q));
+    if (q === state.q.trim()) { state.hits = hits; renderSide(); renderList(); }
+  } catch (e) { toast(e.message); }
+}
+function select(id, page) {
+  if (state.selected !== id) state.doc = null;
+  state.selected = id; state.focusPage = page || null; state.editing = false;
+  $("app").classList.add("detail");
+  renderList(); renderPreview();
+}
+
+async function upload(files, note) {
+  const list = [...files];
+  if (!list.length) return;
+  const results = [];
+  for (const [i, file] of list.entries()) {
+    state.uploading = T.importing(i + 1, list.length, file.name); renderList();
+    try { results.push((await api(`/upload?name=${encodeURIComponent(file.name)}${note ? "&note=1" : ""}`, { raw: file })).result); }
+    catch (e) { results.push({ status: "failed", path: file.name, message: e.message }); }
+  }
+  state.uploading = "";
+  etags = {};
+  await refresh();
+  const n = s => results.filter(r => r.status === s).length;
+  const problems = results.filter(r => r.status === "failed" || r.status === "skipped").map(r => `${r.path}: ${T.reasons[r.reason] ?? r.message ?? ""}`);
+  toast([T.imported(n("added"), n("exists"), n("skipped"), n("failed")), ...problems.slice(0, 2)].join(" · "));
+  const added = results.find(r => r.doc);
+  if (added && list.length === 1) select(added.doc.id);
+}
+
+// ---- events ----
+$("q").addEventListener("input", e => { state.q = e.target.value; clearTimeout(search.t); search.t = setTimeout(search, 200); });
+document.addEventListener("keydown", e => {
+  if (e.key === "/" && !/INPUT|TEXTAREA/.test(document.activeElement?.tagName ?? "")) { e.preventDefault(); $("q").focus(); }
+  if (e.key === "Escape" && document.activeElement === $("q")) { $("q").value = ""; state.q = ""; search(); }
+});
+$("enabledSeg").addEventListener("click", async e => {
+  const b = e.target.closest("button"); if (!b) return;
+  try { await api("/enabled", { body: { enabled: b.dataset.v === "on" } }); etags.status = ""; await refresh(); toast(b.dataset.v === "on" ? T.kbOn : T.kbOff); }
+  catch (err) { toast(err.message); }
+});
+$("upload").addEventListener("click", () => $("files").click());
+$("files").addEventListener("change", e => { upload(e.target.files, false); e.target.value = ""; });
+$("noteFiles").addEventListener("change", e => { $("newNote").close(); upload(e.target.files, true); e.target.value = ""; });
+
+$("side").addEventListener("click", async e => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.view) { state.view = b.dataset.view; state.hits = null; state.q = ""; $("q").value = ""; renderSide(); renderList(); return; }
+  if (b.id === "newNoteBtn") { $("newNoteErr").hidden = true; $("newNote").showModal(); return; }
+  if (b.id === "syncBtn") { try { const r = await api("/sync", { body: {} }); etags = {}; await refresh(); toast(T.synced(r.updated, r.removed)); } catch (err) { toast(err.message); } }
+});
+$("list").addEventListener("click", e => {
+  if (e.target.closest("#emptyUpload")) return $("files").click();
+  const c = e.target.closest(".card"); if (!c) return;
+  select(c.dataset.id, Number(c.dataset.page) || null);
+});
+$("preview").addEventListener("click", async e => {
+  const b = e.target.closest("button"); if (!b) return;
+  const id = state.selected, doc = state.doc?.doc;
+  if (b.id === "back") { $("app").classList.remove("detail"); return; }
+  if (b.id === "openOriginal") return openOriginal(id, Number(b.dataset.page) || null);
+  if (b.dataset.page && b.closest(".page-mark")) return openOriginal(id, Number(b.dataset.page));
+  if (b.id === "editNote") { state.editing = true; renderPreview(); return; }
+  if (b.id === "cancelEdit") { state.editing = false; renderPreview(); return; }
+  if (b.id === "saveNote") {
+    try { await api("/note", { body: { id, text: $("noteText").value } }); state.editing = false; state.doc = null; etags = {}; await refresh(); renderPreview(); toast(T.saved); }
+    catch (err) { toast(err.message); }
+    return;
+  }
+  if (b.id === "removeDoc" && doc) {
+    if (!confirm(doc.collection === "wiki" ? T.confirmRemoveNote(doc.title) : T.confirmRemoveDoc(doc.title))) return;
+    try {
+      await api("/remove", { body: { id } });
+      state.selected = null; state.doc = null; $("app").classList.remove("detail");
+      if (state.hits) state.hits = state.hits.filter(h => h.docId !== id);
+      etags = {}; await refresh(); renderPreview(); toast(T.removed);
+    } catch (err) { toast(err.message); }
+  }
+});
+
+$("newNote").addEventListener("click", e => { if (e.target.closest("[data-close]")) $("newNote").close(); if (e.target.id === "importNotes") $("noteFiles").click(); });
+$("newNote").querySelector("form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const f = new FormData(e.target);
+  const tags = String(f.get("tags") || "").split(/[,，]/).map(t => t.trim()).filter(Boolean);
+  try {
+    const { doc } = await api("/note", { body: { title: f.get("title"), text: f.get("body"), tags } });
+    $("newNote").close(); e.target.reset(); etags = {}; await refresh(); select(doc.id); toast(T.saved);
+  } catch (err) { $("newNoteErr").textContent = err.message; $("newNoteErr").hidden = false; }
+});
+
+// Drag files anywhere: choose "documents" or "notes" by dropping on one half.
+let dragDepth = 0;
+const hasFiles = e => [...(e.dataTransfer?.types ?? [])].includes("Files");
+document.addEventListener("dragenter", e => { if (!hasFiles(e)) return; dragDepth++; $("drop").hidden = false; });
+document.addEventListener("dragleave", e => { if (!hasFiles(e)) return; if (--dragDepth <= 0) { dragDepth = 0; $("drop").hidden = true; } });
+document.addEventListener("dragover", e => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  document.querySelectorAll("[data-zone]").forEach(z => z.classList.toggle("over", z.contains(e.target)));
+});
+document.addEventListener("drop", e => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  dragDepth = 0; $("drop").hidden = true;
+  const zone = e.target.closest?.("[data-zone]")?.dataset.zone ?? "docs";
+  upload(e.dataTransfer.files, zone === "note");
+});
+
+renderAll();
+// Deep link: /kb/?doc=<id>&page=<n> opens a document at a page.
+const link = new URLSearchParams(location.search);
+refresh().then(() => { if (link.get("doc")) select(link.get("doc"), Number(link.get("page")) || null); });
+setInterval(() => { if (!document.hidden) refresh(); }, 10000);
+window.addEventListener("focus", refresh);
+</script>
+</body>
+</html>

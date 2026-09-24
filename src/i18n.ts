@@ -58,6 +58,9 @@ const en = {
 	language: (lang: string, setting: LanguageSetting) =>
 		`Language: ${lang === "zh" ? "中文" : "English"}${setting === "auto" ? " (auto)" : ""}. Use /kb lang zh | en | auto`,
 	usageLang: "Usage: /kb lang zh | en | auto",
+	webOpened: (url: string) => `Knowledge base opened in the browser: ${url} (/kb web url for the full link, /kb web stop to close)`,
+	webUrl: (url: string) => `Knowledge base page (includes the access token, do not share): ${url}`,
+	webStopped: "Web page closed (other pages in the same pi web app close too)",
 	subcommands: {
 		on: "Enable the knowledge base",
 		off: "Disable the knowledge base (removes its tools and prompt)",
@@ -69,6 +72,7 @@ const en = {
 		remove: "Remove a document or note: /kb remove <id>",
 		sync: "Re-index the wiki folder after editing notes by hand",
 		open: "Open the knowledge base folder",
+		web: "Open the knowledge base in the browser: /kb web [url | stop]",
 		lang: "Interface language: /kb lang zh | en | auto",
 	} as Record<string, string>,
 };
@@ -123,6 +127,9 @@ const zh: Messages = {
 	language: (lang, setting) =>
 		`界面语言：${lang === "zh" ? "中文" : "English"}${setting === "auto" ? "（自动）" : ""}。切换：/kb lang zh | en | auto`,
 	usageLang: "用法：/kb lang zh | en | auto",
+	webOpened: (url) => `知识库已在浏览器中打开：${url}（/kb web url 查看完整地址，/kb web stop 关闭）`,
+	webUrl: (url) => `知识库网页地址（含访问令牌，勿分享）：${url}`,
+	webStopped: "网页已关闭（同一网页里的其他插件页面也一并关闭）",
 	subcommands: {
 		on: "开启知识库",
 		off: "关闭知识库（移除相关工具和提示词）",
@@ -134,6 +141,7 @@ const zh: Messages = {
 		remove: "删除文档或笔记：/kb remove <id>",
 		sync: "手动编辑笔记后重建 wiki 索引",
 		open: "打开知识库文件夹",
+		web: "在浏览器中打开知识库：/kb web [url | stop]",
 		lang: "界面语言：/kb lang zh | en | auto",
 	},
 };

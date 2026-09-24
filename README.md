@@ -25,9 +25,21 @@ pi -e ./src/index.ts          # 或只在本次运行加载
 | `/kb remove <id>` | 删除（笔记会连文件一起删） |
 | `/kb sync` | 手动编辑 wiki 后重建索引（启动时也会自动同步） |
 | `/kb open` | 打开知识库文件夹 |
+| `/kb web` | 在浏览器中打开知识库页面（`/kb web url` 显示完整地址，`/kb web stop` 关闭） |
 | `/kb lang zh\|en\|auto` | 切换界面语言 |
 
 启动参数 `pi --kb off` / `--kb on` 只影响本次运行。
+
+## 网页
+
+`/kb web` 打开本地网页（只监听 `127.0.0.1`，需要访问令牌）：
+
+- 把文件拖到页面上导入：左半边作为资料，右半边（Markdown）作为经验笔记
+- 搜索结果带页码，点开直接定位到那一页；PDF 可以「看原页」在浏览器里打开到对应页
+- 浏览转换后的原文（表格、标题按 Markdown 显示）、新建和编辑笔记、删除、开关知识库
+- 中文 / English 切换；链接加 `?lang=en` 或 `?lang=zh` 可指定语言，`?doc=<id>&page=<n>` 直接打开某份文档的某一页
+
+网页由 pi-web 共享服务提供（`src/hub.ts`）。同时安装了 [pi-sessions 会话管理](https://github.com/woertedetiankong/pi-newsession) 时，两者在同一个地址下（`/sessions/` 和 `/kb/`），顶部可以切换，共用 `~/.pi/agent/pi-web/token` 里的访问令牌。`src/hub.ts` 在两个仓库里必须保持完全一致。
 
 ## 界面语言
 

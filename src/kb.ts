@@ -121,11 +121,14 @@ export class KnowledgeBase {
 	 * Import one file. Documents are converted and indexed; Markdown sent with
 	 * `wiki: true` is copied into the wiki folder as a note instead.
 	 */
-	async addFile(path: string, options: { wiki?: boolean } = {}): Promise<AddResult> {
+	async addFile(path: string, options: { wiki?: boolean; source?: string } = {}): Promise<AddResult> {
 		try {
 			if (options.wiki) {
 				if (!isMarkdown(path)) return { path, status: "skipped", reason: "not_markdown", message: "only Markdown files can become wiki notes" };
 				return this.addWikiFile(path);
+			}
+			if (!sourceKind(path)) {
+				return { path, status: "skipped", reason: "unsupported", message: `unsupported type ${extname(path) || "(none)"}` };
 			}
 			const bytes = readFileSync(path);
 			const hash = sha(bytes);
@@ -149,7 +152,7 @@ export class KnowledgeBase {
 				title: name,
 				collection: "docs",
 				kind: converted.kind,
-				source: path,
+				source: options.source ?? path,
 				path: rel,
 				pages: paged ? converted.pages.length : null,
 				chars: text.length,
@@ -283,10 +286,41 @@ ${content}` : content;
 		}
 		writeFileSync(prepared.file, renderNote(note));
 		const doc = this.indexWikiFile(prepared.file);
-		const verb = { create: "created", append: "appended", replace: "replaced" }[prepared.action];
-		const link = relative(this.wikiDir, prepared.file).replace(/\.md$/, "");
-		appendFileSync(join(this.wikiDir, "log.md"), `- ${now()} ${verb} [[${link}]] ${note.meta.title}\n`);
+		this.log({ create: "created", append: "appended", replace: "replaced" }[prepared.action], prepared.file, note.meta.title);
 		return doc;
+	}
+
+	/** Save a wiki note's full text as edited by hand (for example on the web page). */
+	editNote(id: string, text: string): DocRecord {
+		const doc = this.store.getDoc(id);
+		if (!doc || doc.collection !== "wiki") throw new Error(`No wiki note with id ${id}`);
+		const file = join(this.root, doc.path);
+		writeFileSync(file, text.endsWith("\n") ? text : `${text}\n`);
+		const updated = this.indexWikiFile(file);
+		this.log("edited", file, updated.title);
+		return updated;
+	}
+
+	/** The imported original of a document, for viewing or download. */
+	originalFile(id: string): { file: string; name: string } {
+		const doc = this.store.getDoc(id);
+		if (!doc || doc.collection !== "docs") throw new Error(`No imported document with id ${id}`);
+		const dir = join(this.root, "raw", doc.id);
+		const name = readdirSync(dir)[0];
+		if (!name) throw new Error(`The original of ${doc.title} is missing`);
+		return { file: join(dir, name), name };
+	}
+
+	/** The note file as stored, front matter included. */
+	noteText(id: string): string {
+		const doc = this.store.getDoc(id);
+		if (!doc || doc.collection !== "wiki") throw new Error(`No wiki note with id ${id}`);
+		return readFileSync(join(this.root, doc.path), "utf8");
+	}
+
+	private log(verb: string, file: string, title: string): void {
+		const link = relative(this.wikiDir, file).replace(/\.md$/, "");
+		appendFileSync(join(this.wikiDir, "log.md"), `- ${now()} ${verb} [[${link}]] ${title}\n`);
 	}
 
 	search(query: string, options: { limit?: number; collection?: Collection } = {}): SearchHit[] {

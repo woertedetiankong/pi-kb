@@ -1,15 +1,18 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, type ExtensionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { basename, extname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 import { kbRoot } from "./config.ts";
 import { type LanguageSetting, type Messages, messages, resolveLanguage } from "./i18n.ts";
 import { type AddResult, formatCitation, KnowledgeBase, type NoteMode } from "./kb.ts";
 import { renderNote } from "./notes.ts";
+import { sharedHub } from "./hub.ts";
 import type { SearchHit } from "./store.ts";
+import { KbWebApp } from "./web.ts";
 
 const TOOLS = ["kb_search", "kb_read", "kb_add", "kb_note"];
 const READ_LIMIT = 30_000;
-const SUBCOMMANDS = ["on", "off", "status", "add", "list", "search", "note", "remove", "sync", "open", "lang"];
+const SUBCOMMANDS = ["on", "off", "status", "add", "list", "search", "note", "remove", "sync", "open", "web", "lang"];
 /** Model-facing text is English regardless of the interface language. */
 const MODEL = messages("en");
 
@@ -82,6 +85,26 @@ export default function piKb(pi: ExtensionAPI) {
 	/** Interface text in the configured or detected language. */
 	const t = () => messages(resolveLanguage(open().config.language));
 
+	/** Latest context, so changes made on the web page can update the status bar. */
+	let lastCtx: ExtensionContext | undefined;
+	const hub = () => sharedHub(getAgentDir());
+	const webApp = new KbWebApp(
+		{
+			kb: () => open(),
+			enabled: () => enabled(),
+			setEnabled: (on) => {
+				override = undefined;
+				open().updateConfig({ enabled: on });
+				if (on) open().syncWiki();
+				if (lastCtx) refresh(lastCtx);
+			},
+			changed: () => {
+				if (lastCtx) refresh(lastCtx);
+			},
+		},
+		fileURLToPath(new URL("../web/kb.html", import.meta.url)),
+	);
+
 	const refresh = (ctx: ExtensionContext) => {
 		const on = enabled();
 		const active = pi.getActiveTools().filter((name) => !TOOLS.includes(name));
@@ -114,15 +137,21 @@ export default function piKb(pi: ExtensionAPI) {
 	pi.registerFlag("kb", { description: "Knowledge base for this run / 本次运行的知识库: on | off", type: "string" });
 
 	pi.on("session_start", (_event, ctx) => {
+		lastCtx = ctx;
+		// Mount early (no server yet) so other pi-web pages, such as pi-sessions, link here.
+		hub().mount(webApp);
 		const flag = pi.getFlag("kb");
 		if (flag === "on" || flag === "off") override = flag === "on";
 		if (enabled()) open().syncWiki();
 		refresh(ctx);
 	});
 
-	pi.on("session_shutdown", () => {
+	pi.on("session_shutdown", async (event) => {
+		lastCtx = undefined;
 		kb?.close();
 		kb = undefined;
+		// Reload brings new code: leave the shared hub (it stops once every app has left) and remount on session_start.
+		if (event.reason === "quit" || event.reason === "reload") await hub().unmount(webApp.id);
 	});
 
 	pi.on("before_agent_start", (event, ctx) => {
@@ -369,6 +398,26 @@ export default function piKb(pi: ExtensionAPI) {
 				case "open": {
 					if (process.platform === "darwin") await pi.exec("open", [base.root]);
 					ctx.ui.notify(m.folder(base.root), "info");
+					return;
+				}
+				case "web": {
+					const h = hub();
+					if (rest[0] === "stop") {
+						await h.close();
+						ctx.ui.notify(m.webStopped, "info");
+						return;
+					}
+					h.mount(webApp);
+					await h.start();
+					const url = h.url(webApp.id) ?? "";
+					if (rest[0] === "url") {
+						ctx.ui.notify(m.webUrl(url), "info");
+						return;
+					}
+					const [cmd, ...cmdArgs] =
+						process.platform === "darwin" ? ["open"] : process.platform === "win32" ? ["cmd", "/c", "start", '""'] : ["xdg-open"];
+					await pi.exec(cmd, [...cmdArgs, url]).catch(() => undefined);
+					ctx.ui.notify(m.webOpened(url.replace(/#.*/, "")), "info");
 					return;
 				}
 				case "lang": {
