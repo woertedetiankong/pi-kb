@@ -1,0 +1,34 @@
+{
+  "name": "pi-kb",
+  "version": "0.1.0",
+  "description": "Knowledge base for pi: import PDFs, Office docs and notes, search them with page citations, and keep a wiki of experience",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "pi-package",
+    "knowledge-base",
+    "rag",
+    "wiki"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "engines": {
+    "node": ">=22.19"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --disable-warning=ExperimentalWarning test/*.test.ts"
+  },
+  "dependencies": {
+    "@llamaindex/liteparse": "^2.14.4"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.87.1",
+    "@types/node": "^24.13.6",
+    "typebox": "^1.3.34",
+    "typescript": "5.9"
+  }
+}
