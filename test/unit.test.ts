@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { chunkPages } from "../src/chunk.ts";
 import { normalizeText } from "../src/convert.ts";
-import { splitArgs } from "../src/index.ts";
+import { padDisplay, splitArgs } from "../src/index.ts";
 import { coverage, planQuery } from "../src/search.ts";
 
 test("splitArgs handles quotes and drag-and-drop escapes", () => {
@@ -38,4 +38,10 @@ test("chunkPages keeps page numbers and carries headings across pages", () => {
 	);
 	const long = chunkPages([{ page: 1, markdown: "x".repeat(3000) }], 1200);
 	assert.equal(long.length, 3);
+});
+
+test("padDisplay aligns Chinese and ASCII labels to the same column", () => {
+	assert.equal(padDisplay("PDF", 7), "PDF    ");
+	assert.equal(padDisplay("文本", 7), "文本   ");
+	assert.equal(padDisplay("toolongname", 4), "toolongname ");
 });

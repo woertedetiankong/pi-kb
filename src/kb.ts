@@ -1,16 +1,40 @@
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, extname, join, relative, resolve, sep } from "node:path";
 import { chunkPages } from "./chunk.ts";
 import { type KbConfig, loadConfig, saveConfig } from "./config.ts";
 import { type ConvertedPage, Converter, isMarkdown, normalizeText, sourceKind } from "./convert.ts";
+import { type Note, normalizeTags, now, parseNote, renderNote, slugify, today } from "./notes.ts";
 import { type Collection, type DocRecord, type SearchHit, Store } from "./store.ts";
+
+export interface NoteInput {
+	title: string;
+	content: string;
+	tags?: string[];
+	project?: string;
+}
+
+export type NoteMode = "create" | "append" | "replace";
+
+/** A note ready to be written; built first so the user can review it. */
+export interface PreparedNote {
+	action: NoteMode;
+	file: string;
+	note: Note;
+	/** Existing note being updated, for append and replace. */
+	existing?: DocRecord;
+}
+
+/** Known failure reasons, so the interface can explain them in the user's language. */
+export type AddReason = "not_found" | "unsupported" | "no_text" | "not_markdown" | "needs_libreoffice";
 
 export interface AddResult {
 	path: string;
 	status: "added" | "exists" | "skipped" | "failed";
 	doc?: DocRecord;
+	reason?: AddReason;
+	/** English detail for the model and for unexpected errors. */
 	message?: string;
 }
 
@@ -56,8 +80,8 @@ export class KnowledgeBase {
 		return join(this.root, "wiki");
 	}
 
-	setEnabled(enabled: boolean): void {
-		this.config = { ...this.config, enabled };
+	updateConfig(change: Partial<KbConfig>): void {
+		this.config = { ...this.config, ...change };
 		saveConfig(this.root, this.config);
 	}
 
@@ -75,7 +99,7 @@ export class KnowledgeBase {
 			try {
 				info = statSync(path);
 			} catch {
-				skipped.push({ path, status: "failed", message: "not found" });
+				skipped.push({ path, status: "failed", reason: "not_found", message: "not found" });
 				return;
 			}
 			if (info.isDirectory()) {
@@ -86,7 +110,7 @@ export class KnowledgeBase {
 			} else if (sourceKind(path)) {
 				files.push(path);
 			} else if (explicit) {
-				skipped.push({ path, status: "skipped", message: `unsupported type ${extname(path) || "(none)"}` });
+				skipped.push({ path, status: "skipped", reason: "unsupported", message: `unsupported type ${extname(path) || "(none)"}` });
 			}
 		};
 		for (const input of inputs) visit(resolve(cwd, expandHome(input)), true);
@@ -100,7 +124,7 @@ export class KnowledgeBase {
 	async addFile(path: string, options: { wiki?: boolean } = {}): Promise<AddResult> {
 		try {
 			if (options.wiki) {
-				if (!isMarkdown(path)) return { path, status: "skipped", message: "only Markdown files can become wiki notes" };
+				if (!isMarkdown(path)) return { path, status: "skipped", reason: "not_markdown", message: "only Markdown files can become wiki notes" };
 				return this.addWikiFile(path);
 			}
 			const bytes = readFileSync(path);
@@ -111,7 +135,7 @@ export class KnowledgeBase {
 
 			const converted = await this.converter.convert(path);
 			const text = converted.pages.map((p) => p.markdown).join("");
-			if (!text.trim()) return { path, status: "failed", message: "no text could be extracted" };
+			if (!text.trim()) return { path, status: "failed", reason: "no_text", message: "no text could be extracted" };
 
 			const name = basename(path);
 			mkdirSync(join(this.root, "raw", id), { recursive: true });
@@ -135,7 +159,8 @@ export class KnowledgeBase {
 			this.store.putDoc(doc, chunkPages(converted.pages));
 			return { path, status: "added", doc };
 		} catch (error) {
-			return { path, status: "failed", message: error instanceof Error ? error.message : String(error) };
+			const message = error instanceof Error ? error.message : String(error);
+			return { path, status: "failed", reason: /LibreOffice/.test(message) ? "needs_libreoffice" : undefined, message };
 		}
 	}
 
@@ -159,9 +184,10 @@ export class KnowledgeBase {
 		const id = `w-${sha(rel).slice(0, 12)}`;
 		const existing = this.store.getDoc(id);
 		if (existing?.hash === hash) return existing;
+		const note = parseNote(content, basename(file, extname(file)));
 		const doc: DocRecord = {
 			id,
-			title: wikiTitle(content, file),
+			title: note.meta.title,
 			collection: "wiki",
 			kind: "note",
 			source: rel,
@@ -171,7 +197,9 @@ export class KnowledgeBase {
 			hash,
 			added_at: existing?.added_at ?? new Date().toISOString(),
 		};
-		this.store.putDoc(doc, chunkPages([{ page: null, markdown: content }]));
+		// Index the body and tags, not the front matter keys, so "created:" and the like never match.
+		const tags = note.meta.tags.map((t) => `#${t}`).join(" ");
+		this.store.putDoc(doc, chunkPages([{ page: null, markdown: tags ? `${note.body}\n\n${tags}` : note.body }]));
 		return doc;
 	}
 
@@ -201,6 +229,64 @@ export class KnowledgeBase {
 			}
 		}
 		return { updated, removed };
+	}
+
+	/**
+	 * Build a wiki note without writing it. `create` refuses a title that already
+	 * exists so repeated lessons land in one note instead of near-duplicates.
+	 */
+	prepareNote(input: NoteInput, mode: NoteMode = "create", id?: string): PreparedNote {
+		const title = input.title.trim();
+		const content = input.content.trim();
+		if (!content) throw new Error("Note content is empty");
+		const tags = normalizeTags(input.tags);
+		if (mode === "create") {
+			if (!title) throw new Error("A new note needs a title");
+			const same = this.store.listDocs("wiki").find((d) => d.title.toLowerCase() === title.toLowerCase());
+			if (same) throw new Error(`A note titled "${same.title}" already exists (${same.id}). Use mode "append" or "replace" with that id.`);
+			const slug = slugify(title);
+			let file = join(this.wikiDir, `${slug}.md`);
+			for (let n = 2; existsSync(file); n++) file = join(this.wikiDir, `${slug}-${n}.md`);
+			const date = today();
+			return { action: mode, file, note: { meta: { title, tags, created: date, updated: date, project: input.project }, body: content } };
+		}
+		const existing = id ? this.store.getDoc(id) : undefined;
+		if (!existing || existing.collection !== "wiki") throw new Error(`Mode "${mode}" needs the id of an existing wiki note (w-…)`);
+		const file = join(this.root, existing.path);
+		const current = parseNote(readFileSync(file, "utf8"), existing.title);
+		const meta = {
+			...current.meta,
+			title: (mode === "replace" && title) || current.meta.title,
+			tags: normalizeTags([...current.meta.tags, ...tags]),
+			created: current.meta.created || existing.added_at.slice(0, 10),
+			updated: today(),
+			project: current.meta.project ?? input.project,
+		};
+		const body = mode === "append" ? `${current.body}
+
+## ${today()}
+
+${content}` : content;
+		return { action: mode, file, note: { meta, body }, existing };
+	}
+
+	/**
+	 * Write a prepared note, index it and record the change in wiki/log.md.
+	 * `edited` is the full note text after the user changed it in an editor.
+	 */
+	writeNote(prepared: PreparedNote, edited?: string): DocRecord {
+		let note = prepared.note;
+		if (edited !== undefined) {
+			const parsed = parseNote(edited, note.meta.title);
+			const tags = parsed.meta.tags.length ? parsed.meta.tags : note.meta.tags;
+			note = { meta: { ...note.meta, title: parsed.meta.title, tags }, body: parsed.body };
+		}
+		writeFileSync(prepared.file, renderNote(note));
+		const doc = this.indexWikiFile(prepared.file);
+		const verb = { create: "created", append: "appended", replace: "replaced" }[prepared.action];
+		const link = relative(this.wikiDir, prepared.file).replace(/\.md$/, "");
+		appendFileSync(join(this.wikiDir, "log.md"), `- ${now()} ${verb} [[${link}]] ${note.meta.title}\n`);
+		return doc;
 	}
 
 	search(query: string, options: { limit?: number; collection?: Collection } = {}): SearchHit[] {
@@ -265,10 +351,5 @@ function splitConverted(markdown: string): ConvertedPage[] {
 		const match = PAGE_MARK.exec(part);
 		return { page: match ? Number(match[1]) : null, markdown: part.replace(PAGE_MARK, "").trim() };
 	});
-}
-
-function wikiTitle(content: string, file: string): string {
-	const heading = /^#\s+(.+)$/m.exec(content);
-	return heading ? heading[1].trim() : basename(file, extname(file));
 }
 
