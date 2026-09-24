@@ -158,6 +158,7 @@ function check(s: Scenario, calls: ToolCall[], answer: string, titles: string[])
 		if (!printed.includes(c) && !readTitle) problems.push(`citation not from tools: ${c}`);
 	}
 	for (const want of s.cites ?? []) if (!cited.includes(want) && !answer.includes(want)) problems.push(`missing citation ${want}`);
+	if (s.citesAny && !s.citesAny.some((want) => answer.includes(want))) problems.push(`missing any of ${s.citesAny.join(" ")}`);
 	if (s.noCitations && cited.length) problems.push(`cited ${cited.join(" ")}`);
 	for (const loose of looseCitations(answer, titles)) problems.push(`loose citation "${loose}"`);
 	if (s.answer && !s.answer.test(answer)) problems.push(`answer lacks ${s.answer}`);

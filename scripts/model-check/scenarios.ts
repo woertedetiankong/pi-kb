@@ -16,6 +16,8 @@ export interface Scenario {
 	noteMode?: "create" | "append" | "replace";
 	/** Citations the answer must contain, exactly as kb_search prints them. */
 	cites?: string[];
+	/** At least one of these citations must appear (several sources hold the answer). */
+	citesAny?: string[];
 	/** The answer must contain no citation at all (nothing relevant in the knowledge base). */
 	noCitations?: boolean;
 	/** The answer must match (the right facts were used). */
@@ -42,7 +44,8 @@ export const scenarios: Scenario[] = [
 		prompt: "What is the reset value of CTRL_REG on the XR-100, and what should I set it to before using SPI?",
 		search: "required",
 		note: "forbidden",
-		cites: ["[xr100-manual.pdf p.2]"],
+		// The manual has the reset value, the SPI note has both.
+		citesAny: ["[xr100-manual.pdf p.2]", "[SPI 时钟分频踩坑]"],
 		answer: /0x03/,
 	},
 	{
