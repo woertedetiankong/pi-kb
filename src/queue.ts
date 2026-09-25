@@ -8,6 +8,8 @@ export interface ImportItem {
 	source?: string;
 	/** Older versions this file replaces once it is imported. */
 	replace?: string[];
+	/** Which knowledge base it goes into; global when unset. */
+	scope?: "project" | "global";
 }
 
 /** One /kb add or kb_add call: its files are imported in order, after earlier jobs. */

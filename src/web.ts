@@ -7,6 +7,7 @@ import type { ImportItem, ImportJob, ImportStatus } from "./queue.ts";
 import { ask, AskError, listModels, type ModelContext } from "./ask.ts";
 import { type KbLocation, LocationError, type SemanticConfig } from "./config.ts";
 import { apiKeyEnv, folderSize, localModelDirs, removeLocalModel, runtimeInstalled } from "./semantic/providers.ts";
+import type { Library, Scope } from "./library.ts";
 import { parseNote } from "./notes.ts";
 import type { Collection } from "./store.ts";
 
@@ -24,7 +25,10 @@ const TYPES: Record<string, string> = {
 };
 
 export interface KbWebHost {
+	/** The global knowledge base: settings, semantic search, location. */
 	kb(): KnowledgeBase;
+	/** Documents and notes: the project's knowledge base (if any) and the global one. */
+	library(): Library;
 	enabled(): boolean;
 	setEnabled(on: boolean): void;
 	/** Something changed on the page; refresh the terminal status bar. */
@@ -44,6 +48,12 @@ export interface KbWebHost {
 	location(): KbLocation;
 	/** Move the content to `dir` (undefined: the default folder), copying it there unless `copy` is false. */
 	relocate(dir: string | undefined, copy: boolean): void;
+}
+
+/** The knowledge base a new document or note goes to: as asked, else the project's when there is one. */
+function pickScope(asked: unknown, lib: Library): Scope {
+	if (asked === "project" && !lib.project) throw webError(400, "no_project");
+	return asked === "global" || asked === "project" ? asked : lib.defaultScope;
 }
 
 /** An http(s) URL, or undefined when empty; anything else is the caller's mistake. */
@@ -86,37 +96,39 @@ export class KbWebApp implements WebApp {
 
 	async handle(req: WebRequest): Promise<unknown> {
 		const kb = this.host.kb();
+		const lib = this.host.library();
 		const route = `${req.method} ${req.path}`;
 		const id = req.query.get("id") ?? "";
 		try {
 			switch (route) {
 				case "GET /status": {
-					const stats = kb.store.stats();
+					const { project: own, ...stats } = lib.stats();
+					const project = lib.project ? { name: lib.project.info.name, dir: lib.project.info.dir, ...own } : undefined;
 					const { state, done, total, download, problem } = kb.indexer.status;
 					const semantic = { provider: kb.config.semantic.provider, state, done, total, download: download?.progress, problem, ...this.host.localSetup() };
 					const imports = this.host.importStatus();
 					const current = imports.current ? basename(imports.current) : undefined;
-					return { enabled: this.host.enabled(), root: kb.root, ...stats, semantic, imports: { ...imports, current } };
+					return { enabled: this.host.enabled(), root: kb.root, ...stats, project, semantic, imports: { ...imports, current } };
 				}
 				case "GET /docs":
-					return { docs: kb.store.listDocs() };
+					return { docs: lib.listDocs() };
 				case "GET /search": {
 					const q = (req.query.get("q") ?? "").trim();
 					const scope = req.query.get("scope");
 					const collection: Collection | undefined = scope === "docs" || scope === "wiki" ? scope : undefined;
-					return { hits: q ? await kb.find(q, { limit: 30, collection }) : [] };
+					return { hits: q ? await lib.find(q, { limit: 30, collection }) : [] };
 				}
 				case "GET /doc": {
-					const { doc, text } = kb.read(id);
-					if (doc.collection !== "wiki") return { doc, text };
+					const { doc, text, scope } = lib.read(id);
+					if (doc.collection !== "wiki") return { doc, text, scope };
 					// Other apps (pi-learn) read `text` as material, so a note's front matter goes separately;
 					// `raw` is the whole file, for editing.
-					const raw = kb.noteText(id);
+					const raw = lib.noteText(id);
 					const { meta, body } = parseNote(raw, doc.title);
-					return { doc, text: body, note: meta, raw };
+					return { doc, text: body, note: meta, raw, scope };
 				}
 				case "GET /file": {
-					const { file, name } = kb.originalFile(id);
+					const { file, name } = lib.originalFile(id);
 					const type = TYPES[extname(name).toLowerCase()] ?? "application/octet-stream";
 					return { binary: readFileSync(file), type, filename: name, cacheSeconds: 3600 } satisfies WebBinary;
 				}
@@ -131,6 +143,7 @@ export class KbWebApp implements WebApp {
 					if (!name || name.startsWith(".")) throw webError(400, "missing file name");
 					const note = req.query.get("note") === "1";
 					const onUpdate = req.query.get("onUpdate");
+					const scope = pickScope(req.query.get("scope"), lib);
 					const body = await req.raw(UPLOAD_LIMIT);
 					// Keep the original name: it becomes the document title. The file stays until the queue is done with it.
 					const dir = mkdtempSync(join(tmpdir(), "pi-kb-upload-"));
@@ -138,11 +151,11 @@ export class KbWebApp implements WebApp {
 					try {
 						const file = join(dir, name);
 						writeFileSync(file, body);
-						const previous = note ? [] : kb.previousVersions(file, { name });
+						const previous = note ? [] : lib.kb(scope).previousVersions(file, { name });
 						// A new version of an imported document: let the page ask whether to replace it.
 						if (previous.length && onUpdate !== "replace" && onUpdate !== "keep") return { versions: previous.map((d) => d.title) };
 						const replace = onUpdate === "replace" ? previous.map((d) => d.id) : undefined;
-						const job = this.host.enqueue({ path: file, wiki: note, source: `upload:${name}`, replace });
+						const job = this.host.enqueue({ path: file, wiki: note, source: `upload:${name}`, replace, scope });
 						queued = true;
 						const id = ++this.lastJob;
 						const entry = { job, finished: false };
@@ -168,7 +181,7 @@ export class KbWebApp implements WebApp {
 				}
 				case "POST /remove": {
 					const body = await req.json();
-					const doc = kb.remove(String(body.id ?? ""));
+					const doc = lib.remove(String(body.id ?? ""));
 					this.host.changed();
 					return { removed: doc.id };
 				}
@@ -176,10 +189,11 @@ export class KbWebApp implements WebApp {
 					const body = await req.json();
 					const text = typeof body.text === "string" ? body.text : "";
 					let doc;
-					if (body.id) doc = kb.editNote(String(body.id), text);
+					if (body.id) doc = lib.editNote(String(body.id), text);
 					else {
 						const tags = Array.isArray(body.tags) ? body.tags.map(String) : [];
-						doc = kb.writeNote(kb.prepareNote({ title: String(body.title ?? ""), content: text, tags }));
+						const target = lib.kb(pickScope(body.scope, lib));
+						doc = target.writeNote(target.prepareNote({ title: String(body.title ?? ""), content: text, tags }));
 					}
 					this.host.changed();
 					return { doc };
@@ -245,7 +259,7 @@ export class KbWebApp implements WebApp {
 					if (!question) throw webError(400, "question is empty");
 					const model = typeof body.model === "string" && body.model ? body.model : undefined;
 					try {
-						return await ask(kb, this.host.model(), question, req.signal, model);
+						return await ask(lib, this.host.model(), question, req.signal, model);
 					} catch (error) {
 						// The page words these in its own language: "<problem>" or "<problem>: <detail>".
 						if (error instanceof AskError) throw webError(error.status, error.message === error.problem ? error.problem : `${error.problem}: ${error.message}`);
@@ -281,8 +295,15 @@ export class KbWebApp implements WebApp {
 					kb.updateConfig({ ocrLanguage: language, ocrServerUrl: optionalUrl(body.serverUrl, "OCR server") });
 					return { language: kb.config.ocrLanguage, serverUrl: kb.config.ocrServerUrl ?? "" };
 				}
+				case "POST /move": {
+					const body = await req.json();
+					if (body.to !== "project" && body.to !== "global") throw webError(400, "to must be project or global");
+					const doc = lib.move(String(body.id ?? ""), body.to);
+					this.host.changed();
+					return { doc };
+				}
 				case "POST /sync": {
-					const result = kb.sync();
+					const result = lib.sync();
 					this.host.changed();
 					return result;
 				}

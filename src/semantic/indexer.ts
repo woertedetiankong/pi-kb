@@ -30,12 +30,15 @@ export class SemanticIndexer {
 	}
 
 	/** Switch provider (or turn off with undefined); stops the current loop. */
+	/** Stops following a shared local model's download. */
+	private unwatch?: () => void;
+
 	use(provider: EmbeddingProvider | undefined): void {
 		this.stop();
+		this.unwatch?.();
+		this.unwatch = undefined;
 		this.provider = provider;
-		if (provider instanceof LocalProvider) {
-			provider.onDownload = (download) => this.update({ download });
-		}
+		if (provider instanceof LocalProvider) this.unwatch = provider.watchDownload((download) => this.update({ download }));
 		if (!provider) return this.update({ state: "off", done: 0, total: 0, error: undefined, problem: undefined, download: undefined });
 		this.vectors.purgeOtherModels(provider.key);
 		this.update({ state: "idle", error: undefined, problem: undefined, ...this.vectors.progress(provider.key) });

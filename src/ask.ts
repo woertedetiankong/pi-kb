@@ -1,5 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { KnowledgeBase } from "./kb.ts";
+import type { Library, Scope, ScopedHit } from "./library.ts";
 import type { Collection } from "./store.ts";
 
 /**
@@ -29,6 +29,7 @@ export interface AskSource {
 	title: string;
 	page: number | null;
 	collection: Collection;
+	scope: Scope;
 }
 export interface AskResult {
 	answer: string;
@@ -118,31 +119,31 @@ export function parseQueries(raw: string, question: string): string[] {
 	return [...new Set([question, ...clean.slice(0, 4)])];
 }
 
-/** Passages for the answer: every query's hits merged by reciprocal rank, best first. */
-export async function gather(kb: KnowledgeBase, queries: string[], limit = MAX_PASSAGES) {
-	const scores = new Map<number, number>();
-	const hits = new Map<number, Awaited<ReturnType<KnowledgeBase["find"]>>[number]>();
+/** Passages for the answer: every query's hits (project and global) merged by reciprocal rank, best first. */
+export async function gather(lib: Library, queries: string[], limit = MAX_PASSAGES) {
+	// Chunk numbers are per knowledge base.
+	const key = (hit: ScopedHit) => `${hit.scope}:${hit.chunk}`;
+	const scores = new Map<string, number>();
+	const hits = new Map<string, ScopedHit>();
 	for (const query of queries) {
-		const found = await kb.find(query, { limit: 10 });
+		const found = await lib.find(query, { limit: 10 });
 		found.forEach((hit, rank) => {
-			scores.set(hit.chunk, (scores.get(hit.chunk) ?? 0) + 1 / (60 + rank));
-			if (!hits.has(hit.chunk)) hits.set(hit.chunk, hit);
+			scores.set(key(hit), (scores.get(key(hit)) ?? 0) + 1 / (60 + rank));
+			if (!hits.has(key(hit))) hits.set(key(hit), hit);
 		});
 	}
-	const best = [...scores.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([chunk]) => chunk);
-	const texts = kb.store.chunkTexts(best);
-	return best.map((chunk, i) => {
-		const hit = hits.get(chunk)!;
-		return {
-			n: i + 1,
-			docId: hit.docId,
-			title: hit.title,
-			page: hit.page,
-			collection: hit.collection,
-			heading: hit.heading,
-			text: (texts.get(chunk) ?? hit.snippet).slice(0, PASSAGE_CHARS),
-		};
-	});
+	const best = [...scores.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([k]) => hits.get(k)!);
+	const texts = lib.chunkTexts(best);
+	return best.map((hit, i) => ({
+		n: i + 1,
+		docId: hit.docId,
+		title: hit.title,
+		page: hit.page,
+		collection: hit.collection,
+		scope: hit.scope,
+		heading: hit.heading,
+		text: (texts.get(hit) ?? hit.snippet).slice(0, PASSAGE_CHARS),
+	}));
 }
 
 /** The citation numbers used in an answer, in order of first use, limited to real passages. */
@@ -157,13 +158,13 @@ export function citedNumbers(answer: string, count: number): number[] {
 	return seen;
 }
 
-export async function ask(kb: KnowledgeBase, ctx: ModelContext | undefined, rawQuestion: string, signal: AbortSignal, pick?: string): Promise<AskResult> {
+export async function ask(lib: Library, ctx: ModelContext | undefined, rawQuestion: string, signal: AbortSignal, pick?: string): Promise<AskResult> {
 	const model = resolveModel(ctx, pick);
 	if (!ctx) throw new AskError("no_model", 409);
 	const question = rawQuestion.replace(/\s+/g, " ").trim().slice(0, QUESTION_CHARS);
 	const plan = await complete(ctx, model, PLAN, question, signal, 300);
 	const queries = parseQueries(plan.text, question);
-	const passages = await gather(kb, queries);
+	const passages = await gather(lib, queries);
 	let answer: { text: string; input: number; output: number };
 	if (!passages.length) {
 		answer = { text: "", input: 0, output: 0 };
@@ -182,7 +183,7 @@ export async function ask(kb: KnowledgeBase, ctx: ModelContext | undefined, rawQ
 	});
 	const sources = used.map((n, i) => {
 		const p = passages[n - 1];
-		return { n: i + 1, docId: p.docId, title: p.title, page: p.page, collection: p.collection };
+		return { n: i + 1, docId: p.docId, title: p.title, page: p.page, collection: p.collection, scope: p.scope };
 	});
 	return { answer: text, sources, queries: queries.slice(1), model: modelKey(model), usage: { input: plan.input + answer.input, output: plan.output + answer.output } };
 }

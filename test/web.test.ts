@@ -7,6 +7,7 @@ import { after, before, test } from "node:test";
 import { createHub, sharedHub, type WebApp, type WebHub } from "../src/hub.ts";
 import { LocationError } from "../src/config.ts";
 import { KnowledgeBase } from "../src/kb.ts";
+import { Library } from "../src/library.ts";
 import { ImportQueue } from "../src/queue.ts";
 import { KbWebApp } from "../src/web.ts";
 
@@ -38,6 +39,7 @@ before(async () => {
 	const app = new KbWebApp(
 		{
 			kb: () => kb,
+			library: () => new Library(kb),
 			enabled: () => enabled,
 			setEnabled: (on) => { enabled = on; },
 			changed: () => { changes++; },

@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.5.0 — 2026-09-25
+
+### Project knowledge bases, shared with the team
+
+- `/kb init` creates a knowledge base in the project's `.pi/kb`, committed to git with the code. Searches (the agent's, the page's and Ask AI's) cover it and your global knowledge base together and mark each hit [project] or [global]; other projects never show up.
+- Imports and new notes go to the project by default (`/kb add --global`, and a switch on the page, for the global one). The agent decides where a lesson belongs: project-only knowledge to the project, reusable knowledge and personal preferences to the global one; the save dialog can switch it. Checked in pi with gpt-6-sol: a board's wiring went to the project, a personal tool preference to the global knowledge base, and a teammate who pulled the repository got the first but not the second.
+- `/kb move <id> project|global` and "Move to project / global" on the page, for notes and documents (also without their original file).
+- The generated `.gitignore` keeps originals and the change log out of git; teammates' pi builds its own index from the committed text.
+- Both knowledge bases share one local semantic model in memory.
+
 ## v0.4.0 — 2026-09-25
 
 ### Choose where the knowledge base lives

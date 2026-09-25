@@ -165,7 +165,17 @@ export class LocalProvider implements EmbeddingProvider {
 	private readonly profile: ModelProfile;
 	private extractor?: Promise<Extractor>;
 	/** Download progress while the model loads; undefined once it is ready. */
-	onDownload?: (progress: DownloadProgress | undefined) => void;
+	private readonly downloadListeners = new Set<(progress: DownloadProgress | undefined) => void>();
+
+	/** Follow the model download; returns a function that stops following. One provider may serve several indexers. */
+	watchDownload(listener: (progress: DownloadProgress | undefined) => void): () => void {
+		this.downloadListeners.add(listener);
+		return () => this.downloadListeners.delete(listener);
+	}
+
+	private onDownload(progress: DownloadProgress | undefined): void {
+		for (const listener of this.downloadListeners) listener(progress);
+	}
 
 	constructor(options: SemanticConfig["local"] & { runtimeDir: string; cacheDir: string }) {
 		this.options = options;
@@ -187,10 +197,10 @@ export class LocalProvider implements EmbeddingProvider {
 				dtype: "q8",
 				...(this.profile.revision ? { revision: this.profile.revision } : {}),
 				progress_callback: (event: { status?: string; file?: string; progress?: number }) => {
-					if (event.status === "progress" && event.file) this.onDownload?.({ file: event.file, progress: event.progress ?? 0 });
+					if (event.status === "progress" && event.file) this.onDownload({ file: event.file, progress: event.progress ?? 0 });
 				},
 			})) as Extractor;
-			this.onDownload?.(undefined);
+			this.onDownload(undefined);
 			return extractor;
 		})();
 		// A failed load (offline, missing runtime) may succeed later.
@@ -208,10 +218,17 @@ export class LocalProvider implements EmbeddingProvider {
 	}
 }
 
+const localProviders = new Map<string, LocalProvider>();
+
 export function createProvider(config: SemanticConfig, root: string): EmbeddingProvider | undefined {
 	if (config.provider === "api") return new ApiProvider(config.api);
 	if (config.provider === "local") {
-		return new LocalProvider({ ...config.local, runtimeDir: join(root, "runtime"), cacheDir: join(root, "models") });
+		// One model in memory (2-3 GB while indexing) however many knowledge bases use it.
+		const options = { ...config.local, runtimeDir: join(root, "runtime"), cacheDir: join(root, "models") };
+		const key = JSON.stringify(options);
+		let provider = localProviders.get(key);
+		if (!provider) localProviders.set(key, (provider = new LocalProvider(options)));
+		return provider;
 	}
 	return undefined;
 }

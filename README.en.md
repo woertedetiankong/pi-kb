@@ -13,7 +13,7 @@ Requires Node.js 22.19+ and pi 0.87 or later. Used daily on macOS; the full test
 pi install git:github.com/woertedetiankong/pi-kb
 
 # Or pin a version that does not follow the repository
-pi install git:github.com/woertedetiankong/pi-kb@v0.4.0
+pi install git:github.com/woertedetiankong/pi-kb@v0.5.0
 
 # Or try it for this run only, without installing
 pi -e git:github.com/woertedetiankong/pi-kb
@@ -130,6 +130,22 @@ Example results (pi docs + Chinese material, 502 chunks; 29 answerable questions
 The unanswerable questions that still returned results all came from semantic search: "docker interview questions" finds documents about Docker (on topic, but no interview questions). Such results are marked "semantic", and the agent checks them before citing.
 
 This question set is mostly natural language and cross-language, which is hard for keyword search; if customers mostly ask with part numbers and register names, keyword search does much better. The fusion method was chosen with this evaluation too: weighting keyword results by term coverage or giving semantic results more weight both broke exact-term queries, so standard RRF stayed.
+
+## Project knowledge bases and team sharing
+
+Each project can have its own knowledge base in `.pi/kb` (next to pi's own project settings in `.pi/`), shared with the team through git.
+
+```bash
+/kb init        # once, in the project: creates .pi/kb at the top of the git repository
+git add .pi/kb && git commit -m "Project knowledge base"
+```
+
+- **Searches cover this project and your global knowledge base**, marking hits [project] or [global]; other projects never show up. It is found from any subfolder of the project.
+- **Imports and notes go to the project by default**: `/kb add --global` sends files to your global one, and the web page has a "New material goes to: project / global" switch. When recording a lesson the agent decides: things that only concern this project (build and flashing steps, wiring, team conventions) go to the project, reusable knowledge (chips, tools) and personal preferences to your global one; the save dialog can switch it with one choice.
+- **Misplaced? Move it**: `/kb move <id> project|global`, or "Move to project / Move to global" on the page.
+- **Committed**: notes, converted text (2-7% of the PDFs' size) and document descriptions. **Not committed**: originals and the local change log (see the generated `.pi/kb/.gitignore`; delete its `raw/` line to share originals too).
+- Teammates who pull the code get an index built when pi starts, and can search, ask AI and read the text with page numbers; "Open original" needs the original file. Later pushes show up after restarting pi or `/kb sync`.
+- The project knowledge base is committed: keep secrets out of it, and check the copyright before putting vendor documents' full text in a public repository.
 
 ## Web page
 

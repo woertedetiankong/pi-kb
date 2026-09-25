@@ -10,6 +10,8 @@ import { renderNote } from "./notes.ts";
 import { sharedHub } from "./hub.ts";
 import type { SearchHit } from "./store.ts";
 import { KbWebApp } from "./web.ts";
+import { Library, type Scope } from "./library.ts";
+import { findProjectKb, initProjectKb, type ProjectKb, projectRootFor } from "./project.ts";
 import { initQuestions, parseQuestions, questionsFile, readQuestions, runEval, summaryRows, writeReport } from "./eval.ts";
 import { folderSize, installRuntime, localModelDirs, removeLocalModel, runtimeInstalled } from "./semantic/providers.ts";
 import { type ImportJob, ImportQueue } from "./queue.ts";
@@ -21,7 +23,7 @@ const READ_LIMIT = 30_000;
 const KB_ADD_WAIT = 30_000;
 /** /kb list shows this many items; the web page shows everything. */
 const LIST_LIMIT = 50;
-const SUBCOMMANDS = ["on", "off", "status", "add", "cancel", "list", "search", "note", "remove", "sync", "semantic", "eval", "open", "web", "lang"];
+const SUBCOMMANDS = ["on", "off", "status", "add", "cancel", "list", "search", "note", "remove", "sync", "init", "move", "semantic", "eval", "open", "web", "lang"];
 /** Model-facing text is English regardless of the interface language. */
 const MODEL = messages("en");
 
@@ -93,10 +95,10 @@ export function textTable(rows: string[][]): string[] {
 	return rows.map((r) => r.map((cell, i) => (i === r.length - 1 ? cell : padDisplay(cell, widths[i]))).join("").trimEnd());
 }
 
-function formatHits(hits: SearchHit[], m: Messages): string {
+function formatHits(hits: (SearchHit & { scope?: Scope })[], m: Messages, scoped = false): string {
 	return hits
 		.map((hit, i) => {
-			const where = [hit.heading && `§ ${hit.heading}`, hit.collection === "wiki" && m.wikiNote, hit.match === "semantic" && m.semanticMatch]
+			const where = [scoped && hit.scope && m.scopeTag[hit.scope], hit.heading && `§ ${hit.heading}`, hit.collection === "wiki" && m.wikiNote, hit.match === "semantic" && m.semanticMatch]
 				.filter(Boolean)
 				.join(" · ");
 			return `${i + 1}. ${formatCitation(hit)} id=${hit.docId}${where ? ` · ${where}` : ""}\n   ${hit.snippet}`;
@@ -145,7 +147,9 @@ export default function piKb(pi: ExtensionAPI) {
 			const watch = {
 				file: join(kb.localDir, "config.json"),
 				listener: () => {
-					if (!kb?.reloadConfig()) return;
+					// Both read the same config.json; each notices the change on its own.
+					const changed = project?.kb.reloadConfig();
+					if (!kb || (!kb.reloadConfig() && !changed)) return;
 					// Another window moved the knowledge base: follow it.
 					if (resolve(kbLocation().dir) !== resolve(kb.root)) reopen();
 					repaint();
@@ -156,9 +160,31 @@ export default function piKb(pi: ExtensionAPI) {
 		}
 		return kb;
 	};
+	/** The project knowledge base of the folder pi runs in, if it has one (<project>/.pi/kb). */
+	let project: { kb: KnowledgeBase; info: ProjectKb } | undefined;
+	const closeProject = () => {
+		project?.kb.close();
+		project = undefined;
+	};
+	/** Find (or drop) the project knowledge base for `cwd`; opened with this machine's config and its own index. */
+	const attachProject = (cwd: string | undefined) => {
+		const global = open();
+		const info = cwd ? findProjectKb(cwd, [global.root, global.localDir]) : undefined;
+		if (project && info && resolve(project.info.dir) === resolve(info.dir)) return;
+		closeProject();
+		if (!info) return;
+		const kb = new KnowledgeBase(global.localDir, { dir: info.dir });
+		kb.onSemantic = repaint;
+		project = { kb, info };
+		kb.sync();
+		void kb.indexSemantic();
+	};
+	/** Everything in reach: the project's knowledge base (if any) and the user's global one. */
+	const lib = () => new Library(open(), project);
 	const close = () => {
 		if (configWatch) unwatchFile(configWatch.file, configWatch.listener);
 		configWatch = undefined;
+		closeProject();
 		kb?.close();
 		kb = undefined;
 	};
@@ -167,6 +193,7 @@ export default function piKb(pi: ExtensionAPI) {
 		close();
 		open().sync();
 		void open().indexSemantic();
+		attachProject(lastCtx?.cwd);
 	};
 
 	/**
@@ -237,11 +264,12 @@ export default function piKb(pi: ExtensionAPI) {
 	const webApp = new KbWebApp(
 		{
 			kb: () => open(),
+			library: () => lib(),
 			enabled: () => enabled(),
 			setEnabled: (on) => {
 				override = undefined;
 				open().updateConfig({ enabled: on });
-				if (on) open().sync();
+				if (on) lib().sync();
 				if (lastCtx) refresh(lastCtx);
 			},
 			changed: () => {
@@ -270,8 +298,9 @@ export default function piKb(pi: ExtensionAPI) {
 		pi.setActiveTools(on ? [...active, ...TOOLS] : active);
 		if (!ctx.hasUI) return;
 		if (on) {
-			const { docs, wiki } = open().store.stats();
-			ctx.ui.setStatus("kb", t().statusOn(docs, wiki) + semanticBadge() + importBadge() + installBadge());
+			const { docs, wiki } = lib().stats();
+			const where = project ? t().statusProject(project.info.name) : "";
+			ctx.ui.setStatus("kb", t().statusOn(docs, wiki) + where + semanticBadge() + importBadge() + installBadge());
 		} else {
 			ctx.ui.setStatus("kb", t().statusOff + importBadge() + installBadge());
 		}
@@ -307,7 +336,8 @@ export default function piKb(pi: ExtensionAPI) {
 	/** Repaints the status bar every second while importing, so the elapsed time moves. */
 	let ticker: NodeJS.Timeout | undefined;
 	const imports = new ImportQueue(
-		(item, signal, note) => open().addFile(item.path, { wiki: item.wiki, signal, source: item.source, replace: item.replace, onNote: note }),
+		(item, signal, note) =>
+			lib().kb(item.scope ?? "global").addFile(item.path, { wiki: item.wiki, signal, source: item.source, replace: item.replace, onNote: note }),
 		() => {
 			if (imports.active && !ticker) {
 				ticker = setInterval(() => lastCtx && refresh(lastCtx), 1000);
@@ -325,8 +355,8 @@ export default function piKb(pi: ExtensionAPI) {
 	 * new versions of imported documents are asked about first (replace, keep both, or cancel);
 	 * without a UI both are kept. Returns undefined when the user cancels.
 	 */
-	const startImport = async (paths: string[], cwd: string, note: boolean, ctx: ExtensionContext): Promise<ImportJob | undefined> => {
-		const base = open();
+	const startImport = async (paths: string[], cwd: string, note: boolean, ctx: ExtensionContext, scope: Scope = lib().defaultScope): Promise<ImportJob | undefined> => {
+		const base = lib().kb(scope);
 		const { files, skipped } = base.collectFiles(paths, cwd);
 		const versions = new Map(note ? [] : files.map((path) => [path, base.previousVersions(path).map((d) => d.id)] as const).filter(([, ids]) => ids.length));
 		if (versions.size && ctx.hasUI) {
@@ -336,7 +366,7 @@ export default function piKb(pi: ExtensionAPI) {
 			if (choice !== replace && choice !== keep) return undefined;
 			if (choice === keep) versions.clear();
 		} else versions.clear();
-		return imports.enqueue(files.map((path) => ({ path, wiki: note, replace: versions.get(path) })), skipped);
+		return imports.enqueue(files.map((path) => ({ path, wiki: note, replace: versions.get(path), scope })), skipped);
 	};
 
 	/** Tell the user how a background import went. */
@@ -362,6 +392,7 @@ export default function piKb(pi: ExtensionAPI) {
 			open().sync();
 			void open().indexSemantic();
 		}
+		attachProject(ctx.cwd);
 		refresh(ctx);
 	});
 
@@ -395,8 +426,14 @@ export default function piKb(pi: ExtensionAPI) {
 				: []),
 			"- When you solve a non-obvious problem (a root cause found by debugging, a gotcha, a workaround) or learn a lasting fact or preference about the user's setup, save it with kb_note before your final reply, once the fix is verified. The user reviews every note, so just call it; if they decline, do not retry unless they ask. Do not note routine work.",
 			"- The knowledge base is your only memory across sessions: never tell the user you will remember something unless you saved it with kb_note.",
+			...(project
+				? [
+						`- This project has its own knowledge base "${project.info.name}" (in .pi/kb, committed to git and shared with the whole team) next to the user's personal global one. kb_search covers both and marks hits [project] or [global]; for questions about this project, the project's material wins when they disagree.`,
+						"- kb_note and kb_add take a scope: project for what only concerns this project (its build and flashing steps, wiring, conventions, this board's quirks): teammates will see it; global for reusable knowledge (a chip, a tool, a general technique) and the user's personal preferences. Never put secrets (keys, passwords, tokens) in project notes.",
+					]
+				: []),
 			"",
-			open().catalog(),
+			lib().catalog(),
 		].join("\n");
 	});
 
@@ -432,9 +469,9 @@ export default function piKb(pi: ExtensionAPI) {
 		}),
 		async execute(_id, params) {
 			const scope = params.scope && params.scope !== "all" ? params.scope : undefined;
-			const hits = await open().find(params.query, { limit: params.limit, collection: scope });
+			const hits = await lib().find(params.query, { limit: params.limit, collection: scope });
 			let text = hits.length
-				? formatHits(hits, MODEL)
+				? formatHits(hits, MODEL, !!project)
 				: "No matches. Try fewer or different keywords, synonyms, or the other language.";
 			// Files still importing are not searchable yet; without this the model tells the user the knowledge base lacks them.
 			const pending = imports.pending();
@@ -457,7 +494,7 @@ export default function piKb(pi: ExtensionAPI) {
 			offset: Type.Optional(Type.Integer({ minimum: 0, description: "Character offset for continuing a long read" })),
 		}),
 		async execute(_id, params) {
-			const { doc, text } = open().read(params.id, params.pages);
+			const { doc, text } = lib().read(params.id, params.pages);
 			const offset = params.offset ?? 0;
 			const slice = text.slice(offset, offset + READ_LIMIT);
 			const more = offset + READ_LIMIT < text.length;
@@ -478,6 +515,11 @@ export default function piKb(pi: ExtensionAPI) {
 		parameters: Type.Object({
 			paths: Type.Array(Type.String(), { minItems: 1, description: "Files or folders to import" }),
 			as_note: Type.Optional(Type.Boolean({ description: "Store Markdown files as wiki notes (experience, lessons)" })),
+			scope: Type.Optional(
+				Type.Union([Type.Literal("project"), Type.Literal("global")], {
+					description: "project: this project's shared knowledge base (default when it has one); global: the user's personal one",
+				}),
+			),
 		}),
 		executionMode: "sequential",
 		async execute(_id, params, _signal, _onUpdate, ctx) {
@@ -493,7 +535,8 @@ export default function piKb(pi: ExtensionAPI) {
 					return { content: [{ type: "text", text }], details: undefined };
 				}
 			}
-			const job = await startImport(params.paths, ctx.cwd, params.as_note ?? false, ctx);
+			const where = project && params.scope !== "global" ? "project" : "global";
+			const job = await startImport(params.paths, ctx.cwd, params.as_note ?? false, ctx, where);
 			if (!job) {
 				const text = "The user cancelled this import; nothing was imported. Do not retry on your own, but if the user asks for it again, call kb_add again.";
 				return { content: [{ type: "text", text }], details: undefined };
@@ -536,25 +579,44 @@ export default function piKb(pi: ExtensionAPI) {
 				}),
 			),
 			id: Type.Optional(Type.String({ description: "Existing wiki note id (w-…) for append or replace" })),
+			scope: Type.Optional(
+				Type.Union([Type.Literal("project"), Type.Literal("global")], {
+					description:
+						"Only when this project has its own knowledge base. project: only concerns this project, shared with the team; global: reusable or personal. Ignored for append and replace (the note stays where it is)",
+				}),
+			),
 		}),
 		executionMode: "sequential",
 		async execute(_id, params, _signal, _onUpdate, ctx) {
-			const base = open();
+			const library = lib();
 			const mode: NoteMode = params.mode ?? "create";
-			const project = basename(ctx.cwd) || undefined;
-			const prepared = base.prepareNote({ ...params, project }, mode, params.id);
+			// An existing note stays in its knowledge base; a new one goes where the model said (or the project's).
+			let scope: Scope = mode !== "create" && params.id ? (library.locate(params.id)?.scope ?? "global") : project ? (params.scope ?? "project") : "global";
+			const projectName = basename(ctx.cwd) || undefined;
+			let base = library.kb(scope);
+			let prepared = base.prepareNote({ ...params, project: projectName }, mode, params.id);
 			let edited: string | undefined;
 			if (ctx.hasUI) {
 				const m = t();
 				const preview = renderNote(prepared.note);
 				const title = prepared.existing?.title ?? "";
 				const verb = mode === "create" ? m.noteNew : mode === "append" ? m.noteAppend(title) : m.noteReplace(title);
-				ctx.ui.setWidget("kb", [`📚 ${verb}`, ...preview.split("\n").slice(0, 40)]);
+				const name = project?.info.name ?? "";
+				const whereNow = project ? ` → ${m.scopeLabel(scope, name)}` : "";
+				ctx.ui.setWidget("kb", [`📚 ${verb}${whereNow}`, ...preview.split("\n").slice(0, 40)]);
 				try {
-					const [save, edit] = m.noteChoices;
-					const choice = await ctx.ui.select(m.noteAsk(prepared.note.meta.title), [...m.noteChoices]);
-					if (choice === edit) edited = await ctx.ui.editor(m.noteEditor, preview);
-					if (!(choice === save || (choice === edit && edited !== undefined))) {
+					const [save, edit, skip] = m.noteChoices;
+					// A new note can go to the other knowledge base instead: the user decides what the team sees.
+					const other: Scope = scope === "project" ? "global" : "project";
+					const switchTo = project && mode === "create" ? m.noteSwitch(m.scopeLabel(other, name)) : undefined;
+					const choices = switchTo ? [save, edit, switchTo, skip] : [save, edit, skip];
+					const choice = await ctx.ui.select(m.noteAsk(prepared.note.meta.title) + whereNow, choices);
+					if (switchTo && choice === switchTo) {
+						scope = other;
+						base = library.kb(scope);
+						prepared = base.prepareNote({ ...params, project: projectName }, mode, params.id);
+					} else if (choice === edit) edited = await ctx.ui.editor(m.noteEditor, preview);
+					if (!(choice === save || choice === switchTo || (choice === edit && edited !== undefined))) {
 						return {
 							content: [{ type: "text", text: "The user chose not to save this note. Do not retry on your own, but if the user asks for it again, call kb_note again: they will review it again." }],
 							details: { saved: false },
@@ -566,7 +628,8 @@ export default function piKb(pi: ExtensionAPI) {
 			}
 			const doc = base.writeNote(prepared, edited);
 			refresh(ctx);
-			const text = `Saved wiki note "${doc.title}" (${doc.id}) at ${doc.path}${edited !== undefined ? " after the user edited it" : ""}.`;
+			const where = project ? ` in the ${scope === "project" ? `project knowledge base "${project.info.name}" (shared with the team once committed)` : "user's global knowledge base"}` : "";
+			const text = `Saved wiki note "${doc.title}" (${doc.id})${where} at ${doc.path}${edited !== undefined ? " after the user edited it" : ""}.`;
 			return { content: [{ type: "text", text }], details: { saved: true, id: doc.id } };
 		},
 	});
@@ -591,7 +654,7 @@ export default function piKb(pi: ExtensionAPI) {
 				case "off": {
 					override = undefined;
 					base.updateConfig({ enabled: sub === "on" });
-					if (sub === "on") base.sync();
+					if (sub === "on") lib().sync();
 					refresh(ctx);
 					ctx.ui.notify(sub === "on" ? m.enabled : m.disabled, "info");
 					return;
@@ -599,21 +662,57 @@ export default function piKb(pi: ExtensionAPI) {
 				case "status": {
 					const { docs, wiki, pages } = base.store.stats();
 					const importing = imports.active ? m.importing(imports.status.done, imports.status.total) : "";
-					ctx.ui.notify(m.status(enabled(), docs, pages, wiki, base.root) + importing, "info");
+					const own = project ? `\n${m.projectStatus(project.info.name, project.kb.store.stats().docs, project.kb.store.stats().wiki, project.info.dir)}` : "";
+					ctx.ui.notify(m.status(enabled(), docs, pages, wiki, base.root) + own + importing, "info");
+					return;
+				}
+				case "init": {
+					const existing = project?.info;
+					if (existing) {
+						ctx.ui.notify(m.initExists(existing.dir), "info");
+						return;
+					}
+					const { project: info } = initProjectKb(projectRootFor(ctx.cwd));
+					attachProject(ctx.cwd);
+					refresh(ctx);
+					ctx.ui.notify(m.initCreated(info.dir), "info");
+					return;
+				}
+				case "move": {
+					const [id, to] = rest;
+					const found = id ? lib().locate(id) : undefined;
+					if (!found || (to !== "project" && to !== "global")) {
+						ctx.ui.notify(m.usageMove, "warning");
+						return;
+					}
+					if (to === "project" && !project) {
+						ctx.ui.notify(m.noProject, "warning");
+						return;
+					}
+					const moved = lib().move(id, to);
+					refresh(ctx);
+					ctx.ui.notify(m.moved(moved.title, m.scopeLabel(to, project?.info.name ?? "")), "info");
 					return;
 				}
 				case "add": {
 					const note = rest.includes("--note");
-					const paths = rest.filter((a) => a !== "--note");
+					const wantProject = rest.includes("--project");
+					const paths = rest.filter((a) => a !== "--note" && a !== "--project" && a !== "--global");
+					if (wantProject && !project) {
+						ctx.ui.notify(m.noProject, "warning");
+						return;
+					}
+					const scope: Scope = project && !rest.includes("--global") ? "project" : "global";
 					if (!paths.length) {
 						ctx.ui.notify(m.usageAdd, "warning");
 						return;
 					}
-					const job = await startImport(paths, ctx.cwd, note, ctx);
+					const job = await startImport(paths, ctx.cwd, note, ctx, scope);
 					if (!job) {
 						ctx.ui.notify(m.importCancelled, "info");
 						return;
 					}
+					if (project) ctx.ui.notify(m.importingTo(m.scopeLabel(scope, project.info.name)), "info");
 					const queued = job.total - job.results.length;
 					if (!queued) {
 						reportImport(job.results);
@@ -631,12 +730,13 @@ export default function piKb(pi: ExtensionAPI) {
 				case "list": {
 					const filter = rest.join(" ").trim();
 					const words = filter.toLowerCase().split(/\s+/).filter(Boolean);
-					const all = base.store.listDocs();
+					const all = lib().listDocs();
 					const docs = all.filter((d) => words.every((w) => `${d.title} ${d.id}`.toLowerCase().includes(w)));
 					const shown = docs.slice(0, LIST_LIMIT);
 					const lines = shown.map((d) => {
 						const kind = m.kinds[d.collection === "wiki" ? "note" : d.kind] ?? d.kind;
-						return `${padDisplay(kind, 7)}${d.id}  ${d.title}${d.pages ? ` · ${m.pages(d.pages)}` : ""}`;
+						const tag = project ? `${m.scopeTag[d.scope]} ` : "";
+						return `${tag}${padDisplay(kind, 7)}${d.id}  ${d.title}${d.pages ? ` · ${m.pages(d.pages)}` : ""}`;
 					});
 					if (docs.length > shown.length) lines.push(m.listMore(shown.length, docs.length));
 					const body = lines.length ? lines.join("\n") : filter ? m.listNone(filter) : m.listEmpty;
@@ -649,20 +749,20 @@ export default function piKb(pi: ExtensionAPI) {
 						ctx.ui.notify(m.usageSearch, "warning");
 						return;
 					}
-					const hits = await base.find(query, { limit: 10 });
-					show(ctx, m.searchTitle(hits.length, query), hits.length ? formatHits(hits, m) : m.noMatches);
+					const hits = await lib().find(query, { limit: 10 });
+					show(ctx, m.searchTitle(hits.length, query), hits.length ? formatHits(hits, m, !!project) : m.noMatches);
 					return;
 				}
 				case "remove": {
 					const id = rest[0];
-					const doc = id ? base.store.getDoc(id) : undefined;
+					const doc = id ? lib().locate(id)?.doc : undefined;
 					if (!doc) {
 						ctx.ui.notify(m.usageRemove, "warning");
 						return;
 					}
 					const what = doc.collection === "wiki" ? m.removeNote : m.removeDoc;
 					if (ctx.hasUI && !(await ctx.ui.confirm(m.removeTitle(doc.title), what))) return;
-					base.remove(doc.id);
+					lib().remove(doc.id);
 					refresh(ctx);
 					ctx.ui.notify(m.removed(doc.title), "info");
 					return;
@@ -678,15 +778,17 @@ export default function piKb(pi: ExtensionAPI) {
 					return;
 				}
 				case "sync": {
-					const { updated, removed } = base.sync();
+					const { updated, removed } = lib().sync();
 					refresh(ctx);
 					ctx.ui.notify(m.synced(updated, removed), "info");
 					return;
 				}
 				case "open": {
 					const [cmd, ...cmdArgs] = opener();
-					await pi.exec(cmd, [...cmdArgs, base.root]).catch(() => undefined);
-					ctx.ui.notify(m.folder(base.root), "info");
+					// Inside a project with its own knowledge base, that is the folder people look for.
+					const folder = project?.info.dir ?? base.root;
+					await pi.exec(cmd, [...cmdArgs, folder]).catch(() => undefined);
+					ctx.ui.notify(m.folder(folder), "info");
 					return;
 				}
 				case "web": {

@@ -90,6 +90,11 @@ main { overflow-y: auto; border-right: 1px solid var(--line); }
 .card .meta { display: flex; gap: 6px; align-items: center; margin: 5px 0 0; font-size: 11.5px; color: var(--faint); flex-wrap: wrap; }
 .kind { font-size: 11px; font-weight: 600; border-radius: 4px; padding: 0 6px; background: var(--user); color: var(--muted); flex: none; }
 .kind.note { background: var(--accent-soft); color: var(--accent-text); }
+.scope { font-size: 11px; font-weight: 600; border-radius: 4px; padding: 0 6px; flex: none; border: 1px solid var(--line-strong); color: var(--muted); }
+.scope.project { border-color: color-mix(in srgb, var(--ok) 45%, transparent); color: var(--ok); }
+.target { padding: 10px 10px 0; font-size: 12px; color: var(--faint); }
+.target .seg { margin-top: 4px; display: flex; }
+.target .seg button { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .cite { color: var(--accent-text); font-weight: 600; }
 .sem { font-size: 11px; font-weight: 600; border-radius: 4px; padding: 0 6px; background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
 .sem-line { font-size: 13px; color: var(--muted); margin: 0 0 14px; }
@@ -354,6 +359,12 @@ const T = {
     overview: "知识库概览", ovDocs: "份文档", ovPages: "页", ovNotes: "条经验笔记",
     ovTips: ["把文件拖到页面上导入：左边作为资料，右边作为经验笔记。", "知识库开启时，pi 的 agent 会先检索这里，回答时带上 [文件名 p.页码] 引用。", "解决难题后，agent 会提议把经验记成笔记；也可以在 pi 里运行 /kb note。", "笔记是普通 Markdown 文件，可以用 Obsidian 打开 wiki 文件夹编辑。"],
     ovStatusOff: "知识库当前已关闭，agent 不会使用它。",
+    scope: { project: "项目", global: "全局" }, scopeTip: { project: "项目知识库：放在项目的 .pi/kb 里，提交到 git 后团队共享", global: "你自己的全局知识库，只有你能看到" },
+    viewProject: "本项目", viewGlobal: "我的全局库", target: "新资料放到", targetProject: n => `项目「${n}」`,
+    moveTo: { project: "移到项目库", global: "移到全局库" }, moved: { project: "已移到项目库", global: "已移到全局库" },
+    moveConfirm: { project: (t, n) => `把“${t}”移到项目「${n}」的知识库？提交到 git 后团队成员都能看到。`, global: t => `把“${t}”移到你的全局知识库？它会从项目知识库中移除，团队成员以后看不到。` },
+    ovProject: (n, d, w) => `当前项目「${n}」有自己的知识库：${d} 份资料、${w} 条笔记，提交到 git 后和团队共享。`,
+    ovNoProject: "在项目目录里运行 /kb init，可以为项目建一个随 git 共享的知识库，团队成员拉取代码就能用上。",
     semanticHit: "语义相近", semanticHitTip: "意思相关，但不一定包含你搜索的词",
     semOff: "语义检索未开启：只按关键词搜索。开启后可以用自然语言提问，中英文也能互相搜到。",
     semIndexing: (d, t) => `语义检索：正在建立索引 ${d}/${t}`, semReady: t => `语义检索已开启：${t} 个片段`, semDownload: p => `语义检索：正在下载模型 ${p}%`,
@@ -423,6 +434,12 @@ const T = {
     overview: "Overview", ovDocs: "documents", ovPages: "pages", ovNotes: "experience notes",
     ovTips: ["Drop files on the page to import them: left side as documents, right side as experience notes.", "While the knowledge base is on, pi's agent searches it first and cites answers as [file p.N].", "After solving a hard problem the agent offers to save the lesson as a note; you can also run /kb note in pi.", "Notes are plain Markdown files; open the wiki folder in Obsidian to edit them."],
     ovStatusOff: "The knowledge base is off, so the agent does not use it.",
+    scope: { project: "project", global: "global" }, scopeTip: { project: "Project knowledge base: in the project's .pi/kb, shared with the team through git", global: "Your own global knowledge base, only you see it" },
+    viewProject: "This project", viewGlobal: "My global", target: "New material goes to", targetProject: n => `project "${n}"`,
+    moveTo: { project: "Move to project", global: "Move to global" }, moved: { project: "Moved to the project knowledge base", global: "Moved to your global knowledge base" },
+    moveConfirm: { project: (t, n) => `Move "${t}" to the knowledge base of project "${n}"? Once committed, the whole team sees it.`, global: t => `Move "${t}" to your global knowledge base? It leaves the project's knowledge base, so teammates will no longer see it.` },
+    ovProject: (n, d, w) => `This project, "${n}", has its own knowledge base: ${d} documents and ${w} notes, shared with the team through git.`,
+    ovNoProject: "Run /kb init in a project folder to give the project a knowledge base shared through git: teammates get it with the code.",
     semanticHit: "semantic", semanticHitTip: "Related in meaning; may not contain your words",
     semOff: "Semantic search is off, so only keywords match. Turn it on to ask in natural language and search across Chinese and English.",
     semIndexing: (d, t) => `Semantic search: indexing ${d}/${t}`, semReady: t => `Semantic search on: ${t} chunks`, semDownload: p => `Semantic search: downloading the model ${p}%`,
@@ -565,6 +582,11 @@ function splitNote(text) {
 // ---- rendering ----
 const fmtDate = iso => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleDateString(LANG === "zh" ? "zh-CN" : "en-US", { year: "numeric", month: "short", day: "numeric" }); };
 const kindOf = d => d.collection === "wiki" ? "note" : d.kind;
+/** Scope tags only matter when this folder has a project knowledge base. */
+const hasProject = () => !!state.status?.project;
+const scopeTag = sc => hasProject() && sc ? `<span class="scope ${sc}" title="${esc(T.scopeTip[sc])}">${esc(T.scope[sc])}</span>` : "";
+let target = (() => { try { return JSON.parse(localStorage.getItem("pi-kb-prefs") || "{}").target || "project"; } catch { return "project"; } })();
+const targetScope = () => hasProject() ? target : "global";
 function highlight(text, q) {
   let html = esc(text);
   const words = q.toLowerCase().split(/\s+/).filter(w => w.length > 0).sort((a, b) => b.length - a.length);
@@ -603,22 +625,24 @@ function renderSide() {
     ${nav("docs", "▤", T.docs, docs.filter(d => d.collection === "docs").length)}
     ${kinds.map(k => nav("kind:" + k, "", T.kinds[k], count(k), true)).join("")}
     ${nav("wiki", "✎", T.notes, count("note"))}
+    ${hasProject() ? `${nav("scope:project", "📁", `${T.viewProject} · ${state.status.project.name}`, docs.filter(d => d.scope === "project").length)}${nav("scope:global", "👤", T.viewGlobal, docs.filter(d => d.scope === "global").length)}` : ""}
     <div class="nav-label">${esc(T.actions)}</div>
     <button class="nav" id="newNoteBtn"><span class="ico">＋</span><span class="name">${esc(T.newNote)}</span></button>
     <button class="nav" id="syncBtn"><span class="ico">↻</span><span class="name">${esc(T.sync)}</span></button>
     <button class="nav" id="semBtn"><span class="ico">⚙</span><span class="name">${esc(T.settings)}</span></button>
+    ${hasProject() ? `<div class="target">${esc(T.target)}<div class="seg" id="targetSeg"><button data-target="project" class="${target === "project" ? "on" : ""}" title="${esc(T.targetProject(state.status.project.name))} · ${esc(state.status.project.dir)}">${esc(T.scope.project)}</button><button data-target="global" class="${target === "global" ? "on" : ""}" title="${esc(T.scopeTip.global)}">${esc(T.scope.global)}</button></div></div>` : ""}
     <div class="side-foot">${esc(T.folder)}<br>${esc(state.status?.root ?? "")}</div>`;
 }
 
 function visibleDocs() {
   const v = state.view;
-  return state.docs.filter(d => v === "all" || (v === "docs" && d.collection === "docs") || (v === "wiki" && d.collection === "wiki") || (v.startsWith("kind:") && kindOf(d) === v.slice(5)));
+  return state.docs.filter(d => v === "all" || (v === "docs" && d.collection === "docs") || (v === "wiki" && d.collection === "wiki") || (v.startsWith("kind:") && kindOf(d) === v.slice(5)) || (v.startsWith("scope:") && d.scope === v.slice(6)));
 }
 
 function card(d, extra = "") {
   const k = kindOf(d);
   return `<button class="card${state.selected === d.id ? " on" : ""}" data-id="${esc(d.id)}">
-    <div class="row1"><span class="kind${k === "note" ? " note" : ""}">${esc(T.kinds[k] ?? k)}</span><span class="title">${esc(d.title)}</span><span class="time num">${esc(fmtDate(d.added_at))}</span></div>
+    <div class="row1">${scopeTag(d.scope)}<span class="kind${k === "note" ? " note" : ""}">${esc(T.kinds[k] ?? k)}</span><span class="title">${esc(d.title)}</span><span class="time num">${esc(fmtDate(d.added_at))}</span></div>
     ${extra}
     <div class="meta">${d.pages ? `<span>${esc(T.pages(d.pages))}</span>` : ""}<span class="num">${esc(d.id)}</span></div>
   </button>`;
@@ -635,7 +659,7 @@ function answerCard() {
   if (!r.answer) return `<div class="answer">${head}<p class="none">${esc(T.askNone)}</p>${r.queries.length ? `<p class="fine">${esc(T.askSearched(r.queries.join(" · ")))}</p>` : ""}</div>`;
   const body = markdown(r.answer).replace(/\[(\d+)\]/g, (whole, n) => r.sources[n - 1] ? `<button class="ref" data-ref="${n}" title="${esc(r.sources[n - 1].title)}">${n}</button>` : whole);
   const cite = s => s.page ? `${s.title} · ${T.page(s.page)}` : s.title;
-  const sources = r.sources.map(s => `<button data-ref="${s.n}"><span class="num">[${s.n}]</span><span>${esc(cite(s))}</span></button>`).join("");
+  const sources = r.sources.map(s => `<button data-ref="${s.n}"><span class="num">[${s.n}]</span>${scopeTag(s.scope)}<span>${esc(cite(s))}</span></button>`).join("");
   return `<div class="answer">${head}<div class="md">${body}</div>${sources ? `<div class="answer-src">${sources}</div>` : ""}
     <p class="fine">${esc(T.askCheck)} ${esc(T.answeredBy(modelName(r.model)))}${r.queries.length ? ` ${esc(T.askSearched(r.queries.join(" · ")))}` : ""}</p></div>`;
 }
@@ -652,7 +676,7 @@ function renderList() {
       ? hits.map(h => {
           const cite = h.page ? `${h.title} · ${T.page(h.page)}` : h.title;
           return `<button class="card${state.selected === h.docId && state.focusPage === h.page ? " on" : ""}" data-id="${esc(h.docId)}" data-page="${h.page ?? ""}">
-            <div class="row1"><span class="kind${h.collection === "wiki" ? " note" : ""}">${esc(h.collection === "wiki" ? T.kinds.note : T.docs)}</span><span class="title cite">${esc(cite)}</span></div>
+            <div class="row1">${scopeTag(h.scope)}<span class="kind${h.collection === "wiki" ? " note" : ""}">${esc(h.collection === "wiki" ? T.kinds.note : T.docs)}</span><span class="title cite">${esc(cite)}</span></div>
             <div class="summary">${highlight(h.snippet, state.q)}</div>
             ${h.heading || h.match === "semantic" ? `<div class="meta">${h.match === "semantic" ? `<span class="sem" title="${esc(T.semanticHitTip)}">${esc(T.semanticHit)}</span>` : ""}${h.heading ? `§ ${esc(h.heading)}` : ""}</div>` : ""}
           </button>`;
@@ -663,11 +687,20 @@ function renderList() {
     return;
   }
   const docs = visibleDocs();
-  const title = state.view === "all" ? T.all : state.view === "docs" ? T.docs : state.view === "wiki" ? T.notes : T.kinds[state.view.slice(5)];
+  const title = state.view === "all" ? T.all : state.view === "docs" ? T.docs : state.view === "wiki" ? T.notes
+    : state.view === "scope:project" ? `${T.viewProject} · ${state.status?.project?.name ?? ""}` : state.view === "scope:global" ? T.viewGlobal : T.kinds[state.view.slice(5)];
   const empty = state.docs.length
     ? `<div class="empty">${esc(T.emptyView)}</div>`
     : `<div class="empty"><b>${esc(T.empty)}</b><br>${esc(T.emptyHint)}<br><button class="btn primary" id="emptyUpload">${esc(T.upload)}</button></div>`;
   $("list").innerHTML = `<div class="list-head"><h2>${esc(title)}</h2><span class="sub">${esc(T.items(docs.length))}</span>${progress}</div><div class="group">${answerCard()}${docs.length ? docs.map(d => card(d)).join("") : empty}</div>`;
+}
+
+/** "Move to project/global" for the open document, when there is a project to move to. */
+function moveButton() {
+  const sc = state.doc?.scope;
+  if (!hasProject() || !sc) return "";
+  const to = sc === "project" ? "global" : "project";
+  return `<button class="btn" id="moveDoc" data-to="${to}">${esc(T.moveTo[to])}</button>`;
 }
 
 async function renderPreview() {
@@ -694,18 +727,18 @@ async function renderPreview() {
       [T.id, `<span class="num">${esc(doc.id)}</span>`],
     ].filter(Boolean);
     pv.innerHTML = `<div class="pv">${back}
-      <h1>${esc(doc.title)}</h1>
+      <h1>${scopeTag(state.doc.scope)} ${esc(doc.title)}</h1>
       <dl class="facts">${facts.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>
       ${state.editing
         ? `<textarea class="editor" id="noteText">${esc(text)}</textarea><div class="actions" style="margin-top:10px"><button class="btn primary" id="saveNote">${esc(T.save)}</button><button class="btn" id="cancelEdit">${esc(T.cancel)}</button></div>`
-        : `<div class="actions"><button class="btn" id="editNote">${esc(T.edit)}</button><button class="btn danger" id="removeDoc">${esc(T.remove)}</button></div><div class="md">${markdown(body)}</div>`}
+        : `<div class="actions"><button class="btn" id="editNote">${esc(T.edit)}</button>${moveButton()}<button class="btn danger" id="removeDoc">${esc(T.remove)}</button></div><div class="md">${markdown(body)}</div>`}
     </div>`;
     return;
   }
   const pdf = /\.pdf$/i.test(doc.title);
   const image = doc.kind === "image";
   pv.innerHTML = `<div class="pv">${back}
-    <h1>${esc(doc.title)}</h1>
+    <h1>${scopeTag(state.doc.scope)} ${esc(doc.title)}</h1>
     <dl class="facts">
       <dt>${esc(T.type)}</dt><dd>${esc(T.kinds[doc.kind] ?? doc.kind)}</dd>
       ${doc.pages ? `<dt>${esc(T.pageCount)}</dt><dd>${doc.pages}</dd>` : ""}
@@ -713,7 +746,7 @@ async function renderPreview() {
       <dt>${esc(T.source)}</dt><dd>${esc(doc.source.replace(/^upload:/, ""))}</dd>
       <dt>${esc(T.id)}</dt><dd class="num">${esc(doc.id)}</dd>
     </dl>
-    <div class="actions"><button class="btn" id="openOriginal" data-page="${state.focusPage ?? ""}">${esc(T.openOriginal)} ↗</button><button class="btn danger" id="removeDoc">${esc(T.remove)}</button></div>
+    <div class="actions"><button class="btn" id="openOriginal" data-page="${state.focusPage ?? ""}">${esc(T.openOriginal)} ↗</button>${moveButton()}<button class="btn danger" id="removeDoc">${esc(T.remove)}</button></div>
     ${image ? `<img class="orig" id="origImg" alt="">` : ""}
     <div class="md">${markdown(text, { pdf, hitPage: state.focusPage })}</div>
   </div>`;
@@ -737,6 +770,7 @@ function overview() {
   return `<div class="pv"><h1>${esc(T.overview)}</h1>
     <div class="stats">${stat(st.docs, T.ovDocs)}${stat(st.pages, T.ovPages)}${stat(st.wiki, T.ovNotes)}</div>
     ${st.enabled ? "" : `<p class="warn-line">${esc(T.ovStatusOff)}</p>`}
+    <p class="sem-line">📁 ${esc(st.project ? T.ovProject(st.project.name, st.project.docs, st.project.wiki) : T.ovNoProject)}</p>
     <p class="${st.semantic?.state === "error" || st.semantic?.installError ? "warn-line" : "sem-line"}">🧠 ${esc(semanticLine(st.semantic))}<button id="semOpen">${esc(T.semSetup)} →</button></p>
     <ul class="tips">${T.ovTips.map(t => `<li>${esc(t)}</li>`).join("")}</ul></div>`;
 }
@@ -803,7 +837,7 @@ async function upload(files, note) {
   const results = [], jobs = [];
   for (const [i, file] of list.entries()) {
     state.uploading = T.sending(i + 1, list.length, file.name); renderList();
-    const url = `/upload?name=${encodeURIComponent(file.name)}${note ? "&note=1" : ""}`;
+    const url = `/upload?name=${encodeURIComponent(file.name)}${note ? "&note=1" : ""}&scope=${targetScope()}`;
     try {
       let r = await api(url, { raw: file });
       if (r.versions) {
@@ -894,7 +928,7 @@ async function loadModels() {
 }
 $("askModel").addEventListener("change", e => {
   models.pick = e.target.value;
-  try { localStorage.setItem("pi-kb-prefs", JSON.stringify({ askModel: models.pick })); } catch {}
+  try { const p = JSON.parse(localStorage.getItem("pi-kb-prefs") || "{}"); localStorage.setItem("pi-kb-prefs", JSON.stringify({ ...p, askModel: models.pick })); } catch {}
 });
 $("files").addEventListener("change", e => { upload(e.target.files, false); e.target.value = ""; });
 $("noteFiles").addEventListener("change", e => { $("newNote").close(); upload(e.target.files, true); e.target.value = ""; });
@@ -904,6 +938,11 @@ $("side").addEventListener("click", async e => {
   if (b.dataset.view) { state.view = b.dataset.view; state.hits = null; state.q = ""; $("q").value = ""; renderSide(); renderList(); return; }
   if (b.id === "newNoteBtn") { $("newNoteErr").hidden = true; $("newNote").showModal(); return; }
   if (b.id === "semBtn") return openSemantic();
+  if (b.dataset.target) {
+    target = b.dataset.target;
+    try { const p = JSON.parse(localStorage.getItem("pi-kb-prefs") || "{}"); localStorage.setItem("pi-kb-prefs", JSON.stringify({ ...p, target })); } catch {}
+    renderSide(); return;
+  }
   if (b.id === "syncBtn") { try { const r = await api("/sync", { body: {} }); etags = {}; await refresh(); toast(T.synced(r.updated, r.removed)); } catch (err) { toast(err.message); } }
 });
 $("list").addEventListener("click", e => {
@@ -922,6 +961,13 @@ $("preview").addEventListener("click", async e => {
   if (b.id === "openOriginal") return openOriginal(id, Number(b.dataset.page) || null);
   if (b.dataset.page && b.closest(".page-mark")) return openOriginal(id, Number(b.dataset.page));
   if (b.id === "editNote") { state.editing = true; renderPreview(); return; }
+  if (b.id === "moveDoc" && doc) {
+    const to = b.dataset.to;
+    if (!confirm(to === "project" ? T.moveConfirm.project(doc.title, state.status.project.name) : T.moveConfirm.global(doc.title))) return;
+    try { const r = await api("/move", { body: { id, to } }); state.doc = null; state.selected = r.doc.id; etags = {}; await refresh(); renderPreview(); toast(T.moved[to]); }
+    catch (err) { toast(err.message); }
+    return;
+  }
   if (b.id === "cancelEdit") { state.editing = false; renderPreview(); return; }
   if (b.id === "saveNote") {
     try { await api("/note", { body: { id, text: $("noteText").value } }); state.editing = false; state.doc = null; etags = {}; await refresh(); renderPreview(); toast(T.saved); }
@@ -945,7 +991,7 @@ $("newNote").querySelector("form").addEventListener("submit", async e => {
   const f = new FormData(e.target);
   const tags = String(f.get("tags") || "").split(/[,，]/).map(t => t.trim()).filter(Boolean);
   try {
-    const { doc } = await api("/note", { body: { title: f.get("title"), text: f.get("body"), tags } });
+    const { doc } = await api("/note", { body: { title: f.get("title"), text: f.get("body"), tags, scope: targetScope() } });
     $("newNote").close(); e.target.reset(); etags = {}; await refresh(); select(doc.id); toast(T.saved);
   } catch (err) { $("newNoteErr").textContent = err.message; $("newNoteErr").hidden = false; }
 });
