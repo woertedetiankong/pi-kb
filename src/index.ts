@@ -4,13 +4,13 @@ import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 import { kbRoot } from "./config.ts";
 import { type LanguageSetting, type Messages, messages, resolveLanguage } from "./i18n.ts";
-import { type AddResult, formatCitation, KnowledgeBase, type NoteMode } from "./kb.ts";
+import { type AddResult, formatCitation, KnowledgeBase, type NoteMode, pathsOutside } from "./kb.ts";
 import { renderNote } from "./notes.ts";
 import { sharedHub } from "./hub.ts";
 import type { SearchHit } from "./store.ts";
 import { KbWebApp } from "./web.ts";
 import { initQuestions, parseQuestions, questionsFile, readQuestions, runEval, summaryRows, writeReport } from "./eval.ts";
-import { installRuntime, runtimeInstalled } from "./semantic/providers.ts";
+import { folderSize, installRuntime, localModelDirs, removeLocalModel, runtimeInstalled } from "./semantic/providers.ts";
 import { type ImportJob, ImportQueue } from "./queue.ts";
 import { NUDGE_TYPE, noteNudge, nudgeText } from "./nudge.ts";
 
@@ -49,6 +49,18 @@ export function splitArgs(input: string): string[] {
 	}
 	if (started) out.push(current);
 	return out;
+}
+
+/** "1.1 GB", "610 MB", "12 KB". */
+export function formatSize(bytes: number): string {
+	const units = ["B", "KB", "MB", "GB"];
+	let n = bytes;
+	let i = 0;
+	while (n >= 1000 && i < units.length - 1) {
+		n /= 1000;
+		i++;
+	}
+	return `${i && n < 10 ? n.toFixed(1) : Math.round(n)} ${units[i]}`;
 }
 
 /** Terminal columns a string occupies, counting CJK and full-width characters as two. */
@@ -247,7 +259,7 @@ export default function piKb(pi: ExtensionAPI) {
 						"- Semantic search is on: kb_search also understands natural-language questions, synonyms and Chinese/English across each other. Hits marked 'semantic' are related in meaning but may not contain your words; check them with kb_read before citing.",
 					]
 				: []),
-			"- When you solve a non-obvious problem (a root cause found by debugging, a gotcha, a workaround) or learn a lasting fact or preference about the user's setup, save it with kb_note before your final reply, once the fix is verified. The user reviews every note, so just call it; do not retry if they decline. Do not note routine work.",
+			"- When you solve a non-obvious problem (a root cause found by debugging, a gotcha, a workaround) or learn a lasting fact or preference about the user's setup, save it with kb_note before your final reply, once the fix is verified. The user reviews every note, so just call it; if they decline, do not retry unless they ask. Do not note routine work.",
 			"- The knowledge base is your only memory across sessions: never tell the user you will remember something unless you saved it with kb_note.",
 			"",
 			open().catalog(),
@@ -322,13 +334,25 @@ export default function piKb(pi: ExtensionAPI) {
 		name: "kb_add",
 		label: "KB Add",
 		description:
-			"Import files or folders into the user's knowledge base. Use only when the user asks to save something to the knowledge base. Markdown sent with as_note=true becomes a wiki note. Large files may finish importing in the background.",
+			"Import files or folders into the user's knowledge base. Use only when the user asks to save something to the knowledge base. Markdown sent with as_note=true becomes a wiki note. Paths outside the project folder need the user's confirmation. Large files may finish importing in the background.",
 		parameters: Type.Object({
 			paths: Type.Array(Type.String(), { minItems: 1, description: "Files or folders to import" }),
 			as_note: Type.Optional(Type.Boolean({ description: "Store Markdown files as wiki notes (experience, lessons)" })),
 		}),
 		executionMode: "sequential",
 		async execute(_id, params, _signal, _onUpdate, ctx) {
+			// The model may be steered by text it read (a prompt injection); copying a file from elsewhere
+			// into the knowledge base keeps it and may send it to an embeddings API, so the user decides.
+			const outside = pathsOutside(params.paths, ctx.cwd);
+			if (outside.length) {
+				const allowed = ctx.hasUI && (await ctx.ui.confirm(t().outsideTitle, t().outsideBody(outside)));
+				if (!allowed) {
+					const text = ctx.hasUI
+						? `The user chose not to import ${outside.join(", ")}; nothing was imported. Do not retry on your own, but if the user asks for it again, call kb_add again: they will be asked again.`
+						: `Nothing was imported: ${outside.join(", ")} is outside the project folder and there is no user to confirm. Ask the user to run /kb add with the path.`;
+					return { content: [{ type: "text", text }], details: undefined };
+				}
+			}
 			const job = startImport(params.paths, ctx.cwd, params.as_note ?? false);
 			let timer: NodeJS.Timeout | undefined;
 			const finished = await Promise.race([
@@ -356,6 +380,7 @@ export default function piKb(pi: ExtensionAPI) {
 		promptGuidelines: [
 			"Write kb_note content so it is useful without this conversation: symptom, root cause, fix, and how to recognize it next time, with concrete names, versions and commands.",
 			"Before creating a note, check kb_search with scope wiki; if a related note exists, use mode append with its id.",
+			"With mode append, write only what is new, under a heading that names the new point; do not repeat the existing note.",
 		],
 		parameters: Type.Object({
 			title: Type.String({ description: "Short, searchable title, e.g. 'XR-100 SPI 需要先设置时钟分频'" }),
@@ -387,7 +412,7 @@ export default function piKb(pi: ExtensionAPI) {
 					if (choice === edit) edited = await ctx.ui.editor(m.noteEditor, preview);
 					if (!(choice === save || (choice === edit && edited !== undefined))) {
 						return {
-							content: [{ type: "text", text: "The user chose not to save this note. Do not retry." }],
+							content: [{ type: "text", text: "The user chose not to save this note. Do not retry on your own, but if the user asks for it again, call kb_note again: they will review it again." }],
 							details: { saved: false },
 						};
 					}
@@ -589,6 +614,24 @@ export default function piKb(pi: ExtensionAPI) {
 						base.updateConfig({ semantic: { ...cfg, provider: "local" } });
 						refresh(ctx);
 						ctx.ui.notify(m.localOn, "info");
+						return;
+					}
+					if (action === "remove") {
+						const size = localModelDirs(base.root).reduce((n, dir) => n + folderSize(dir), 0);
+						if (!size) {
+							ctx.ui.notify(m.localNone, "info");
+							return;
+						}
+						const inUse = cfg.provider === "local";
+						if (ctx.hasUI && !(await ctx.ui.confirm(m.localRemoveTitle, m.localRemoveBody(formatSize(size), inUse)))) return;
+						// Stop using the model before its files go away.
+						if (inUse) base.updateConfig({ semantic: { ...cfg, provider: "off" } });
+						refresh(ctx);
+						try {
+							ctx.ui.notify(m.localRemoved(formatSize(removeLocalModel(base.root))), "info");
+						} catch (error) {
+							ctx.ui.notify(m.removeFailed(error instanceof Error ? error.message : String(error)), "error");
+						}
 						return;
 					}
 					ctx.ui.notify(m.usageSemantic, "warning");

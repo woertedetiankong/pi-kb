@@ -15,6 +15,15 @@
 - `kb_search`'s `scope` now says to leave it at `all`: gpt-6-luna searched with `docs` and missed wiki notes.
 - Citations stay next to the facts they support, without section names inside the brackets; the model is told the knowledge base is its only memory across sessions, so it does not promise to remember what it has not saved.
 - `scripts/model-check` counts the reminder and reads every agent run.
+- New `trivial-fix` scenario (a typo fails a test): the reminder fires, but neither gpt-6-sol nor gpt-6-luna saved a note or added a message (6/6).
+
+### Safety and housekeeping
+
+- `kb_add` asks before importing anything outside the project folder (symlinks are followed), and refuses without a UI. The agent could otherwise be steered by a document or web page into filing away files like `~/.ssh` and sending them to an embeddings API.
+- `/kb semantic remove` deletes the local model runtime and files (about 1.1 GB) after confirming, turning semantic search off first if it uses them. Documents, notes and stored vectors stay.
+- Appending to a note keeps the new content's own heading and puts the date below it, instead of stacking a date heading on top of it.
+- When appending, the model is told to write only what is new under a heading naming it; gpt-6-luna had been copying the whole note into each appended section.
+- After the user declines a kb_add or kb_note, the model no longer refuses when the user asks again (it had read "Do not retry" as final); it calls the tool again and the user is asked again.
 
 ### Docs
 

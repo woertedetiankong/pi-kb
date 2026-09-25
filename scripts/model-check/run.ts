@@ -146,7 +146,7 @@ function check(s: Scenario, calls: ToolCall[], answer: string, titles: string[])
 	};
 	expect(s.search, "kb_search");
 	expect(s.note, "kb_note");
-	if (s.note === "forbidden" && has("nudge")) problems.push("unwanted nudge");
+	expect(s.nudge ?? (s.note === "forbidden" ? "forbidden" : "any"), "nudge");
 	if (s.noteMode) {
 		const notes = calls.filter((c) => c.name === "kb_note");
 		if (notes.length && !notes.some((c) => (c.args.mode ?? "create") === s.noteMode && c.args.id)) {

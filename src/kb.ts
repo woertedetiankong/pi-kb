@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, extname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { chunkPages } from "./chunk.ts";
 import { defaultMinScore, type KbConfig, loadConfig, saveConfig } from "./config.ts";
 import { type ConvertedPage, Converter, isMarkdown, normalizeText, sourceKind } from "./convert.ts";
@@ -57,6 +57,27 @@ const WIKI_META = new Set(["index.md", "log.md", "SCHEMA.md"]);
 
 export function expandHome(path: string): string {
 	return path === "~" || path.startsWith(`~${sep}`) || path.startsWith("~/") ? join(homedir(), path.slice(1)) : path;
+}
+
+/**
+ * Inputs that resolve outside `dir`, following symlinks so a link inside the project cannot
+ * point elsewhere unnoticed. Missing paths are judged by where they would be.
+ */
+export function pathsOutside(inputs: string[], dir: string): string[] {
+	// Resolve the nearest existing ancestor, so a missing file under /var still compares with /private/var.
+	const real = (path: string): string => {
+		try {
+			return realpathSync(path);
+		} catch {
+			const parent = dirname(path);
+			return parent === path ? path : join(real(parent), basename(path));
+		}
+	};
+	const base = real(resolve(dir));
+	return inputs.filter((input) => {
+		const rel = relative(base, real(resolve(dir, expandHome(input))));
+		return rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+	});
 }
 
 export function formatCitation(hit: Pick<SearchHit, "title" | "page">): string {
@@ -304,11 +325,7 @@ export class KnowledgeBase {
 			updated: today(),
 			project: current.meta.project ?? input.project,
 		};
-		const body = mode === "append" ? `${current.body}
-
-## ${today()}
-
-${content}` : content;
+		const body = mode === "append" ? `${current.body}\n\n${appendSection(content, today())}` : content;
 		return { action: mode, file, note: { meta, body }, existing };
 	}
 
@@ -473,6 +490,17 @@ ${content}` : content;
 		}
 		return lines.join("\n");
 	}
+}
+
+/**
+ * An appended section dated so readers can tell what came later. Content that opens with its own
+ * heading keeps it (as ##) with the date on the line below; otherwise the date is the heading.
+ */
+export function appendSection(content: string, date: string): string {
+	const heading = /^#{1,6}[ \t]+(.+)(?:\n|$)/.exec(content);
+	if (!heading) return `## ${date}\n\n${content}`;
+	const rest = content.slice(heading[0].length).trim();
+	return `## ${heading[1].trim()}\n\n_${date}_${rest ? `\n\n${rest}` : ""}`;
 }
 
 function renderConverted(title: string, pages: ConvertedPage[]): string {

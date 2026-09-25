@@ -29,7 +29,7 @@ Supported material: PDF, images (PNG / JPG etc., via OCR), Markdown and plain te
 | `/kb search <keywords>` | Search it yourself |
 | `/kb remove <id>` | Delete (a note's file is deleted too) |
 | `/kb sync` | Re-index after editing the wiki by hand (also done at startup) |
-| `/kb semantic [status\|api\|local\|off]` | Semantic search: show status, use an online API, use a local model, turn off |
+| `/kb semantic [status\|api\|local\|off\|remove]` | Semantic search: show status, use an online API, use a local model, turn off, delete the local model (frees about 1.1 GB; documents and notes stay) |
 | `/kb eval [init\|draft\|run]` | Measure retrieval: create the question file, let the agent draft questions, run the evaluation |
 | `/kb open` | Open the knowledge base folder |
 | `/kb web` | Open the knowledge base page in the browser (`/kb web url` prints the full address, `/kb web stop` closes it) |
@@ -139,10 +139,10 @@ When on, the agent has four tools:
 
 - `kb_search`: keyword search, returning citations like `[manual.pdf p.12]` and document ids
 - `kb_read`: read the original text by id and pages (e.g. `pages: "12-14"`)
-- `kb_add`: import files when the user asks to "put this in the knowledge base"
+- `kb_add`: import files when the user asks to "put this in the knowledge base". Files outside the current project folder (including through symlinks) need your confirmation first; without a UI they are refused, so use `/kb add` yourself. This keeps instructions hidden in a document or web page from making the agent file away something like `~/.ssh`, or send it to an online embeddings service
 - `kb_note`: write experience as a wiki note. The agent calls it on its own after solving a non-obvious problem (a root cause found by debugging, a gotcha, a workaround) or learning something lasting about your setup; every note is previewed first and you choose **Save / Edit, then save / Don't save**. A note with the same title is not duplicated but extended (`append`) or rewritten (`replace`)
 
-  Some models rarely take notes on their own (gpt-6-luna in our checks stops as soon as a bug is fixed). So before a run ends, the extension checks for two cases: a command failed and a file was then changed (a bug was fixed), or you said something like "from now on…" or "remember…". If the model did not call `kb_note`, the extension adds a hidden reminder asking whether to save a note. It asks at most once per run; routine edits and questions do not trigger it.
+  Some models rarely take notes on their own (gpt-6-luna in our checks stops as soon as a bug is fixed). So before a run ends, the extension checks for two cases: a command failed and a file was then changed (a bug was fixed), or you said something like "from now on…" or "remember…". If the model did not call `kb_note`, the extension adds a hidden reminder asking whether to save a note. It asks at most once per run; routine edits and questions do not trigger it. Small fixes, such as a typo that fails a test, do trigger it; in 3 runs each with gpt-6-sol and gpt-6-luna the model judged them not worth a note and ended without another message, at the cost of one short extra model call (about $0.001).
 
 ## Experience note format
 
@@ -160,6 +160,8 @@ project: "firmware"
 Symptom / root cause / fix / how to recognize it next time
 ```
 
+Appending to a note adds a dated section: if the new content opens with its own heading, that heading stays with the date on the line below; otherwise the date is the heading.
+
 Hand-written notes (front matter optional) placed in `wiki/` are indexed too. Each write appends a line to `wiki/log.md`. The index holds the body and `#tags`, not front matter field names.
 
 A small catalog (counts, wiki note titles, recent documents) is added to the system prompt so the agent knows what the knowledge base holds.
@@ -175,7 +177,7 @@ wiki/**/*.md              experience notes; edit them with Obsidian or any edito
 kb.db                     SQLite FTS5 index (trigram tokenizer, works for Chinese and English)
 config.json               { "enabled", "language", "ocrLanguage", "ocrServerUrl", "semantic" }
 tessdata/                 OCR language data (downloaded on first OCR)
-runtime/, models/         runtime and model files for local semantic search (only after /kb semantic local)
+runtime/, models/         runtime and model files for local semantic search (only after /kb semantic local; /kb semantic remove deletes them)
 ```
 
 ## Importing
@@ -214,7 +216,7 @@ npm test
 Unit tests do not call a model. To see whether a model actually uses the knowledge base on its own, run:
 
 ```bash
-node scripts/model-check/run.ts                      # default openai-codex/gpt-6-luna, 12 scenarios, 2 runs each
+node scripts/model-check/run.ts                      # default openai-codex/gpt-6-luna, 13 scenarios, 2 runs each
 node scripts/model-check/run.ts --model <provider/id> --runs 5 --only debug-note,missing
 ```
 
@@ -224,11 +226,13 @@ Each run gets a fresh copy of a fictional knowledge base (XR-100 chip manual, Or
 - `kb_note` is called after debugging a non-obvious root cause or learning a fact about the user's setup; an existing related note is extended with `append`; routine edits and lookups are not noted
 - Citations match what `kb_search` / `kb_read` printed exactly (`[xr100-manual.pdf p.1]`), and the answer says so first when the documents do not answer directly
 
-It calls the model for real and is billed (12 × 2 runs take a few minutes). Every run's result and full answer go to `report.md` in the output folder.
+It calls the model for real and is billed (13 × 2 runs take a few minutes). Every run's result and full answer go to `report.md` in the output folder.
 
 Results with gpt-5.5 (2026-09-24): it searched whenever it should and invented no citations; it saved a note after debugging 8/8 times, used `append` for an existing note, and did not note routine work. Still uneven: asked "does the XR-100 support USB-C power?" (not in the documents), it said the manual doesn't mention it first in about 5 of 8 runs; otherwise it went straight to a conclusion inferred from the voltage range.
 
 Results with gpt-6-luna (2026-09-24, 3 runs per scenario): 34/36 in the end. Before the changes it often searched with `scope: "docs"`, which left out wiki notes; put section names inside citations; saved a note after debugging 0/3 times; and twice told the user it would remember something it never saved. The current system prompt, the `scope` description and the reminder above fixed these: notes after debugging 3/3, setup facts 3/3, no false reminders in routine scenarios.
+
+Results with gpt-6-sol (2026-09-24, 3 runs per scenario, with the current prompt and reminder): 36/36. It saved notes after debugging and after hearing setup facts without needing the reminder, and appended only new content. Once it appended the production Flash model to the SPI divider note, which works, though a separate note would fit better.
 
 ## License
 

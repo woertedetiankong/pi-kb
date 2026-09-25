@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -9,7 +9,8 @@ import { DEFAULT_SEMANTIC, defaultMinScore } from "../src/config.ts";
 import { KnowledgeBase } from "../src/kb.ts";
 import { fuse } from "../src/search.ts";
 import { profileFor } from "../src/semantic/models.ts";
-import { ApiProvider, LocalProvider, SemanticError } from "../src/semantic/providers.ts";
+import { formatSize } from "../src/index.ts";
+import { ApiProvider, folderSize, LocalProvider, removeLocalModel, SemanticError } from "../src/semantic/providers.ts";
 
 const fixtures = join(import.meta.dirname, "fixtures");
 
@@ -178,4 +179,34 @@ test("model profiles: Qwen3 queries get the instruction locally and over an API;
 	const local = new LocalProvider({ model: "onnx-community/Qwen3-Embedding-0.6B-ONNX", runtimeDir: "/nonexistent", cacheDir: "/nonexistent" });
 	assert.equal(local.key, "local:onnx-community/Qwen3-Embedding-0.6B-ONNX#last_token");
 	await assert.rejects(local.embed(["x"], "query"), (e: unknown) => e instanceof SemanticError && e.problem === "runtime_missing");
+});
+
+test("removing the local model deletes only runtime/ and models/, not what their links point to", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-kb-remove-"));
+	try {
+		const outside = join(root, "outside.bin");
+		writeFileSync(outside, Buffer.alloc(5000));
+		mkdirSync(join(root, "runtime", "node_modules"), { recursive: true });
+		writeFileSync(join(root, "runtime", "node_modules", "lib.js"), Buffer.alloc(3000));
+		symlinkSync(outside, join(root, "runtime", "link.bin"));
+		mkdirSync(join(root, "models"));
+		writeFileSync(join(root, "models", "model.onnx"), Buffer.alloc(2000));
+		mkdirSync(join(root, "wiki"));
+		writeFileSync(join(root, "wiki", "note.md"), "keep");
+
+		assert.ok(folderSize(join(root, "runtime")) < 4000, "the link counts as a link, not as its 5000-byte target");
+		const freed = removeLocalModel(root);
+		assert.ok(freed >= 5000 && freed < 6000, `freed ${freed}`);
+		assert.equal(existsSync(join(root, "runtime")), false);
+		assert.equal(existsSync(join(root, "models")), false);
+		assert.equal(readFileSync(join(root, "wiki", "note.md"), "utf8"), "keep");
+		assert.equal(statSync(outside).size, 5000);
+		assert.equal(removeLocalModel(root), 0, "nothing left to remove");
+
+		assert.equal(formatSize(1_130_000_000), "1.1 GB");
+		assert.equal(formatSize(614_000_000), "614 MB");
+		assert.equal(formatSize(512), "512 B");
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
 });

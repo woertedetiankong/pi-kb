@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import { chunkPages } from "../src/chunk.ts";
 import { normalizeText } from "../src/convert.ts";
 import { padDisplay, splitArgs } from "../src/index.ts";
+import { pathsOutside } from "../src/kb.ts";
 import { containsTerm, coverage, planQuery } from "../src/search.ts";
 
 test("splitArgs handles quotes and drag-and-drop escapes", () => {
@@ -68,4 +72,20 @@ test("containsTerm matches English at word starts, short words whole, Chinese an
 test("planQuery drops single Chinese characters left over from question words", () => {
 	assert.deepEqual(planQuery("怎么用 tmux").terms, ["tmux"]);
 	assert.deepEqual(planQuery("用").terms, ["用"], "kept when it is all there is");
+});
+
+test("pathsOutside flags paths that leave the project, through symlinks too", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-kb-paths-"));
+	try {
+		const project = join(root, "project");
+		mkdirSync(join(project, "docs"), { recursive: true });
+		writeFileSync(join(root, "secret.txt"), "x");
+		writeFileSync(join(project, "docs", "a.md"), "x");
+		symlinkSync(join(root, "secret.txt"), join(project, "link.txt"));
+		const inputs = ["docs/a.md", "./docs", join(project, "docs", "a.md"), "missing.pdf", "../secret.txt", join(root, "secret.txt"), "link.txt", "~/x.pdf", "..docs.md"];
+		assert.deepEqual(pathsOutside(inputs, project), ["../secret.txt", join(root, "secret.txt"), "link.txt", "~/x.pdf"]);
+		assert.deepEqual(pathsOutside(["~/notes"], homedir()), []);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
 });

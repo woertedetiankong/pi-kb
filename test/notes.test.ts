@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
-import { KnowledgeBase } from "../src/kb.ts";
+import { appendSection, KnowledgeBase } from "../src/kb.ts";
 import { now, parseNote, renderNote, slugify, today } from "../src/notes.ts";
 
 let root: string;
@@ -54,6 +54,17 @@ test("create writes, indexes and logs a note; duplicate titles are refused", () 
 	// log.md is history, not knowledge.
 	assert.equal(kb.syncWiki().removed, 0);
 	assert.equal(kb.search("created").length, 0);
+});
+
+test("an appended section keeps the model's own heading, with the date below it", () => {
+	assert.equal(appendSection("DMA 模式同样适用。", "2026-09-24"), "## 2026-09-24\n\nDMA 模式同样适用。");
+	assert.equal(
+		appendSection("## CTRL_REG 写入后需要等待约 10µs\n\n症状：第一次读错。", "2026-09-24"),
+		"## CTRL_REG 写入后需要等待约 10µs\n\n_2026-09-24_\n\n症状：第一次读错。",
+	);
+	assert.equal(appendSection("# Wait 10 µs", "2026-09-24"), "## Wait 10 µs\n\n_2026-09-24_");
+	// Only a heading at the very start counts.
+	assert.match(appendSection("先看这个：\n## 细节", "2026-09-24"), /^## 2026-09-24\n\n先看这个/);
 });
 
 test("append adds a dated section and merges tags; replace keeps created date", () => {

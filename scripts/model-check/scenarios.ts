@@ -12,6 +12,8 @@ export interface Scenario {
 	prompt: string;
 	search: Expect;
 	note: Expect;
+	/** Whether the kb_note reminder may fire; defaults to forbidden when note is forbidden, else any. */
+	nudge?: Expect;
 	/** kb_note must use this mode (e.g. append to the existing SPI note). */
 	noteMode?: "create" | "append" | "replace";
 	/** Citations the answer must contain, exactly as kb_search prints them. */
@@ -110,6 +112,19 @@ export const scenarios: Scenario[] = [
 			"package.json": '{ "type": "module" }\n',
 			// Saved by a Windows editor with a byte order mark.
 			"config.json": '﻿{ "port": 8080 }\n',
+		},
+	},
+	{
+		id: "trivial-fix",
+		about: "A typo breaks a test: the reminder may fire, but a typo is not worth a note",
+		prompt: "跑一下 `node --test`，有失败的话修好。",
+		search: "any",
+		note: "forbidden",
+		nudge: "any",
+		files: {
+			"greet.js": "export function greet(name) {\n\treturn `Helo, ${name}!`;\n}\n",
+			"greet.test.js": 'import assert from "node:assert/strict";\nimport { test } from "node:test";\nimport { greet } from "./greet.js";\n\ntest("greets by name", () => {\n\tassert.equal(greet("Ada"), "Hello, Ada!");\n});\n',
+			"package.json": '{ "type": "module" }\n',
 		},
 	},
 	{

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -91,6 +91,33 @@ export const RUNTIME_PACKAGE = "@huggingface/transformers@4.3.0";
 
 export function runtimeInstalled(runtimeDir: string): boolean {
 	return existsSync(join(runtimeDir, "node_modules", "@huggingface", "transformers", "package.json"));
+}
+
+/** Folders the local model option downloads into the knowledge base (runtime ~500 MB, model ~610 MB). */
+export function localModelDirs(root: string): string[] {
+	return [join(root, "runtime"), join(root, "models")];
+}
+
+/** Bytes used by a folder, not following symlinks; 0 when it does not exist. */
+export function folderSize(path: string): number {
+	let info: ReturnType<typeof lstatSync>;
+	try {
+		info = lstatSync(path);
+	} catch {
+		return 0;
+	}
+	if (!info.isDirectory()) return info.size;
+	return readdirSync(path).reduce((n, entry) => n + folderSize(join(path, entry)), 0);
+}
+
+/** Delete the local runtime and model files; returns the bytes freed. Documents, notes and vectors stay. */
+export function removeLocalModel(root: string): number {
+	let freed = 0;
+	for (const dir of localModelDirs(root)) {
+		freed += folderSize(dir);
+		rmSync(dir, { recursive: true, force: true });
+	}
+	return freed;
 }
 
 /**
