@@ -31,7 +31,7 @@ export interface PreparedNote {
 }
 
 /** Known failure reasons, so the interface can explain them in the user's language. */
-export type AddReason = "not_found" | "unsupported" | "no_text" | "not_markdown" | "needs_libreoffice" | "cancelled";
+export type AddReason = "not_found" | "unsupported" | "no_text" | "ocr_unavailable" | "not_markdown" | "needs_libreoffice" | "cancelled";
 
 export interface AddResult {
 	path: string;
@@ -212,7 +212,14 @@ export class KnowledgeBase {
 	 */
 	async addFile(
 		path: string,
-		options: { wiki?: boolean; source?: string; signal?: AbortSignal; replace?: string[] } = {},
+		options: {
+			wiki?: boolean;
+			source?: string;
+			signal?: AbortSignal;
+			replace?: string[];
+			/** Told when the import has to wait for something the user should know about. */
+			onNote?: (note: "ocr_download") => void;
+		} = {},
 	): Promise<AddResult> {
 		const cancelled = (): AddResult => ({ path, status: "skipped", reason: "cancelled", message: "import cancelled" });
 		try {
@@ -230,10 +237,20 @@ export class KnowledgeBase {
 			const existing = this.store.getDoc(id);
 			if (existing) return { path, status: "exists", doc: existing };
 
+			// The first OCR downloads Tesseract data (about 40 MB); say so instead of looking stuck.
+			if (Converter.mayOcr(path) && this.converter.missingOcrData().length) options.onNote?.("ocr_download");
 			const converted = await this.converter.convert(path, options.signal);
 			if (options.signal?.aborted) return cancelled();
 			const text = converted.pages.map((p) => p.markdown).join("");
-			if (!text.trim()) return { path, status: "failed", reason: "no_text", message: "no text could be extracted" };
+			// Images come back as an empty ```text fence when OCR finds nothing.
+			if (!text.replace(/```\w*/g, "").trim()) {
+				// Not stored, so importing the same file again (e.g. once online) is a fresh attempt.
+				const missing = this.converter.missingOcrData();
+				if (missing.length) {
+					return { path, status: "failed", reason: "ocr_unavailable", message: `OCR language data could not be downloaded (${missing.join(", ")})` };
+				}
+				return { path, status: "failed", reason: "no_text", message: "no text could be extracted" };
+			}
 
 			const name = basename(path);
 			const source = options.source ?? path;

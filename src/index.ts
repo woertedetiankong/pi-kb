@@ -26,7 +26,11 @@ const SUBCOMMANDS = ["on", "off", "status", "add", "cancel", "list", "search", "
 const MODEL = messages("en");
 
 /** Split command arguments, honoring quotes and backslash-escaped spaces from drag-and-drop. */
-export function splitArgs(input: string): string[] {
+/**
+ * Split command arguments like a shell: quotes group, and on macOS/Linux a backslash escapes the
+ * next character (drag-and-drop writes "a\ b.pdf"). On Windows a backslash is a path separator.
+ */
+export function splitArgs(input: string, platform: NodeJS.Platform = process.platform): string[] {
 	const out: string[] = [];
 	let current = "";
 	let quote: string | undefined;
@@ -38,7 +42,7 @@ export function splitArgs(input: string): string[] {
 			else current += ch;
 		} else if (ch === '"' || ch === "'") {
 			quote = ch;
-		} else if (ch === "\\" && i + 1 < input.length) {
+		} else if (ch === "\\" && platform !== "win32" && i + 1 < input.length) {
 			current += input[++i];
 		} else if (/\s/.test(ch)) {
 			if (started) out.push(current);
@@ -52,6 +56,13 @@ export function splitArgs(input: string): string[] {
 	}
 	if (started) out.push(current);
 	return out;
+}
+
+/** The command that opens a file, folder or URL with the system's default app. */
+export function opener(platform: NodeJS.Platform = process.platform): string[] {
+	// start takes its first quoted argument as the window title, so pass an empty one. Node quotes an
+	// empty argument as "" for cmd; the two-character string '""' would reach cmd as "\"\"" instead.
+	return platform === "darwin" ? ["open"] : platform === "win32" ? ["cmd", "/c", "start", ""] : ["xdg-open"];
 }
 
 /** "1.1 GB", "610 MB", "12 KB". */
@@ -229,7 +240,7 @@ export default function piKb(pi: ExtensionAPI) {
 		if (!imports.active || !st.current) return "";
 		const seconds = Math.floor((Date.now() - (st.startedAt ?? Date.now())) / 1000);
 		const elapsed = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-		return t().importBadge(st.done + 1, st.total, basename(st.current), elapsed);
+		return t().importBadge(st.done + 1, st.total, basename(st.current), elapsed) + (st.note ? t().importNotes[st.note] : "");
 	};
 
 	/** " · 🧠 120/600" while indexing, " · 🧠" when ready, nothing when semantic search is off. */
@@ -250,7 +261,7 @@ export default function piKb(pi: ExtensionAPI) {
 	/** Repaints the status bar every second while importing, so the elapsed time moves. */
 	let ticker: NodeJS.Timeout | undefined;
 	const imports = new ImportQueue(
-		(item, signal) => open().addFile(item.path, { wiki: item.wiki, signal, source: item.source, replace: item.replace }),
+		(item, signal, note) => open().addFile(item.path, { wiki: item.wiki, signal, source: item.source, replace: item.replace, onNote: note }),
 		() => {
 			if (imports.active && !ticker) {
 				ticker = setInterval(() => lastCtx && refresh(lastCtx), 1000);
@@ -379,10 +390,16 @@ export default function piKb(pi: ExtensionAPI) {
 		async execute(_id, params) {
 			const scope = params.scope && params.scope !== "all" ? params.scope : undefined;
 			const hits = await open().find(params.query, { limit: params.limit, collection: scope });
-			const text = hits.length
+			let text = hits.length
 				? formatHits(hits, MODEL)
 				: "No matches. Try fewer or different keywords, synonyms, or the other language.";
-			return { content: [{ type: "text", text }], details: { hits } };
+			// Files still importing are not searchable yet; without this the model tells the user the knowledge base lacks them.
+			const pending = imports.pending();
+			if (pending.length) {
+				const names = pending.slice(0, 5).map((p) => basename(p)).join(", ") + (pending.length > 5 ? ", …" : "");
+				text += `\n\nNote: ${pending.length} file(s) are still being imported (${names}) and are not searchable yet. If the results above do not answer the user, say that the import is still running and suggest asking again when it finishes; do not say the knowledge base lacks the information.`;
+			}
+			return { content: [{ type: "text", text }], details: { hits, pending } };
 		},
 	});
 
@@ -624,7 +641,8 @@ export default function piKb(pi: ExtensionAPI) {
 					return;
 				}
 				case "open": {
-					if (process.platform === "darwin") await pi.exec("open", [base.root]);
+					const [cmd, ...cmdArgs] = opener();
+					await pi.exec(cmd, [...cmdArgs, base.root]).catch(() => undefined);
 					ctx.ui.notify(m.folder(base.root), "info");
 					return;
 				}
@@ -642,8 +660,7 @@ export default function piKb(pi: ExtensionAPI) {
 						ctx.ui.notify(m.webUrl(url), "info");
 						return;
 					}
-					const [cmd, ...cmdArgs] =
-						process.platform === "darwin" ? ["open"] : process.platform === "win32" ? ["cmd", "/c", "start", '""'] : ["xdg-open"];
+					const [cmd, ...cmdArgs] = opener();
 					await pi.exec(cmd, [...cmdArgs, url]).catch(() => undefined);
 					ctx.ui.notify(m.webOpened(url.replace(/#.*/, "")), "info");
 					return;
@@ -732,7 +749,8 @@ export default function piKb(pi: ExtensionAPI) {
 					const file = questionsFile(base.root);
 					if (action === "init") {
 						const created = initQuestions(base.root);
-						if (process.platform === "darwin") await pi.exec("open", [file]).catch(() => undefined);
+						const [cmd, ...cmdArgs] = opener();
+						await pi.exec(cmd, [...cmdArgs, file]).catch(() => undefined);
 						ctx.ui.notify(created ? m.evalCreated(file) : m.evalExists(file), "info");
 						return;
 					}

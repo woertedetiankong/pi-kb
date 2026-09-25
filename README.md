@@ -6,12 +6,29 @@
 
 ## 安装
 
+需要 Node.js 22.19+ 和 pi 0.87 或更新版本。macOS 上日常使用；Linux 上全部自动测试通过；Windows 支持但还没有在真机上测过，遇到问题请提 issue。
+
 ```bash
-pi install /path/to/pi-kb     # 本地开发
-pi -e ./src/index.ts          # 或只在本次运行加载
+# 从 GitHub 安装（写入 ~/.pi/agent/settings.json，所有项目都能用）
+pi install git:github.com/woertedetiankong/pi-kb
+
+# 或锁定到某个版本，不随仓库更新而变化
+pi install git:github.com/woertedetiankong/pi-kb@v0.3.1
+
+# 或不安装，只在这次运行中试用
+pi -e git:github.com/woertedetiankong/pi-kb
 ```
 
-需要 Node.js 22.19+。
+更新到最新版本：`pi update --extensions`，然后重启 pi（锁定版本的安装不会被更新，改用 `pi install …@新版本`）。卸载：`pi remove git:github.com/woertedetiankong/pi-kb`（知识库数据在 `~/.pi/kb`，卸载不会删除）。
+
+### 快速上手
+
+1. 安装后重启 pi，底部状态栏出现 `📚 KB · 0 docs`。
+2. 导入资料：`/kb add ~/Documents/手册.pdf`（可以一次给多个文件或整个文件夹，也可以把文件拖进终端），或运行 `/kb web` 打开网页，把文件拖到页面上。导入在后台进行，可以继续对话。第一次识别图片或扫描件时会从 GitHub 下载 OCR 语言包（约 40MB，只需一次），状态栏会提示。
+3. 直接提问，例如“XR-100 的最大供电电压是多少？”。agent 会先查知识库，回答里带 `[手册.pdf p.3]` 这样的出处。
+4. 网页上还可以浏览原文、在搜索框旁边用「✨ 问 AI」直接得到带出处的回答，并在「设置」里开启语义检索（用自然语言提问、中英文互搜）。
+
+开发者从本地目录安装：`pi install /path/to/pi-kb`，或 `pi -e ./src/index.ts` 只在本次运行加载。
 
 支持的资料：PDF、图片（PNG / JPG 等，走 OCR）、Markdown 和纯文本。Word / PowerPoint / Excel 属于实验性功能：需要另装 LibreOffice（`brew install --cask libreoffice`），尚未经过测试。
 

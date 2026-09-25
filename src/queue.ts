@@ -26,14 +26,19 @@ export interface ImportStatus {
 	/** File being converted, and when it started (ms since epoch). */
 	current?: string;
 	startedAt?: number;
+	/** Why the current file takes long, e.g. the first OCR downloading language data. */
+	note?: ImportNote;
 }
+
+export type ImportNote = "ocr_download";
 
 interface QueuedJob extends ImportJob {
 	items: ImportItem[];
 	finish: () => void;
 }
 
-export type ImportFn = (item: ImportItem, signal: AbortSignal) => Promise<AddResult>;
+/** `note` tells the queue why the current file takes long, for the status bar and the page. */
+export type ImportFn = (item: ImportItem, signal: AbortSignal, note: (note: ImportNote) => void) => Promise<AddResult>;
 
 /**
  * Imports files one at a time in the background, so /kb add returns at once and
@@ -50,7 +55,7 @@ export class ImportQueue {
 	private running = false;
 	private done = 0;
 	private total = 0;
-	private current?: { path: string; startedAt: number; controller: AbortController };
+	private current?: { path: string; startedAt: number; controller: AbortController; note?: ImportNote };
 
 	constructor(importFn: ImportFn, onChange: () => void) {
 		this.importFn = importFn;
@@ -62,7 +67,12 @@ export class ImportQueue {
 	}
 
 	get status(): ImportStatus {
-		return { done: this.done, total: this.total, current: this.current?.path, startedAt: this.current?.startedAt };
+		return { done: this.done, total: this.total, current: this.current?.path, startedAt: this.current?.startedAt, note: this.current?.note };
+	}
+
+	/** Files not imported yet: the one being converted first, then the queue. */
+	pending(): string[] {
+		return [...(this.current ? [this.current.path] : []), ...this.jobs.flatMap((job) => job.items.map((item) => item.path))];
 	}
 
 	enqueue(items: ImportItem[], skipped: AddResult[] = []): ImportJob {
@@ -111,11 +121,15 @@ export class ImportQueue {
 				continue;
 			}
 			const controller = new AbortController();
-			this.current = { path: item.path, startedAt: Date.now(), controller };
+			const current: NonNullable<typeof this.current> = { path: item.path, startedAt: Date.now(), controller };
+			this.current = current;
 			this.onChange();
 			let result: AddResult;
 			try {
-				result = await this.importFn(item, controller.signal);
+				result = await this.importFn(item, controller.signal, (note) => {
+					current.note = note;
+					this.onChange();
+				});
 			} catch (error) {
 				result = { path: item.path, status: "failed", message: error instanceof Error ? error.message : String(error) };
 			}

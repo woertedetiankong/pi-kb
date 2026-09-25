@@ -6,12 +6,29 @@ A personal knowledge base for [pi](https://pi.dev): add PDFs, images (scans incl
 
 ## Install
 
+Requires Node.js 22.19+ and pi 0.87 or later. Used daily on macOS; the full test suite passes on Linux; Windows is supported but not yet tried on a real machine, so please open an issue if something breaks.
+
 ```bash
-pi install /path/to/pi-kb     # local development
-pi -e ./src/index.ts          # or load it for this run only
+# Install from GitHub (written to ~/.pi/agent/settings.json, available in every project)
+pi install git:github.com/woertedetiankong/pi-kb
+
+# Or pin a version that does not follow the repository
+pi install git:github.com/woertedetiankong/pi-kb@v0.3.1
+
+# Or try it for this run only, without installing
+pi -e git:github.com/woertedetiankong/pi-kb
 ```
 
-Requires Node.js 22.19+.
+Update: `pi update --extensions`, then restart pi (pinned installs are not updated; use `pi install …@new-version`). Uninstall: `pi remove git:github.com/woertedetiankong/pi-kb` (the knowledge base in `~/.pi/kb` is kept).
+
+### Quick start
+
+1. Restart pi after installing; the status bar shows `📚 KB · 0 docs`.
+2. Import material: `/kb add ~/Documents/manual.pdf` (several files or whole folders at once; you can also drag files into the terminal), or run `/kb web` and drop files on the page. Imports run in the background while you keep chatting. The first time an image or scan is recognised, OCR language data is downloaded from GitHub (about 40 MB, once); the status bar says so.
+3. Just ask, e.g. "What is the maximum supply voltage of the XR-100?". The agent searches the knowledge base first and cites sources like `[manual.pdf p.3]`.
+4. On the web page you can also browse the converted text, get a cited answer with "✨ Ask AI" next to the search box, and turn on semantic search under Settings (plain-language questions, Chinese and English finding each other).
+
+Developers can install from a local folder: `pi install /path/to/pi-kb`, or `pi -e ./src/index.ts` for one run.
 
 Supported material: PDF, images (PNG / JPG etc., via OCR), Markdown and plain text. Word / PowerPoint / Excel are experimental: they need LibreOffice (`brew install --cask libreoffice`) and are not tested yet.
 

@@ -322,12 +322,13 @@ const T = {
     dropDocs: "导入资料", dropDocsHint: "PDF、图片、文本：转换后按页检索",
     dropNotes: "存为经验笔记", dropNotesHint: "Markdown 文件放进 wiki，和 agent 记的经验在一起",
     importing: (i, n, name) => `正在导入 ${i}/${n}：${name}`,
+    importNotes: { ocr_download: "首次使用 OCR，正在下载语言包（约 40MB，只需一次）" },
     sending: (i, n, name) => `正在上传 ${i}/${n}：${name}`,
     replacedN: n => `替换了 ${n} 个旧版本`,
     versionTitle: "新版本", versionReplace: "替换旧版本", versionKeep: "两份都保留", versionSkip: "跳过这个文件",
     versionBody: (name, titles) => `“${name}”是知识库里已有文档（${titles.join("、")}）的新版本。要替换旧版本，还是两份都保留？`,
     imported: (a, e, s, f) => `新增 ${a}，已存在 ${e}，跳过 ${s}，失败 ${f}`,
-    reasons: { not_found: "文件不存在", unsupported: "不支持的文件类型", no_text: "没有提取到文字", not_markdown: "只有 Markdown 可以作为笔记", needs_libreoffice: "Office 文件需要安装 LibreOffice", cancelled: "已取消", skippedByUser: "你选择了跳过" },
+    reasons: { not_found: "文件不存在", unsupported: "不支持的文件类型", no_text: "没有提取到文字", ocr_unavailable: "没有识别出文字：OCR 语言包没能从 GitHub 下载，检查网络后重新导入这个文件即可", not_markdown: "只有 Markdown 可以作为笔记", needs_libreoffice: "Office 文件需要安装 LibreOffice", cancelled: "已取消", skippedByUser: "你选择了跳过" },
     type: "类型", pageCount: "页数", source: "来源", added: "导入时间", id: "ID", tags: "标签", updated: "更新", created: "创建", project: "项目",
     openOriginal: "查看原文件", viewPage: "看原页", page: n => `第 ${n} 页`, remove: "删除", edit: "编辑", save: "保存", cancel: "取消", back: "← 返回",
     confirmRemoveDoc: t => `删除“${t}”？知识库里保存的副本也会删除。`, confirmRemoveNote: t => `删除笔记“${t}”？笔记文件会被删除。`,
@@ -382,12 +383,13 @@ const T = {
     dropDocs: "Import documents", dropDocsHint: "PDF, images, text: converted and searchable by page",
     dropNotes: "Save as experience notes", dropNotesHint: "Markdown files go to the wiki, next to the lessons the agent records",
     importing: (i, n, name) => `Importing ${i}/${n}: ${name}`,
+    importNotes: { ocr_download: "First OCR: downloading language data (about 40 MB, once)" },
     sending: (i, n, name) => `Uploading ${i}/${n}: ${name}`,
     replacedN: n => `replaced ${n} old version(s)`,
     versionTitle: "New version", versionReplace: "Replace the old version", versionKeep: "Keep both", versionSkip: "Skip this file",
     versionBody: (name, titles) => `"${name}" is a new version of ${titles.join(", ")}, already in the knowledge base. Replace the old version, or keep both?`,
     imported: (a, e, s, f) => `Added ${a}, already present ${e}, skipped ${s}, failed ${f}`,
-    reasons: { not_found: "file not found", unsupported: "unsupported file type", no_text: "no text could be extracted", not_markdown: "only Markdown can become a note", needs_libreoffice: "Office files need LibreOffice", cancelled: "cancelled", skippedByUser: "skipped by you" },
+    reasons: { not_found: "file not found", unsupported: "unsupported file type", no_text: "no text could be extracted", ocr_unavailable: "no text recognised: the OCR language data could not be downloaded from GitHub; check the network and import the file again", not_markdown: "only Markdown can become a note", needs_libreoffice: "Office files need LibreOffice", cancelled: "cancelled", skippedByUser: "skipped by you" },
     type: "Type", pageCount: "Pages", source: "Source", added: "Imported", id: "ID", tags: "Tags", updated: "Updated", created: "Created", project: "Project",
     openOriginal: "Open original", viewPage: "View page", page: n => `Page ${n}`, remove: "Delete", edit: "Edit", save: "Save", cancel: "Cancel", back: "← Back",
     confirmRemoveDoc: t => `Delete "${t}"? Its stored copy is deleted too.`, confirmRemoveNote: t => `Delete the note "${t}"? The note file is deleted.`,
@@ -607,9 +609,11 @@ function answerCard() {
     <p class="fine">${esc(T.askCheck)} ${esc(T.answeredBy(modelName(r.model)))}${r.queries.length ? ` ${esc(T.askSearched(r.queries.join(" · ")))}` : ""}</p></div>`;
 }
 
+const importingText = im => T.importing(im.done + 1, im.total, im.current) + (im.note && T.importNotes[im.note] ? ` · ${T.importNotes[im.note]}` : "");
+
 function renderList() {
   const im = state.status?.imports;
-  const busy = state.uploading || (im?.active && im.current ? T.importing(im.done + 1, im.total, im.current) : "");
+  const busy = state.uploading || (im?.active && im.current ? importingText(im) : "");
   const progress = busy ? `<div class="progress"><span class="spin"></span>${esc(busy)}</div>` : "";
   if (state.hits) {
     const hits = state.hits;
@@ -784,7 +788,7 @@ async function upload(files, note) {
     await new Promise(r => setTimeout(r, 800));
     try {
       const im = (await api("/status")).imports;
-      if (im?.active && im.current) { state.uploading = T.importing(im.done + 1, im.total, im.current); renderList(); }
+      if (im?.active && im.current) { state.uploading = importingText(im); renderList(); }
       for (const id of [...jobs]) {
         const r = await api(`/import?job=${id}`);
         if (r.done) { results.push(...r.results); jobs.splice(jobs.indexOf(id), 1); }

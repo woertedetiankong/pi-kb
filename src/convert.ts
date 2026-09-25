@@ -29,6 +29,13 @@ const TEXT = new Set([
 	".c", ".h", ".cc", ".cpp", ".hpp", ".cs", ".rb", ".php", ".sh", ".sql", ".lua",
 ]);
 
+/** How to install LibreOffice on this system. */
+export function libreOfficeInstall(platform: NodeJS.Platform = process.platform): string {
+	if (platform === "darwin") return "brew install --cask libreoffice";
+	if (platform === "win32") return "winget install TheDocumentFoundation.LibreOffice";
+	return "sudo apt install libreoffice (or your distribution's package manager)";
+}
+
 export function sourceKind(path: string): SourceKind | undefined {
 	const ext = extname(path).toLowerCase();
 	if (PDF.has(ext)) return "pdf";
@@ -166,6 +173,23 @@ export class Converter {
 		};
 	}
 
+	/**
+	 * OCR languages whose Tesseract data is not on disk yet. LiteParse downloads them from GitHub on
+	 * first use (about 13-15 MB each); empty when an OCR server is set.
+	 */
+	missingOcrData(): string[] {
+		if (this.options.ocrServerUrl) return [];
+		return this.options.ocrLanguage
+			.split("+")
+			.filter((lang) => lang && !existsSync(join(this.options.tessdataDir, `${lang}.traineddata`)));
+	}
+
+	/** Whether converting this file may run OCR (images, and pictures inside PDFs). */
+	static mayOcr(path: string): boolean {
+		const kind = sourceKind(path);
+		return kind === "image" || kind === "pdf";
+	}
+
 	/** Use other OCR settings from the next conversion on; running ones finish with the old settings. */
 	setOcr(ocr: Pick<ConvertOptions, "ocrLanguage" | "ocrServerUrl">): void {
 		if (ocr.ocrLanguage !== this.options.ocrLanguage) this.verticalReady = undefined;
@@ -191,7 +215,7 @@ export class Converter {
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			if (/LibreOffice is not installed/i.test(message)) {
-				throw new Error("Office files need LibreOffice. Install it with: brew install --cask libreoffice");
+				throw new Error(`Office files need LibreOffice. Install it with: ${libreOfficeInstall()}`);
 			}
 			throw error;
 		}

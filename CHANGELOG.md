@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.3.1 — 2026-09-25
+
+- Asking while files are still importing no longer gets "the knowledge base has nothing on this": `kb_search` tells the agent which files are still being imported, and it says so (checked with gpt-6-sol in pi).
+- The first OCR says why it takes long: the status bar and the web page show "downloading language data (about 40 MB, once)" while Tesseract data comes from GitHub.
+- When OCR language data cannot be downloaded, an image or scan fails with a clear reason instead of being "added" with no text; nothing is stored, so importing it again later works. Before, the empty copy blocked re-imports as "already present".
+- Windows: `/kb add C:\Users\…\manual.pdf` keeps its backslashes (they were read as escapes), `/kb web`, `/kb open` and `/kb eval init` open with the system's default app on every platform (Windows got a malformed `start` title before; `/kb open` was macOS-only), and the LibreOffice hint names winget or apt instead of brew.
+- README: install from GitHub, update, uninstall, and a quick start.
+
 ## v0.3.0 — 2026-09-25
 
 ### Ask the knowledge base on the web page

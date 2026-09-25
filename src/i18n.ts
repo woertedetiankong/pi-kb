@@ -1,3 +1,4 @@
+import { libreOfficeInstall } from "./convert.ts";
 import { parseLanguage, systemLanguage } from "./hub.ts";
 
 /**
@@ -13,6 +14,7 @@ const en = {
 	statusOn: (docs: number, notes: number) => `📚 KB · ${docs} docs · ${notes} notes`,
 	statusOff: "📚 KB off",
 	importBadge: (i: number, n: number, name: string, elapsed: string) => ` · 📥 ${i}/${n} ${name} ${elapsed}`,
+	importNotes: { ocr_download: " · first OCR: downloading language data (about 40 MB, once)" } as Record<"ocr_download", string>,
 	importStarted: (n: number, queued: boolean) =>
 		`${queued ? `Added ${n} file(s) to the import queue` : `Importing ${n} file(s) in the background`}. Keep working; you'll be notified when it's done. /kb cancel stops it.`,
 	importing: (done: number, total: number) => ` · importing ${done}/${total}`,
@@ -42,8 +44,9 @@ const en = {
 		not_found: "not found",
 		unsupported: (ext: string) => `unsupported type ${ext}`,
 		no_text: "no text could be extracted",
+		ocr_unavailable: "no text was recognised because the OCR language data could not be downloaded from GitHub. Check the network (or set an OCR server) and import the file again",
 		not_markdown: "only Markdown files can become wiki notes",
-		needs_libreoffice: "Office files need LibreOffice: brew install --cask libreoffice",
+		needs_libreoffice: `Office files need LibreOffice: ${libreOfficeInstall()}`,
 		cancelled: "cancelled",
 	},
 	listTitle: (n: number) => `📚 Knowledge base · ${n} item(s)`,
@@ -159,6 +162,7 @@ const zh: Messages = {
 	statusOn: (docs, notes) => `📚 知识库 · ${docs} 份文档 · ${notes} 条笔记`,
 	statusOff: "📚 知识库已关闭",
 	importBadge: (i, n, name, elapsed) => ` · 📥 ${i}/${n} ${name} ${elapsed}`,
+	importNotes: { ocr_download: " · 首次使用 OCR，正在下载语言包（约 40MB，只需一次）" },
 	importStarted: (n, queued) =>
 		`${queued ? `已把 ${n} 个文件加入导入队列` : `开始在后台导入 ${n} 个文件`}，可以继续使用，完成后会通知。/kb cancel 可以取消。`,
 	importing: (done, total) => ` · 正在导入 ${done}/${total}`,
@@ -187,8 +191,9 @@ const zh: Messages = {
 		not_found: "文件不存在",
 		unsupported: (ext) => `不支持的文件类型 ${ext}`,
 		no_text: "没有提取到文字",
+		ocr_unavailable: "没有识别出文字：OCR 语言包没能从 GitHub 下载。检查网络（或设置 OCR 服务）后重新导入这个文件即可",
 		not_markdown: "只有 Markdown 文件可以作为 wiki 笔记",
-		needs_libreoffice: "Office 文件需要安装 LibreOffice：brew install --cask libreoffice",
+		needs_libreoffice: `Office 文件需要安装 LibreOffice：${libreOfficeInstall()}`,
 		cancelled: "已取消",
 	},
 	listTitle: (n) => `📚 知识库 · 共 ${n} 项`,

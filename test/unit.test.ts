@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { chunkPages } from "../src/chunk.ts";
 import { normalizeText } from "../src/convert.ts";
-import { padDisplay, splitArgs } from "../src/index.ts";
+import { padDisplay, opener, splitArgs } from "../src/index.ts";
 import { pathsOutside } from "../src/kb.ts";
 import { containsTerm, coverage, planQuery } from "../src/search.ts";
 
@@ -13,6 +13,9 @@ test("splitArgs handles quotes and drag-and-drop escapes", () => {
 	assert.deepEqual(splitArgs('add "My Docs/a b.pdf" ~/x\\ y.md --note'), ["add", "My Docs/a b.pdf", "~/x y.md", "--note"]);
 	assert.deepEqual(splitArgs("  "), []);
 	assert.deepEqual(splitArgs('search ""'), ["search", ""]);
+	// Windows paths keep their backslashes; quotes still group paths with spaces.
+	assert.deepEqual(splitArgs('add C:\\Users\\me\\manual.pdf "D:\\My Docs\\a b.pdf"', "win32"), ["add", "C:\\Users\\me\\manual.pdf", "D:\\My Docs\\a b.pdf"]);
+	assert.deepEqual(splitArgs("add ~/x\\ y.md", "linux"), ["add", "~/x y.md"], "macOS/Linux drag-and-drop escapes");
 });
 
 test("normalizeText removes OCR gaps between Chinese characters and Markdown escapes", () => {
@@ -88,4 +91,10 @@ test("pathsOutside flags paths that leave the project, through symlinks too", ()
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
+});
+
+test("opener uses each system's default app; on Windows start gets an empty title argument", () => {
+	assert.deepEqual(opener("darwin"), ["open"]);
+	assert.deepEqual(opener("win32"), ["cmd", "/c", "start", ""]);
+	assert.deepEqual(opener("linux"), ["xdg-open"]);
 });

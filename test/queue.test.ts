@@ -30,7 +30,7 @@ test("imports files one at a time, jobs in order, and reports each job when done
 	const second = queue.enqueue([{ path: "c.md", wiki: true }]);
 	assert.equal(first.total, 3);
 	await until(() => started.length === 1);
-	assert.deepEqual(queue.status, { done: 0, total: 3, current: "a.pdf", startedAt: queue.status.startedAt });
+	assert.deepEqual(queue.status, { done: 0, total: 3, current: "a.pdf", startedAt: queue.status.startedAt, note: undefined });
 	release.get("a.pdf")!();
 	await until(() => started.length === 2);
 	assert.equal(queue.status.done, 1);
@@ -40,7 +40,7 @@ test("imports files one at a time, jobs in order, and reports each job when done
 	release.get("c.md")!();
 	assert.deepEqual((await second.done).map((r) => r.path), ["c.md"]);
 	await until(() => !queue.active);
-	assert.deepEqual(queue.status, { done: 0, total: 0, current: undefined, startedAt: undefined });
+	assert.deepEqual(queue.status, { done: 0, total: 0, current: undefined, startedAt: undefined, note: undefined });
 });
 
 test("a job with nothing to import is done at once", async () => {
@@ -93,6 +93,56 @@ test("cancelling a PDF mid-conversion kills the parser and saves nothing", async
 		assert.equal((await kb.addFile(join(import.meta.dirname, "fixtures", "xr100-manual.pdf"))).status, "added");
 	} finally {
 		kb.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("pending lists the file being imported, then the queue; a note from the import shows in the status", async () => {
+	const { release, until } = slowImports();
+	let note: ((n: "ocr_download") => void) | undefined;
+	const queue = new ImportQueue(
+		(item, _signal, report) =>
+			new Promise((resolve) => {
+				note = report;
+				release.set(item.path, () => resolve({ path: item.path, status: "added" }));
+			}),
+		() => {},
+	);
+	queue.enqueue([{ path: "/x/a.pdf", wiki: false }, { path: "/x/b.png", wiki: false }]);
+	await until(() => release.has("/x/a.pdf"));
+	assert.deepEqual(queue.pending(), ["/x/a.pdf", "/x/b.png"]);
+	note?.("ocr_download");
+	assert.equal(queue.status.note, "ocr_download");
+	release.get("/x/a.pdf")?.();
+	await until(() => release.has("/x/b.png"));
+	assert.equal(queue.status.note, undefined, "a note belongs to its file");
+	assert.deepEqual(queue.pending(), ["/x/b.png"]);
+	release.get("/x/b.png")?.();
+	await until(() => !queue.active);
+	assert.deepEqual(queue.pending(), []);
+});
+
+test("OCR data that cannot be downloaded fails the image instead of storing it empty, so it can be retried", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-kb-ocr-offline-"));
+	const saved = { tess: process.env.PI_KB_TESSDATA, proxy: process.env.HTTPS_PROXY, proxyLower: process.env.https_proxy };
+	// An empty language data folder and a proxy nobody listens on: the parser cannot fetch eng.traineddata.
+	process.env.PI_KB_TESSDATA = join(root, "tessdata");
+	process.env.HTTPS_PROXY = process.env.https_proxy = "http://127.0.0.1:9";
+	const kb = new KnowledgeBase(root);
+	try {
+		kb.updateConfig({ ocrLanguage: "eng" });
+		const notes: string[] = [];
+		const r = await kb.addFile(join(import.meta.dirname, "fixtures", "scan-note.png"), { onNote: (n) => notes.push(n) });
+		assert.equal(r.status, "failed");
+		assert.equal(r.reason, "ocr_unavailable");
+		assert.deepEqual(notes, ["ocr_download"], "the status bar says why the first OCR takes long");
+		assert.equal(kb.store.listDocs().length, 0, "nothing stored, so a later import is a fresh attempt");
+	} finally {
+		kb.close();
+		for (const [name, value] of [["PI_KB_TESSDATA", saved.tess], ["HTTPS_PROXY", saved.proxy], ["https_proxy", saved.proxyLower]] as const) {
+			if (value === undefined) delete process.env[name];
+			else process.env[name] = value;
+		}
 		rmSync(root, { recursive: true, force: true });
 	}
 });
