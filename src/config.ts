@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { LanguageSetting } from "./i18n.ts";
@@ -83,4 +83,14 @@ export function saveConfig(root: string, config: KbConfig): void {
 	// May hold an embeddings API key.
 	writeFileSync(join(root, "config.json"), `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
 	chmodSync(join(root, "config.json"), 0o600);
+}
+
+/** Changes whenever config.json is written; "" when it does not exist. */
+export function configStamp(root: string): string {
+	try {
+		const info = statSync(join(root, "config.json"));
+		return `${info.mtimeMs}:${info.size}`;
+	} catch {
+		return "";
+	}
 }

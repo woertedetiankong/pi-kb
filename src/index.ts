@@ -1,4 +1,5 @@
 import { type ExtensionAPI, type ExtensionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { unwatchFile, watchFile } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
@@ -115,19 +116,64 @@ export default function piKb(pi: ExtensionAPI) {
 	/** Per-run override from --kb on|off; /kb on|off clears it and persists the choice. */
 	let override: boolean | undefined;
 
+	/** Repaint the status bar soon; progress reports come often, so at most twice a second. */
+	let pending: NodeJS.Timeout | undefined;
+	const repaint = () => {
+		pending ??= setTimeout(() => {
+			pending = undefined;
+			if (lastCtx && kb) refresh(lastCtx);
+		}, 500);
+	};
+	/** Watches config.json, so settings changed in another pi window or on the web page apply here too. */
+	let configWatch: { file: string; listener: () => void } | undefined;
 	const open = () => {
 		if (!kb) {
 			kb = new KnowledgeBase(kbRoot());
-			// Background embedding reports progress often; repaint the status bar at most twice a second.
-			let pending: NodeJS.Timeout | undefined;
-			kb.onSemantic = () => {
-				pending ??= setTimeout(() => {
-					pending = undefined;
-					if (lastCtx && kb) refresh(lastCtx);
-				}, 500);
-			};
+			kb.onSemantic = repaint;
+			const watch = { file: join(kb.root, "config.json"), listener: () => kb?.reloadConfig() && repaint() };
+			watchFile(watch.file, { persistent: false, interval: 2000 }, watch.listener);
+			configWatch = watch;
 		}
 		return kb;
+	};
+
+	/** The local runtime install, shared by /kb semantic local and the web page; at most one runs. */
+	let install: { line: string; done: Promise<boolean> } | undefined;
+	let installError: string | undefined;
+	/** Switch semantic search to the local model, installing its runtime first when needed; false if installing failed. */
+	const useLocal = (): Promise<boolean> => {
+		if (install) return install.done;
+		const base = open();
+		const runtimeDir = join(base.root, "runtime");
+		const switchOn = () => open().updateConfig({ semantic: { ...open().config.semantic, provider: "local" } });
+		installError = undefined;
+		if (runtimeInstalled(runtimeDir)) {
+			switchOn();
+			repaint();
+			return Promise.resolve(true);
+		}
+		const job = {
+			line: "",
+			done: installRuntime(runtimeDir, base.config.semantic.local.npmRegistry, (line) => {
+				job.line = line;
+				repaint();
+			}).then(
+				() => {
+					switchOn();
+					return true;
+				},
+				(error) => {
+					installError = error instanceof Error ? error.message : String(error);
+					return false;
+				},
+			).finally(() => {
+				install = undefined;
+				repaint();
+			}),
+		};
+		install = job;
+		repaint();
+		return job.done;
 	};
 	const enabled = () => override ?? open().config.enabled;
 	/** Interface text in the configured or detected language. */
@@ -151,6 +197,12 @@ export default function piKb(pi: ExtensionAPI) {
 			},
 			enqueue: (item) => imports.enqueue([item]),
 			importStatus: () => ({ ...imports.status, active: imports.active }),
+			useLocal,
+			localSetup: () => (install ? { installing: install.line } : installError ? { installError } : {}),
+			forgetInstallError: () => {
+				installError = undefined;
+			},
+			model: () => (lastCtx ? { model: lastCtx.model, modelRegistry: lastCtx.modelRegistry } : undefined),
 		},
 		fileURLToPath(new URL("../web/kb.html", import.meta.url)),
 	);
@@ -162,11 +214,14 @@ export default function piKb(pi: ExtensionAPI) {
 		if (!ctx.hasUI) return;
 		if (on) {
 			const { docs, wiki } = open().store.stats();
-			ctx.ui.setStatus("kb", t().statusOn(docs, wiki) + semanticBadge() + importBadge());
+			ctx.ui.setStatus("kb", t().statusOn(docs, wiki) + semanticBadge() + importBadge() + installBadge());
 		} else {
-			ctx.ui.setStatus("kb", t().statusOff + importBadge());
+			ctx.ui.setStatus("kb", t().statusOff + importBadge() + installBadge());
 		}
 	};
+
+	/** " · 📦 <npm output>" while the local model runtime installs. */
+	const installBadge = () => (install ? ` · ${install.line ? `📦 ${install.line.slice(0, 60)}` : t().localInstalling}` : "");
 
 	/** " · 📥 2/5 manual.pdf 3:12" while importing. */
 	const importBadge = () => {
@@ -257,6 +312,8 @@ export default function piKb(pi: ExtensionAPI) {
 		lastCtx = undefined;
 		// The runtime is torn down (quit, reload, or a session switch): stop importing; finished files are kept.
 		imports.cancel();
+		if (configWatch) unwatchFile(configWatch.file, configWatch.listener);
+		configWatch = undefined;
 		kb?.close();
 		kb = undefined;
 		// Reload brings new code: leave the shared hub (it stops once every app has left) and remount on session_start.
@@ -602,6 +659,7 @@ export default function piKb(pi: ExtensionAPI) {
 						return;
 					}
 					if (action === "off") {
+						installError = undefined;
 						base.updateConfig({ semantic: { ...cfg, provider: "off" } });
 						refresh(ctx);
 						ctx.ui.notify(m.semanticOff, "info");
@@ -626,6 +684,7 @@ export default function piKb(pi: ExtensionAPI) {
 							return;
 						}
 						if (ctx.hasUI && !(await ctx.ui.confirm(m.apiPrivacyTitle, m.apiPrivacy(host)))) return;
+						installError = undefined;
 						base.updateConfig({ semantic: { ...cfg, provider: "api", api: { baseUrl: baseUrl || cfg.api.baseUrl, model: model || cfg.api.model, apiKey } } });
 						refresh(ctx);
 						ctx.ui.notify(m.apiOn(model || cfg.api.model), "info");
@@ -633,18 +692,12 @@ export default function piKb(pi: ExtensionAPI) {
 					}
 					if (action === "local") {
 						const runtimeDir = join(base.root, "runtime");
-						if (!runtimeInstalled(runtimeDir)) {
-							if (ctx.hasUI && !(await ctx.ui.confirm(m.localTitle, m.localBody(runtimeDir)))) return;
-							ctx.ui.setStatus("kb", m.localInstalling);
-							try {
-								await installRuntime(runtimeDir, cfg.local.npmRegistry, (line) => ctx.ui.setStatus("kb", `📦 ${line.slice(0, 60)}`));
-							} catch (error) {
-								refresh(ctx);
-								ctx.ui.notify(m.installFailed(error instanceof Error ? error.message : String(error)), "error");
-								return;
-							}
+						// Already installing (maybe started from the web page): just wait for it.
+						if (!install && !runtimeInstalled(runtimeDir) && ctx.hasUI && !(await ctx.ui.confirm(m.localTitle, m.localBody(runtimeDir)))) return;
+						if (!(await useLocal())) {
+							ctx.ui.notify(m.installFailed(installError ?? ""), "error");
+							return;
 						}
-						base.updateConfig({ semantic: { ...cfg, provider: "local" } });
 						refresh(ctx);
 						ctx.ui.notify(m.localOn, "info");
 						return;
@@ -653,6 +706,10 @@ export default function piKb(pi: ExtensionAPI) {
 						const size = localModelDirs(base.root).reduce((n, dir) => n + folderSize(dir), 0);
 						if (!size) {
 							ctx.ui.notify(m.localNone, "info");
+							return;
+						}
+						if (install) {
+							ctx.ui.notify(m.localInstalling, "warning");
 							return;
 						}
 						const inUse = cfg.provider === "local";

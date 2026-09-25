@@ -37,6 +37,17 @@ export function normalize(values: ArrayLike<number>): Float32Array {
 
 export const API_KEY_ENV = "PI_KB_EMBEDDING_API_KEY";
 
+/**
+ * The environment variable that supplies the API key for this endpoint, if one is set:
+ * PI_KB_EMBEDDING_API_KEY (wins over a stored key), else OPENAI_API_KEY for api.openai.com
+ * (used only when no key is stored), since OpenAI users usually have it set already.
+ */
+export function apiKeyEnv(baseUrl: string): string | undefined {
+	if (process.env[API_KEY_ENV]) return API_KEY_ENV;
+	if (/^https:\/\/api\.openai\.com\//.test(`${baseUrl.replace(/\/+$/, "")}/`) && process.env.OPENAI_API_KEY) return "OPENAI_API_KEY";
+	return undefined;
+}
+
 /** Any OpenAI-compatible /embeddings endpoint (OpenAI, SiliconFlow, Ollama, vLLM, ...). */
 export class ApiProvider implements EmbeddingProvider {
 	readonly key: string;
@@ -56,9 +67,8 @@ export class ApiProvider implements EmbeddingProvider {
 	async embed(inputs: string[], kind: EmbedKind, signal?: AbortSignal): Promise<Float32Array[]> {
 		// Instruction-tuned models (Qwen3) expect an instruction on queries, not on documents.
 		const texts = kind === "query" ? inputs.map((t) => this.profile.queryPrefix + t) : inputs;
-		// OpenAI users usually have OPENAI_API_KEY set already.
-		const openai = /^https:\/\/api\.openai\.com\//.test(`${this.baseUrl}/`);
-		const key = process.env[API_KEY_ENV] || this.apiKey || (openai ? process.env.OPENAI_API_KEY : undefined);
+		const env = apiKeyEnv(this.baseUrl);
+		const key = process.env[API_KEY_ENV] || this.apiKey || (env ? process.env[env] : undefined);
 		// Local servers such as Ollama need no key.
 		const local = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])[:/]/.test(this.baseUrl);
 		if (!key && !local) throw new SemanticError("no_api_key", `No API key: set ${API_KEY_ENV} or run /kb semantic api`);

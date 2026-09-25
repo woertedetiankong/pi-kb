@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -10,7 +10,7 @@ import { KnowledgeBase } from "../src/kb.ts";
 import { fuse } from "../src/search.ts";
 import { profileFor } from "../src/semantic/models.ts";
 import { formatSize } from "../src/index.ts";
-import { ApiProvider, folderSize, LocalProvider, removeLocalModel, SemanticError } from "../src/semantic/providers.ts";
+import { ApiProvider, apiKeyEnv, folderSize, LocalProvider, removeLocalModel, SemanticError } from "../src/semantic/providers.ts";
 
 const fixtures = join(import.meta.dirname, "fixtures");
 
@@ -92,6 +92,10 @@ test("API provider: sorts by index, normalizes, sends the key, retries rate limi
 	try {
 		await new ApiProvider(DEFAULT_SEMANTIC.api).embed(["x"], "query");
 		assert.equal(sent, "Bearer sk-test", "the default OpenAI endpoint uses OPENAI_API_KEY");
+		assert.equal(apiKeyEnv("https://api.openai.com/v1/"), "OPENAI_API_KEY", "the settings page can say where the key comes from");
+		assert.equal(apiKeyEnv("https://api.example.com/v1"), undefined);
+		process.env.PI_KB_EMBEDDING_API_KEY = "pk";
+		assert.equal(apiKeyEnv("https://api.example.com/v1"), "PI_KB_EMBEDDING_API_KEY");
 	} finally {
 		globalThis.fetch = realFetch;
 		for (const [name, value] of [["PI_KB_EMBEDDING_API_KEY", saved.kb], ["OPENAI_API_KEY", saved.openai]] as const) {
@@ -207,6 +211,46 @@ test("removing the local model deletes only runtime/ and models/, not what their
 		assert.equal(formatSize(614_000_000), "614 MB");
 		assert.equal(formatSize(512), "512 B");
 	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("config changed by another pi window is picked up, and saving starts from it", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-kb-reload-"));
+	const kb = new KnowledgeBase(root);
+	try {
+		assert.equal(kb.reloadConfig(), false, "nothing changed");
+		kb.updateConfig({ ocrLanguage: "eng" });
+		assert.equal(kb.reloadConfig(), false, "its own write is not a change");
+
+		// Another process turns the knowledge base off and switches to an API model.
+		const file = join(root, "config.json");
+		const other = JSON.parse(readFileSync(file, "utf8"));
+		other.enabled = false;
+		other.ocrLanguage = "eng+jpn";
+		other.semantic = { ...other.semantic, provider: "api", api: { baseUrl: "http://127.0.0.1:9/v1", model: "elsewhere" } };
+		writeFileSync(file, JSON.stringify(other));
+		const later = new Date(Date.now() + 5000);
+		utimesSync(file, later, later);
+		assert.equal(kb.reloadConfig(), true);
+		assert.equal(kb.config.enabled, false);
+		assert.equal(kb.config.semantic.api.model, "elsewhere");
+		assert.equal(kb.indexer.status.state === "off", false, "the new provider is in use");
+		const ocr = () => (kb.converter as unknown as { options: { ocrLanguage: string } }).options.ocrLanguage;
+		assert.equal(ocr(), "eng+jpn", "OCR settings apply without a restart too");
+
+		// A write here keeps what the other window saved.
+		writeFileSync(file, JSON.stringify({ ...other, language: "en" }));
+		const later2 = new Date(Date.now() + 10_000);
+		utimesSync(file, later2, later2);
+		kb.updateConfig({ ocrLanguage: "chi_sim" });
+		const saved = JSON.parse(readFileSync(file, "utf8"));
+		assert.equal(saved.language, "en");
+		assert.equal(saved.ocrLanguage, "chi_sim");
+		assert.equal(ocr(), "chi_sim");
+		kb.updateConfig({ semantic: { ...kb.config.semantic, provider: "off" } });
+	} finally {
+		kb.close();
 		rmSync(root, { recursive: true, force: true });
 	}
 });

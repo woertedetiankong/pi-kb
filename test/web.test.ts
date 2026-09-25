@@ -4,7 +4,7 @@ import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
-import { createHub, type WebApp, type WebHub } from "../src/hub.ts";
+import { createHub, sharedHub, type WebApp, type WebHub } from "../src/hub.ts";
 import { KnowledgeBase } from "../src/kb.ts";
 import { ImportQueue } from "../src/queue.ts";
 import { KbWebApp } from "../src/web.ts";
@@ -17,6 +17,8 @@ let hub: WebHub;
 let base: string;
 let enabled = true;
 let changes = 0;
+let localCalls = 0;
+let installError: string | undefined;
 
 const fakeSessions: WebApp = {
 	id: "sessions",
@@ -40,6 +42,15 @@ before(async () => {
 			changed: () => { changes++; },
 			enqueue: (item) => queue.enqueue([item]),
 			importStatus: () => ({ ...queue.status, active: queue.active }),
+			useLocal: async () => {
+				localCalls++;
+				return true;
+			},
+			localSetup: () => (installError ? { installError } : {}),
+			forgetInstallError: () => {
+				installError = undefined;
+			},
+			model: () => undefined,
 		},
 		join(import.meta.dirname, "..", "web", "kb.html"),
 	);
@@ -146,9 +157,11 @@ test("notes: create, refuse duplicates, edit, remove; toggle the knowledge base"
 	assert.equal(dup.status, 400);
 	assert.match((await dup.json()).error, /already exists/);
 
-	const { text } = await (await call(`/api/kb/doc?id=${created.doc.id}`)).json();
-	assert.match(text, /^---\ntitle: "网页笔记"/);
-	await post("/api/kb/note", { id: created.doc.id, text: text.replace("在网页上记录。", "改过的内容。") });
+	const read = await (await call(`/api/kb/doc?id=${created.doc.id}`)).json();
+	assert.equal(read.text, "# 网页笔记\n\n在网页上记录。", "other apps (pi-learn) get the body alone, without front matter");
+	assert.deepEqual(read.note.tags, ["web"]);
+	assert.match(read.raw, /^---\ntitle: "网页笔记"/, "the whole file, for editing");
+	await post("/api/kb/note", { id: created.doc.id, text: read.raw.replace("在网页上记录。", "改过的内容。") });
 	assert.equal((await (await call(`/api/kb/search?q=${encodeURIComponent("改过的内容")}&scope=wiki`)).json()).hits.length, 1);
 	assert.match(readFileSync(join(root, "wiki", "log.md"), "utf8"), /edited \[\[网页笔记\]\]/);
 
@@ -159,6 +172,70 @@ test("notes: create, refuse duplicates, edit, remove; toggle the knowledge base"
 	assert.equal((await (await call("/api/kb/status")).json()).enabled, false);
 	assert.equal((await post("/api/kb/enabled", { enabled: "yes" })).status, 400);
 	assert.equal((await call("/api/kb/status", { method: "POST", headers: { "content-type": "text/plain" }, body: "{}" })).status, 404);
+});
+
+test("semantic settings: read without the key, switch provider, validate, clear a failed install", async () => {
+	const initial = await (await call("/api/kb/semantic")).json();
+	assert.equal(initial.provider, "off");
+	assert.equal(initial.api.keySaved, false);
+	assert.equal(initial.local.installed, false);
+	assert.equal(initial.local.bytes, 0);
+
+	// A local server needs no key; the index fails to reach it, which is fine here.
+	const baseUrl = "http://127.0.0.1:9/v1";
+	const on = await (await post("/api/kb/semantic", { provider: "api", api: { baseUrl, model: "m1", apiKey: " sk-secret " } })).json();
+	assert.equal(on.provider, "api");
+	const saved = JSON.parse(readFileSync(join(root, "config.json"), "utf8")).semantic;
+	assert.deepEqual(saved.api, { baseUrl, model: "m1", apiKey: "sk-secret" });
+	const read = await (await call("/api/kb/semantic")).text();
+	assert.doesNotMatch(read, /sk-secret/, "the stored key never goes back to the page");
+	assert.equal(JSON.parse(read).api.keySaved, true);
+	assert.equal((await (await call("/api/kb/status")).json()).semantic.provider, "api");
+
+	await post("/api/kb/semantic", { provider: "api", api: { baseUrl, model: "m2", apiKey: "" } });
+	assert.equal(kb.config.semantic.api.apiKey, "sk-secret", "an empty key field keeps the saved key");
+	assert.equal(kb.config.semantic.api.model, "m2");
+	await post("/api/kb/semantic", { provider: "api", api: { baseUrl, model: "m2", clearKey: true } });
+	assert.equal(kb.config.semantic.api.apiKey, undefined);
+
+	assert.equal((await post("/api/kb/semantic", { provider: "api", api: { baseUrl: "file:///etc", model: "m" } })).status, 400);
+	assert.equal((await post("/api/kb/semantic", { provider: "api", api: { baseUrl: "not a url", model: "m" } })).status, 400);
+	assert.equal((await post("/api/kb/semantic", { provider: "cloud" })).status, 400);
+	assert.equal(kb.config.semantic.api.baseUrl, baseUrl, "rejected changes are not saved");
+
+	const local = await (await post("/api/kb/semantic", { provider: "local", local: { npmRegistry: "https://registry.npmmirror.com", hfEndpoint: "" } })).json();
+	assert.equal(localCalls, 1, "local goes through the same install path as /kb semantic local");
+	assert.equal(kb.config.semantic.local.npmRegistry, "https://registry.npmmirror.com", "saved before installing, which uses it");
+	assert.equal(kb.config.semantic.local.hfEndpoint, undefined);
+	assert.equal(local.provider, "api", "the provider changes only once the install finishes (this fake one never does)");
+
+	installError = "npm install exited with code 1";
+	assert.equal((await (await call("/api/kb/status")).json()).semantic.installError, installError);
+	await post("/api/kb/semantic", { provider: "off" });
+	assert.equal(kb.config.semantic.provider, "off");
+	assert.equal(installError, undefined, "choosing something else drops the old install failure");
+	assert.deepEqual(await (await post("/api/kb/semantic/remove", {})).json(), { freed: 0 });
+});
+
+test("OCR settings: read, validate, save and use for the next import", async () => {
+	assert.deepEqual(await (await call("/api/kb/ocr")).json(), { language: "eng+chi_sim", serverUrl: "" });
+	const saved = await (await post("/api/kb/ocr", { language: "eng+chi_tra", serverUrl: " http://localhost:8828/ocr " })).json();
+	assert.deepEqual(saved, { language: "eng+chi_tra", serverUrl: "http://localhost:8828/ocr" });
+	const options = (kb.converter as unknown as { options: { ocrLanguage: string; ocrServerUrl?: string } }).options;
+	assert.equal(options.ocrLanguage, "eng+chi_tra", "no restart needed");
+	assert.equal(options.ocrServerUrl, "http://localhost:8828/ocr");
+	assert.equal((await post("/api/kb/ocr", { language: "eng; rm -rf /" })).status, 400);
+	assert.equal((await post("/api/kb/ocr", { language: "eng", serverUrl: "ftp://x" })).status, 400);
+	await post("/api/kb/ocr", { language: "eng+chi_sim", serverUrl: "" });
+	assert.equal(kb.config.ocrServerUrl, undefined);
+});
+
+test("ask: an empty question is refused, and a missing model is reported by code", async () => {
+	assert.equal((await post("/api/kb/ask", { question: " " })).status, 400);
+	const res = await post("/api/kb/ask", { question: "XR-100 电压" });
+	assert.equal(res.status, 409);
+	assert.equal((await res.json()).error, "no_model", "the page words it in its own language");
+	assert.deepEqual(await (await call("/api/kb/models")).json(), { models: [] }, "no model list while pi has no session");
 });
 
 test("shared token: reuses the pi-sessions token, and the hub stops when the last app leaves", async () => {
@@ -173,6 +250,34 @@ test("shared token: reuses the pi-sessions token, and the hub stops when the las
 		assert.equal(readFileSync(join(agentDir, "pi-web", "token"), "utf8"), "b".repeat(48));
 		await own.unmount("sessions");
 		assert.equal(own.url(), undefined, "server stopped");
+	} finally {
+		rmSync(agentDir, { recursive: true, force: true });
+	}
+});
+
+test("shared hub: a reload (every app leaves while serving) restarts on the same port; a stopped hub stays stopped", async () => {
+	const agentDir = mkdtempSync(join(tmpdir(), "pi-web-resume-"));
+	try {
+		const first = sharedHub(agentDir);
+		first.mount(fakeSessions);
+		await first.start();
+		const port = new URL(first.url() ?? "").port;
+		await first.unmount("sessions");
+
+		const second = sharedHub(agentDir);
+		assert.notEqual(second, first, "new code gets a new hub");
+		second.mount(fakeSessions);
+		await second.start(); // joins the start that mount() began
+		assert.equal(new URL(second.url() ?? "").port, port, "open pages reconnect to the same address");
+		assert.equal((await fetch(`http://127.0.0.1:${port}/sessions/`)).status, 200);
+
+		await second.close(); // /kb web stop
+		await second.unmount("sessions");
+		const third = sharedHub(agentDir);
+		third.mount(fakeSessions);
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		assert.equal(third.url(), undefined, "stopping on purpose is remembered");
+		await third.unmount("sessions");
 	} finally {
 		rmSync(agentDir, { recursive: true, force: true });
 	}

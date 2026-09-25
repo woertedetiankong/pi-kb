@@ -4,6 +4,10 @@ import { basename, extname, join } from "node:path";
 import { type WebApp, type WebBinary, type WebLanguage, type WebRequest, webError } from "./hub.ts";
 import type { AddResult, KnowledgeBase } from "./kb.ts";
 import type { ImportItem, ImportJob, ImportStatus } from "./queue.ts";
+import { ask, AskError, listModels, type ModelContext } from "./ask.ts";
+import type { SemanticConfig } from "./config.ts";
+import { apiKeyEnv, folderSize, localModelDirs, removeLocalModel, runtimeInstalled } from "./semantic/providers.ts";
+import { parseNote } from "./notes.ts";
 import type { Collection } from "./store.ts";
 
 const UPLOAD_LIMIT = 200 * 1024 * 1024;
@@ -28,6 +32,28 @@ export interface KbWebHost {
 	/** Import in the background, on the same queue as /kb add. */
 	enqueue(item: ImportItem): ImportJob;
 	importStatus(): ImportStatus & { active: boolean };
+	/** Switch to the local model, installing its runtime first when needed (same as /kb semantic local). */
+	useLocal(): Promise<boolean>;
+	/** The runtime install in progress (last npm output line) or the last failure. */
+	localSetup(): { installing?: string; installError?: string };
+	/** The user chose something other than the local model: stop reporting a failed install. */
+	forgetInstallError(): void;
+	/** pi's current model, for answering questions on the page; undefined while pi switches sessions. */
+	model(): ModelContext | undefined;
+}
+
+/** An http(s) URL, or undefined when empty; anything else is the caller's mistake. */
+function optionalUrl(value: unknown, field: string): string | undefined {
+	const text = typeof value === "string" ? value.trim() : "";
+	if (!text) return undefined;
+	let url: URL;
+	try {
+		url = new URL(text);
+	} catch {
+		throw webError(400, `${field} is not a URL`);
+	}
+	if (url.protocol !== "http:" && url.protocol !== "https:") throw webError(400, `${field} must be http or https`);
+	return text;
 }
 
 /** How long a finished upload's results wait for the page to collect them. */
@@ -63,7 +89,7 @@ export class KbWebApp implements WebApp {
 				case "GET /status": {
 					const stats = kb.store.stats();
 					const { state, done, total, download, problem } = kb.indexer.status;
-					const semantic = { provider: kb.config.semantic.provider, state, done, total, download: download?.progress, problem };
+					const semantic = { provider: kb.config.semantic.provider, state, done, total, download: download?.progress, problem, ...this.host.localSetup() };
 					const imports = this.host.importStatus();
 					const current = imports.current ? basename(imports.current) : undefined;
 					return { enabled: this.host.enabled(), root: kb.root, ...stats, semantic, imports: { ...imports, current } };
@@ -78,7 +104,12 @@ export class KbWebApp implements WebApp {
 				}
 				case "GET /doc": {
 					const { doc, text } = kb.read(id);
-					return { doc, text: doc.collection === "wiki" ? kb.noteText(id) : text };
+					if (doc.collection !== "wiki") return { doc, text };
+					// Other apps (pi-learn) read `text` as material, so a note's front matter goes separately;
+					// `raw` is the whole file, for editing.
+					const raw = kb.noteText(id);
+					const { meta, body } = parseNote(raw, doc.title);
+					return { doc, text: body, note: meta, raw };
 				}
 				case "GET /file": {
 					const { file, name } = kb.originalFile(id);
@@ -148,6 +179,84 @@ export class KbWebApp implements WebApp {
 					}
 					this.host.changed();
 					return { doc };
+				}
+				case "GET /semantic": {
+					const cfg = kb.config.semantic;
+					const { error, problem } = kb.indexer.status;
+					return {
+						provider: cfg.provider,
+						// Never send the stored key back; say only where a key comes from.
+						api: { baseUrl: cfg.api.baseUrl, model: cfg.api.model, keySaved: Boolean(cfg.api.apiKey), keyEnv: apiKeyEnv(cfg.api.baseUrl) },
+						local: {
+							model: cfg.local.model,
+							hfEndpoint: cfg.local.hfEndpoint ?? "",
+							npmRegistry: cfg.local.npmRegistry ?? "",
+							installed: runtimeInstalled(join(kb.root, "runtime")),
+							bytes: localModelDirs(kb.root).reduce((n, dir) => n + folderSize(dir), 0),
+						},
+						error,
+						problem,
+						...this.host.localSetup(),
+					};
+				}
+				case "POST /semantic": {
+					const body = await req.json();
+					if (!["off", "api", "local"].includes(body.provider)) throw webError(400, "provider must be off, api or local");
+					const cfg = kb.config.semantic;
+					const next: SemanticConfig = { ...cfg, api: { ...cfg.api }, local: { ...cfg.local } };
+					if (body.api) {
+						next.api.baseUrl = optionalUrl(body.api.baseUrl, "API base URL") ?? cfg.api.baseUrl;
+						next.api.model = String(body.api.model ?? "").trim() || cfg.api.model;
+						const key = typeof body.api.apiKey === "string" ? body.api.apiKey.trim() : "";
+						if (key) next.api.apiKey = key;
+						else if (body.api.clearKey === true) delete next.api.apiKey;
+					}
+					if (body.local) {
+						next.local.hfEndpoint = optionalUrl(body.local.hfEndpoint, "Hugging Face mirror");
+						next.local.npmRegistry = optionalUrl(body.local.npmRegistry, "npm registry");
+					}
+					if (body.provider === "local") {
+						// Save the download sources first: the install uses the npm registry.
+						kb.updateConfig({ semantic: next });
+						void this.host.useLocal();
+					} else {
+						kb.updateConfig({ semantic: { ...next, provider: body.provider } });
+						this.host.forgetInstallError();
+					}
+					this.host.changed();
+					return { provider: kb.config.semantic.provider, ...this.host.localSetup() };
+				}
+				case "POST /semantic/remove": {
+					if (this.host.localSetup().installing) throw webError(409, "the local model runtime is being installed");
+					// Stop using the model before its files go away.
+					if (kb.config.semantic.provider === "local") kb.updateConfig({ semantic: { ...kb.config.semantic, provider: "off" } });
+					this.host.changed();
+					return { freed: removeLocalModel(kb.root) };
+				}
+				case "GET /models":
+					return listModels(this.host.model());
+				case "POST /ask": {
+					const body = await req.json();
+					const question = typeof body.question === "string" ? body.question.trim() : "";
+					if (!question) throw webError(400, "question is empty");
+					const model = typeof body.model === "string" && body.model ? body.model : undefined;
+					try {
+						return await ask(kb, this.host.model(), question, req.signal, model);
+					} catch (error) {
+						// The page words these in its own language: "<problem>" or "<problem>: <detail>".
+						if (error instanceof AskError) throw webError(error.status, error.message === error.problem ? error.problem : `${error.problem}: ${error.message}`);
+						throw error;
+					}
+				}
+				case "GET /ocr":
+					return { language: kb.config.ocrLanguage, serverUrl: kb.config.ocrServerUrl ?? "" };
+				case "POST /ocr": {
+					const body = await req.json();
+					const language = typeof body.language === "string" ? body.language.trim() : "";
+					// Tesseract codes joined with "+", e.g. eng+chi_sim.
+					if (!/^[A-Za-z_]+(\+[A-Za-z_]+)*$/.test(language)) throw webError(400, "OCR language must look like eng+chi_sim");
+					kb.updateConfig({ ocrLanguage: language, ocrServerUrl: optionalUrl(body.serverUrl, "OCR server") });
+					return { language: kb.config.ocrLanguage, serverUrl: kb.config.ocrServerUrl ?? "" };
 				}
 				case "POST /sync": {
 					const result = kb.syncWiki();

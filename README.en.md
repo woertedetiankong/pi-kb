@@ -41,7 +41,7 @@ The flags `pi --kb off` / `--kb on` apply to this run only.
 
 By default only keyword search is used. With semantic search on you can ask in plain language ("how many volts can the chip take at most" finds the page that says "absolute maximum rating 4.0V"), and Chinese and English find each other. Keyword and semantic results are merged by rank (RRF); results found only by meaning are marked "semantic", and the agent checks them with `kb_read` before citing.
 
-Two ways, pick one:
+Two ways, pick one. Turn it on with the commands below in pi, or on the web page (`/kb web`) under "Settings" in the sidebar, where you can also enter the endpoint and key and set mirrors. Both edit the same settings, and other pi windows follow within a few seconds:
 
 | | Online API `/kb semantic api` | Local model `/kb semantic local` |
 |---|---|---|
@@ -74,7 +74,7 @@ Two ways, pick one:
   | SiliconFlow (mainland China) | `https://api.siliconflow.cn/v1` | same | For users in mainland China; may be unreachable from elsewhere |
   | Ollama (local) | `http://localhost:11434/v1` | e.g. `qwen3-embedding:0.6b` | No key; data stays on your machine |
 - Imported material is searchable by keyword right away; vectors are built in the background with progress in the status bar (`🧠 120/600`, then `🧠` when done). Changing the model rebuilds them.
-- If HuggingFace or npm is hard to reach (for example in mainland China): set `"hfEndpoint": "https://hf-mirror.com"` (model download) and `"npmRegistry": "https://registry.npmmirror.com"` (runtime install) under `semantic.local` in `config.json`. Off by default; the official sources are used.
+- If HuggingFace or npm is hard to reach (for example in mainland China): set `"hfEndpoint": "https://hf-mirror.com"` (model download) and `"npmRegistry": "https://registry.npmmirror.com"` (runtime install) under `semantic.local` in `config.json`, or under download sources in the web settings. Off by default; the official sources are used.
 
 ```json
 "semantic": {
@@ -120,10 +120,11 @@ This question set is mostly natural language and cross-language, which is hard f
 
 - Drop files on the page to import them: the left half as documents, the right half (Markdown) as experience notes. They go through the same background queue as `/kb add`, with progress on the page; imports started in the terminal show their progress there too
 - Search results show pages and open right at that page; for PDFs, "View page" opens the original at that page in the browser
+- "✨ Ask AI" answers the question in the search box from the knowledge base, with pi's current model or one picked next to the button (remembered in the browser; a cheap, fast model is usually enough): the model first turns it into a few searches (including the other language and the wording a manual would use), then answers only from the passages found, citing each fact as [1]; a citation opens the original at that page. When the documents do not cover the question, it says so instead of guessing. Each question makes two model calls (about 1-2 thousand tokens)
 - Browse the converted text (tables and headings rendered as Markdown), create and edit notes, delete, and turn the knowledge base on or off
 - 中文 / English switch; add `?lang=en` or `?lang=zh` to a link to choose the language, `?q=<keywords>` to search directly, `?doc=<id>&page=<n>` to open a page of a document
 
-The page is served by the shared pi-web server (`src/hub.ts`). When [pi-sessions](https://github.com/woertedetiankong/pi-newsession) is installed too, both live under one address (`/sessions/` and `/kb/`) with a switcher at the top, sharing the access token in `~/.pi/agent/pi-web/token`. `src/hub.ts` must stay identical in both repositories.
+The page is served by the shared pi-web server (`src/hub.ts`). When [pi-sessions](https://github.com/woertedetiankong/pi-newsession) and [pi-learn](https://github.com/woertedetiankong/pi-learn) are installed too, they live under one address (`/sessions/`, `/kb/`, `/learn/`) with a switcher at the top, sharing the access token in `~/.pi/agent/pi-web/token`. After `/reload` the server comes back at the same address, so open pages keep working. `src/hub.ts` must stay identical in all three repositories.
 
 ## Interface language
 
@@ -200,7 +201,7 @@ runtime/, models/         runtime and model files for local semantic search (onl
 
 ### Known limitations
 
-- Tesseract is mediocre on Chinese scans: word order within a line can be scrambled. For many scans, configure a PaddleOCR server: set `"ocrServerUrl"` (LiteParse's OCR HTTP interface) in `config.json`.
+- Tesseract is mediocre on Chinese scans: word order within a line can be scrambled. For many scans, configure a PaddleOCR server: enter its address as the OCR server in the web page's Settings, or set `"ocrServerUrl"` (LiteParse's OCR HTTP interface) in `config.json`. The OCR languages can be changed there too; changes apply to the next import without restarting pi.
 - Vector search always returns the "closest" chunks, even when nothing is relevant: semantic-only results are capped in number and marked separately; the tested models (Qwen3-0.6B, bge-m3) also have a similarity floor, other models (such as OpenAI) only the cap for now.
 - The floors were measured on the material above (Qwen3 has a margin of about 0.03–0.04 on each side); for very different material you may need to tune `semantic.minScore`.
 - Quitting pi, `/reload`, `/new` or `/resume` stops an import in progress; files already imported are kept, and running `/kb add` again skips them.

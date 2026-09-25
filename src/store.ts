@@ -181,6 +181,17 @@ export class Store {
 		return out;
 	}
 
+	/** Full text of chunks by rowid. */
+	chunkTexts(rowids: number[]): Map<number, string> {
+		const get = this.db.prepare("SELECT content FROM chunks WHERE rowid = ?");
+		const out = new Map<number, string>();
+		for (const rowid of rowids) {
+			const r = get.get(rowid) as { content: string } | undefined;
+			if (r) out.set(rowid, r.content);
+		}
+		return out;
+	}
+
 	search(query: string, options: { limit?: number; collection?: Collection } = {}): SearchHit[] {
 		const plan = planQuery(query);
 		if (!plan.terms.length) return [];

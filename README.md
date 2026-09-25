@@ -41,7 +41,7 @@ pi -e ./src/index.ts          # 或只在本次运行加载
 
 默认只用关键词检索。开启语义检索后，可以用自然语言提问（"芯片最高能承受多少伏"能找到写着"绝对最大额定值 4.0V"的那页），中英文也能互相搜到。结果由关键词和语义两路按排名融合（RRF），纯语义命中的结果标为「语义相近」，agent 会先用 `kb_read` 核实再引用。
 
-两种方式，任选其一：
+两种方式，任选其一。可以在 pi 里用下面的命令开启，也可以在网页（`/kb web`）左侧的「设置」里切换、填写接口和 Key、设置国内镜像。两边改的是同一份设置，其他 pi 窗口会在几秒内自动跟上：
 
 | | 在线接口 `/kb semantic api` | 本机模型 `/kb semantic local` |
 |---|---|---|
@@ -74,7 +74,7 @@ pi -e ./src/index.ts          # 或只在本次运行加载
   | 硅基流动（中国大陆） | `https://api.siliconflow.cn/v1` | 同上 | 适合在中国大陆的用户；从中国大陆以外可能连不上 |
   | Ollama（本机） | `http://localhost:11434/v1` | 例如 `qwen3-embedding:0.6b` | 不需要 Key，数据不出本机 |
 - 导入后先能按关键词搜到，向量在后台生成，状态栏显示进度（`🧠 120/600`，完成后显示 `🧠`）。换模型会自动重建。
-- 访问 HuggingFace 或 npm 受限时（例如在中国大陆）：在 `config.json` 的 `semantic.local` 里设置 `"hfEndpoint": "https://hf-mirror.com"`（模型下载）和 `"npmRegistry": "https://registry.npmmirror.com"`（运行时安装）。默认不启用，直接使用官方源。
+- 访问 HuggingFace 或 npm 受限时（例如在中国大陆）：在 `config.json` 的 `semantic.local` 里设置 `"hfEndpoint": "https://hf-mirror.com"`（模型下载）和 `"npmRegistry": "https://registry.npmmirror.com"`（运行时安装），或者在网页设置的「下载源」里填写。默认不启用，直接使用官方源。
 
 ```json
 "semantic": {
@@ -120,10 +120,11 @@ pi -e ./src/index.ts          # 或只在本次运行加载
 
 - 把文件拖到页面上导入：左半边作为资料，右半边（Markdown）作为经验笔记。和 `/kb add` 共用同一个后台队列，页面上显示进度；终端里发起的导入，页面上也能看到进度
 - 搜索结果带页码，点开直接定位到那一页；PDF 可以「看原页」在浏览器里打开到对应页
+- 「✨ 问 AI」：根据知识库回答搜索框里的问题。默认用 pi 当前的模型，也可以在按钮旁边另选一个（记在浏览器里，便宜快速的模型通常就够用）。先让模型拆出几组检索词（含中英文和手册里的说法），再只根据检出的段落回答，每句标出处 [1]，点出处直接跳到原文那一页；资料里没有的会直说，不硬答。每问一次调用两次模型（约 1–2 千 token）
 - 浏览转换后的原文（表格、标题按 Markdown 显示）、新建和编辑笔记、删除、开关知识库
 - 中文 / English 切换；链接加 `?lang=en` 或 `?lang=zh` 可指定语言，`?q=<关键词>` 直接搜索，`?doc=<id>&page=<n>` 直接打开某份文档的某一页
 
-网页由 pi-web 共享服务提供（`src/hub.ts`）。同时安装了 [pi-sessions 会话管理](https://github.com/woertedetiankong/pi-newsession) 时，两者在同一个地址下（`/sessions/` 和 `/kb/`），顶部可以切换，共用 `~/.pi/agent/pi-web/token` 里的访问令牌。`src/hub.ts` 在两个仓库里必须保持完全一致。
+网页由 pi-web 共享服务提供（`src/hub.ts`）。同时安装了 [pi-sessions 会话管理](https://github.com/woertedetiankong/pi-newsession) 和 [pi-learn 学习测验](https://github.com/woertedetiankong/pi-learn) 时，它们在同一个地址下（`/sessions/`、`/kb/`、`/learn/`），顶部可以切换，共用 `~/.pi/agent/pi-web/token` 里的访问令牌。`/reload` 后网页会在原地址自动恢复，已打开的页面不用重开。`src/hub.ts` 在三个仓库里必须保持完全一致。
 
 ## 界面语言
 
@@ -200,7 +201,7 @@ runtime/, models/        本机语义模型的运行时和模型文件（只在 
 
 ### 已知限制
 
-- Tesseract 识别中文扫描件质量一般：同一行的词序可能被打乱。扫描件多时建议配置 PaddleOCR 服务：在 `config.json` 里设置 `"ocrServerUrl"`（LiteParse 的 OCR HTTP 接口）。
+- Tesseract 识别中文扫描件质量一般：同一行的词序可能被打乱。扫描件多时建议配置 PaddleOCR 服务：在网页「设置」的 OCR 服务地址里填写，或在 `config.json` 里设置 `"ocrServerUrl"`（LiteParse 的 OCR HTTP 接口）。识别语言也可以在那里改，改完对之后导入的文件立即生效，不用重启 pi。
 - 向量检索总会返回"最接近"的片段，即使库里没有相关内容：纯语义结果有数量上限、单独标注；测过的模型（Qwen3-0.6B、bge-m3）还有相似度下限，其他模型（如 OpenAI）暂时只有数量上限。
 - 下限是在上面那批数据上测出来的（Qwen3 两侧余量约 0.03–0.04）；资料类型差别很大时，可能需要用 `semantic.minScore` 微调。
 - 退出 pi、`/reload`、`/new`、`/resume` 会中断正在进行的导入；已导入完的文件保留，重新 `/kb add` 时会跳过它们。

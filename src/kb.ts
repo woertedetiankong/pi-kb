@@ -3,7 +3,7 @@ import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readF
 import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { chunkPages } from "./chunk.ts";
-import { defaultMinScore, type KbConfig, loadConfig, saveConfig } from "./config.ts";
+import { configStamp, defaultMinScore, type KbConfig, loadConfig, saveConfig } from "./config.ts";
 import { type ConvertedPage, Converter, isMarkdown, normalizeText, sourceKind } from "./convert.ts";
 import { type Note, normalizeTags, now, parseNote, renderNote, slugify, today } from "./notes.ts";
 import { fuse } from "./search.ts";
@@ -109,10 +109,13 @@ export class KnowledgeBase {
 	/** Called whenever background embedding makes progress or fails. */
 	onSemantic?: (status: IndexerStatus) => void;
 	private provider?: EmbeddingProvider;
+	/** config.json's modification time and size when last read or written. */
+	private configStamp: string;
 
 	constructor(root: string) {
 		this.root = root;
 		for (const dir of ["raw", "converted", "wiki"]) mkdirSync(join(root, dir), { recursive: true });
+		this.configStamp = configStamp(root);
 		this.config = loadConfig(root);
 		this.store = new Store(join(root, "kb.db"));
 		this.converter = new Converter({
@@ -136,13 +139,37 @@ export class KnowledgeBase {
 	}
 
 	updateConfig(change: Partial<KbConfig>): void {
-		const semanticBefore = JSON.stringify(this.config.semantic);
+		// Start from what is on disk, so a change made in another pi window is not overwritten.
+		this.reloadConfig();
+		const before = this.config;
 		this.config = { ...this.config, ...change };
 		saveConfig(this.root, this.config);
-		if (JSON.stringify(this.config.semantic) !== semanticBefore) {
+		this.configStamp = configStamp(this.root);
+		this.applyChanges(before);
+	}
+
+	/** Put settings that changed since `before` into effect. */
+	private applyChanges(before: KbConfig): void {
+		const { ocrLanguage, ocrServerUrl } = this.config;
+		if (ocrLanguage !== before.ocrLanguage || ocrServerUrl !== before.ocrServerUrl) this.converter.setOcr({ ocrLanguage, ocrServerUrl });
+		if (JSON.stringify(this.config.semantic) !== JSON.stringify(before.semantic)) {
 			this.applySemantic();
 			void this.indexer.kick();
 		}
+	}
+
+	/**
+	 * Pick up config.json if something else (another pi window, the web page served by it, an editor) changed it.
+	 * Returns true when the config was reloaded.
+	 */
+	reloadConfig(): boolean {
+		const stamp = configStamp(this.root);
+		if (stamp === this.configStamp) return false;
+		this.configStamp = stamp;
+		const before = this.config;
+		this.config = loadConfig(this.root);
+		this.applyChanges(before);
+		return true;
 	}
 
 	close(): void {

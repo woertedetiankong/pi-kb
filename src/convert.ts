@@ -143,7 +143,7 @@ function runParse(path: string, config: Record<string, unknown>, children: Set<C
 }
 
 export class Converter {
-	private readonly options: ConvertOptions;
+	private options: ConvertOptions;
 	private readonly children = new Set<ChildProcess>();
 	private verticalReady?: Promise<void>;
 
@@ -164,6 +164,12 @@ export class Converter {
 			maxPages: 5000,
 			quiet: true,
 		};
+	}
+
+	/** Use other OCR settings from the next conversion on; running ones finish with the old settings. */
+	setOcr(ocr: Pick<ConvertOptions, "ocrLanguage" | "ocrServerUrl">): void {
+		if (ocr.ocrLanguage !== this.options.ocrLanguage) this.verticalReady = undefined;
+		this.options = { ...this.options, ...ocr };
 	}
 
 	/** Convert a file to Markdown pages. Aborting stops the conversion and rejects. */

@@ -93,6 +93,25 @@ main { overflow-y: auto; border-right: 1px solid var(--line); }
 .cite { color: var(--accent-text); font-weight: 600; }
 .sem { font-size: 11px; font-weight: 600; border-radius: 4px; padding: 0 6px; background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
 .sem-line { font-size: 13px; color: var(--muted); margin: 0 0 14px; }
+.ask-model { height: 32px; max-width: 170px; border: 1px solid var(--line-strong); border-radius: 7px; padding: 0 6px; font: inherit; font-size: 12.5px; background: var(--panel); color: var(--muted); outline: none; margin-left: -8px; }
+.ask-model:focus { border-color: var(--accent); }
+.answer { margin: 4px 0 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); box-shadow: var(--shadow); }
+.answer-head { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); margin-bottom: 6px; }
+.answer-head b { color: var(--text); font-size: 13px; }
+.answer-head .q { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.answer-head button { width: 24px; height: 24px; border-radius: 6px; color: var(--faint); flex: none; }
+.answer-head button:hover { background: var(--bg); color: var(--text); }
+.answer .md { font-size: 14px; }
+.answer .md p:last-child { margin-bottom: 0; }
+.answer .ref { display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px; margin: 0 1px; border-radius: 5px; background: var(--accent-soft); color: var(--accent-text); font: 600 11px var(--mono); vertical-align: 1px; }
+.answer .ref:hover { background: var(--accent); color: #fff; }
+.answer-src { display: grid; gap: 2px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+.answer-src button { display: flex; gap: 8px; align-items: baseline; text-align: left; font-size: 12.5px; color: var(--accent-text); padding: 2px 0; }
+.answer-src button:hover { text-decoration: underline; }
+.answer-src .num { color: var(--faint); flex: none; }
+.answer .fine { margin: 8px 0 0; font-size: 11.5px; color: var(--faint); }
+.answer .none { color: var(--muted); margin: 0; }
+.answer .bad { color: var(--danger); margin: 0; font-size: 13px; }
 .tag { color: var(--accent-text); }
 .empty { padding: 60px 24px; text-align: center; color: var(--faint); }
 .empty .btn { margin-top: 14px; }
@@ -159,6 +178,23 @@ dialog.dlg::backdrop { background: rgba(0,0,0,.35); }
 .dlg .fine button { color: var(--accent-text); text-decoration: underline; font-size: 12px; }
 .dlg .err { color: var(--danger); font-size: 12.5px; }
 .dlg form p { margin: 0; font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.dlg input[type=password] { height: 34px; border: 1px solid var(--line-strong); border-radius: 7px; padding: 0 10px; font: inherit; background: var(--bg); color: var(--text); outline: none; }
+.dlg input[type=password]:focus { border-color: var(--accent); }
+.dlg .seg { justify-self: start; }
+.dlg [data-mode] { display: grid; gap: 10px; }
+.dlg h3 { margin: 4px 0 0; font-size: 14px; }
+.dlg h3 + .seg { margin-top: -2px; }
+.dlg hr { border: 0; border-top: 1px solid var(--line); margin: 6px 0 0; width: 100%; }
+.dlg select { height: 34px; border: 1px solid var(--line-strong); border-radius: 7px; padding: 0 8px; font: inherit; background: var(--bg); color: var(--text); outline: none; }
+.dlg select:focus { border-color: var(--accent); }
+.dlg p.hint { font-size: 13px; color: var(--muted); }
+.dlg details { font-size: 12.5px; color: var(--muted); }
+.dlg details summary { cursor: pointer; }
+.dlg details label { margin-top: 8px; }
+.dlg .link { color: var(--accent-text); font-size: 12px; text-decoration: underline; }
+.dlg .state { font-size: 13px; color: var(--muted); white-space: pre-line; overflow-wrap: anywhere; }
+.dlg .state.bad { color: var(--danger); }
+.sem-line button, .warn-line button { color: var(--accent-text); font-size: 13px; margin-left: 6px; }
 
 .drop { position: fixed; inset: 0; z-index: 20; background: color-mix(in srgb, var(--bg) 80%, transparent); backdrop-filter: blur(3px); display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 40px; }
 .drop div { border: 2px dashed var(--line-strong); border-radius: 16px; display: grid; place-content: center; text-align: center; gap: 6px; background: var(--panel); transition: .1s; }
@@ -177,6 +213,7 @@ dialog.dlg::backdrop { background: rgba(0,0,0,.35); }
   header { flex-wrap: wrap; padding: 10px 16px; gap: 10px; }
   .brand { min-width: 0; }
   .search { order: 3; flex-basis: 100%; max-width: none; }
+  .ask-model { margin-left: 0; }
   aside { flex-direction: row; flex-wrap: wrap; padding: 6px 8px; border-right: 0; border-bottom: 1px solid var(--line); }
   aside .nav { width: auto; }
   .nav-label, .side-foot { display: none; }
@@ -195,6 +232,8 @@ dialog.dlg::backdrop { background: rgba(0,0,0,.35); }
       <input id="q" autocomplete="off">
       <kbd>/</kbd>
     </label>
+    <button class="btn" id="askBtn"></button>
+    <select class="ask-model" id="askModel"></select>
     <div class="spacer"></div>
     <div class="seg" id="enabledSeg"><button data-v="on"></button><button data-v="off"></button></div>
     <button class="btn primary" id="upload"></button>
@@ -227,6 +266,38 @@ dialog.dlg::backdrop { background: rgba(0,0,0,.35); }
   <form method="dialog">
     <p id="versionText"></p>
     <div class="row"><button class="btn" value="skip" data-t="versionSkip"></button><button class="btn" value="keep" data-t="versionKeep"></button><button class="btn primary" value="replace" data-t="versionReplace"></button></div>
+  </form>
+</dialog>
+
+<dialog class="dlg" id="semDlg">
+  <div class="dlg-head"><h2 data-t="settings"></h2><button data-close aria-label="close">✕</button></div>
+  <form method="dialog">
+    <h3 data-t="semTitle"></h3>
+    <div class="seg" id="semSeg"><button type="button" data-v="off" data-t="semModeOff"></button><button type="button" data-v="local" data-t="semModeLocal"></button><button type="button" data-v="api" data-t="semModeApi"></button></div>
+    <div data-mode="off"><p class="hint" data-t="semOffHint"></p></div>
+    <div data-mode="local">
+      <p class="hint" id="semLocalHint"></p>
+      <details><summary data-t="semSources"></summary>
+        <label><span data-t="semHf"></span><input type="text" name="hfEndpoint" placeholder="https://hf-mirror.com"></label>
+        <label><span data-t="semNpm"></span><input type="text" name="npmRegistry" placeholder="https://registry.npmmirror.com"></label>
+      </details>
+    </div>
+    <div data-mode="api">
+      <p class="hint" data-t="semApiHint"></p>
+      <label><span data-t="semBaseUrl"></span><input type="text" name="baseUrl" placeholder="https://api.openai.com/v1"></label>
+      <label><span data-t="semModel"></span><input type="text" name="model" placeholder="text-embedding-3-small"></label>
+      <label><span data-t="semKey"></span><input type="password" name="apiKey" autocomplete="off"></label>
+      <p class="hint" id="semKeyHint"></p>
+    </div>
+    <p class="state" id="semState" hidden></p>
+    <hr>
+    <h3 data-t="ocrTitle"></h3>
+    <p class="hint" data-t="ocrHint"></p>
+    <label><span data-t="ocrLanguage"></span><select name="ocrLanguage"></select></label>
+    <label><span data-t="ocrServer"></span><input type="text" name="ocrServer" placeholder="http://localhost:8828/ocr"></label>
+    <p class="hint" data-t="ocrServerHint"></p>
+    <div class="err" id="semErr" hidden></div>
+    <div class="row"><span class="fine"><button type="button" id="semRemove" hidden></button></span><button type="button" class="btn" data-close data-t="cancel"></button><button class="btn primary" id="semSave" data-t="save"></button></div>
   </form>
 </dialog>
 
@@ -268,9 +339,35 @@ const T = {
     ovTips: ["把文件拖到页面上导入：左边作为资料，右边作为经验笔记。", "知识库开启时，pi 的 agent 会先检索这里，回答时带上 [文件名 p.页码] 引用。", "解决难题后，agent 会提议把经验记成笔记；也可以在 pi 里运行 /kb note。", "笔记是普通 Markdown 文件，可以用 Obsidian 打开 wiki 文件夹编辑。"],
     ovStatusOff: "知识库当前已关闭，agent 不会使用它。",
     semanticHit: "语义相近", semanticHitTip: "意思相关，但不一定包含你搜索的词",
-    semOff: "语义检索未开启：只按关键词搜索。在 pi 里运行 /kb semantic 开启后，可以用自然语言提问，中英文也能互相搜到。",
+    semOff: "语义检索未开启：只按关键词搜索。开启后可以用自然语言提问，中英文也能互相搜到。",
     semIndexing: (d, t) => `语义检索：正在建立索引 ${d}/${t}`, semReady: t => `语义检索已开启：${t} 个片段`, semDownload: p => `语义检索：正在下载模型 ${p}%`,
-    semError: "语义检索出错，暂时只按关键词搜索。在 pi 里运行 /kb semantic 查看原因。",
+    semError: "语义检索出错，暂时只按关键词搜索。打开设置查看原因。",
+    semInstalling: "语义检索：正在安装本机模型运行时…", semInstallFailed: "本机模型运行时安装失败，打开设置查看原因。",
+    settings: "设置", semSetup: "设置",
+    ask: "✨ 问 AI", askTip: "用 pi 当前的模型，根据知识库回答搜索框里的问题，并标出出处",
+    askEmpty: "先在搜索框里输入一个问题", askTitle: "AI 回答", askLoading: "正在查资料并组织回答…", askNone: "知识库里没有找到和这个问题相关的内容。",
+    askSources: "出处", askSearched: q => `检索词：${q}`, askCheck: "AI 回答可能有误，重要数值请点开出处核对。",
+    askProblems: { no_model: "pi 还没有可用的模型，或正在切换会话。在 pi 里用 /model 选一个模型后再试。", model_missing: "找不到这个模型，请在「问 AI」旁边重新选择", model_no_auth: id => `模型 ${id} 还没有配置登录或 API Key`, model_failed: d => `模型调用失败：${d}` },
+    askModel: "问 AI 用的模型", followPi: m => `跟随 pi${m ? `（${m}）` : ""}`, answeredBy: m => `由 ${m} 回答。`,
+    ocrTitle: "文字识别（OCR）", ocrHint: "导入扫描版 PDF 和图片时用来识别文字。修改后对之后导入的文件生效；已导入的文件要删除后重新导入才会重新识别。",
+    ocrLanguage: "识别语言", ocrServer: "OCR 服务地址（可不填）", ocrServerHint: "不填则用内置的 Tesseract。填入 PaddleOCR 等服务的地址后改用它，中文扫描件的识别效果好很多。",
+    ocrLangs: { "eng+chi_sim": "简体中文 + 英文", "eng+chi_tra": "繁体中文 + 英文", "eng+chi_sim+chi_tra": "简体 + 繁体 + 英文", eng: "仅英文", "eng+chi_sim+jpn": "简体中文 + 日文 + 英文" },
+    ocrOther: v => `其他：${v}`, ocrSaved: "文字识别设置已保存",
+    semTitle: "语义检索", semModeOff: "关闭", semModeLocal: "本机模型", semModeApi: "在线接口",
+    semOffHint: "只按关键词搜索。不下载模型，也不向外发送任何内容。",
+    semLocalHint: (model, installed, size) => `在这台电脑上运行 ${model}，文档内容不会外传。${installed ? `运行时已安装（本机模型共占用 ${size}）。` : "首次开启会安装运行时（约 500MB），第一次建索引时再下载模型（约 610MB）；建索引时约占用 2–3GB 内存。"}`,
+    semSources: "下载源（网络受限时可填国内镜像）", semHf: "Hugging Face 镜像（可不填）", semNpm: "npm 源（可不填）",
+    semApiHint: "使用兼容 OpenAI 的向量接口（OpenAI、硅基流动、Ollama 等）。所有文档和笔记的文字都会发送给这个服务。",
+    semBaseUrl: "接口地址", semModel: "向量模型", semKey: "API Key",
+    semKeySaved: "已保存一个 Key，留空则继续使用。", semKeyEnv: v => `未填写时使用环境变量 ${v}。`, semKeyNone: "Ollama 等本机服务可以不填。", semKeyClear: "清除已保存的 Key",
+    semApiConfirm: host => `为了建立语义索引，所有文档和笔记的文字都会发送给 ${host}；每次搜索也会发送你的查询。继续吗？`,
+    semLocalConfirm: "将下载约 1.1GB 的运行时和模型文件到知识库目录，继续吗？",
+    semRemoveBtn: size => `删除本机模型（${size}）`, semRemoveConfirm: size => `删除本机模型运行时和模型文件（${size}）？文档、笔记和索引都会保留；如果正在使用本机模型，语义检索会先关闭。`,
+    semRemoved: size => `已删除本机模型，释放 ${size}`,
+    semInstallingLong: line => `正在安装本机模型运行时，可以关掉这个窗口，安装会在 pi 里继续。${line ? `\n${line}` : ""}`,
+    semInstallError: e => `安装失败：${e}。网络受限时，在“下载源”里填入 npm 镜像再试。`,
+    semProblem: { no_api_key: "缺少 API Key：在下面填写，或设置环境变量 PI_KB_EMBEDDING_API_KEY。", runtime_missing: "缺少本机模型运行时：选择“本机模型”并保存即可重新安装。" },
+    semSavedOff: "语义检索已关闭", semSavedApi: "已切换到在线接口，正在后台建立索引", semSavedLocal: "已切换到本机模型，正在后台建立索引", semSavedInstalling: "正在安装本机模型运行时…",
   },
   en: {
     title: "pi Knowledge", brand: "Knowledge", loading: "Loading the knowledge base…",
@@ -302,13 +399,39 @@ const T = {
     ovTips: ["Drop files on the page to import them: left side as documents, right side as experience notes.", "While the knowledge base is on, pi's agent searches it first and cites answers as [file p.N].", "After solving a hard problem the agent offers to save the lesson as a note; you can also run /kb note in pi.", "Notes are plain Markdown files; open the wiki folder in Obsidian to edit them."],
     ovStatusOff: "The knowledge base is off, so the agent does not use it.",
     semanticHit: "semantic", semanticHitTip: "Related in meaning; may not contain your words",
-    semOff: "Semantic search is off, so only keywords match. Run /kb semantic in pi to ask in natural language and search across Chinese and English.",
+    semOff: "Semantic search is off, so only keywords match. Turn it on to ask in natural language and search across Chinese and English.",
     semIndexing: (d, t) => `Semantic search: indexing ${d}/${t}`, semReady: t => `Semantic search on: ${t} chunks`, semDownload: p => `Semantic search: downloading the model ${p}%`,
-    semError: "Semantic search failed, so only keywords match for now. Run /kb semantic in pi to see why.",
+    semError: "Semantic search failed, so only keywords match for now. Open the settings to see why.",
+    semInstalling: "Semantic search: installing the local model runtime…", semInstallFailed: "Installing the local model runtime failed. Open the settings to see why.",
+    settings: "Settings", semSetup: "Settings",
+    ask: "✨ Ask AI", askTip: "Answer the question in the search box from the knowledge base with pi's current model, citing sources",
+    askEmpty: "Type a question in the search box first", askTitle: "AI answer", askLoading: "Reading the knowledge base and writing an answer…", askNone: "Nothing in the knowledge base relates to this question.",
+    askSources: "Sources", askSearched: q => `Searched: ${q}`, askCheck: "AI answers can be wrong; open the sources to check important values.",
+    askProblems: { no_model: "pi has no model available, or is switching sessions. Pick one with /model in pi and try again.", model_missing: "That model no longer exists; pick another one next to Ask AI", model_no_auth: id => `Model ${id} has no login or API key configured`, model_failed: d => `The model call failed: ${d}` },
+    askModel: "Model for Ask AI", followPi: m => `Follow pi${m ? ` (${m})` : ""}`, answeredBy: m => `Answered by ${m}.`,
+    ocrTitle: "Text recognition (OCR)", ocrHint: "Reads text from scanned PDFs and images when you import them. Changes apply to files imported from now on; delete and re-import a file to recognise it again.",
+    ocrLanguage: "Languages", ocrServer: "OCR server (optional)", ocrServerHint: "Empty uses the built-in Tesseract. Enter the address of a service such as PaddleOCR to use it instead; it reads Chinese scans much better.",
+    ocrLangs: { "eng+chi_sim": "English + Simplified Chinese", "eng+chi_tra": "English + Traditional Chinese", "eng+chi_sim+chi_tra": "English + Simplified + Traditional Chinese", eng: "English only", "eng+chi_sim+jpn": "English + Simplified Chinese + Japanese" },
+    ocrOther: v => `Other: ${v}`, ocrSaved: "Text recognition settings saved",
+    semTitle: "Semantic search", semModeOff: "Off", semModeLocal: "Local model", semModeApi: "Online API",
+    semOffHint: "Keyword search only. Nothing is downloaded and nothing leaves this machine.",
+    semLocalHint: (model, installed, size) => `Runs ${model} on this computer; document text stays here. ${installed ? `The runtime is installed (the local model uses ${size} in total).` : "Turning it on installs the runtime (about 500 MB); the model (about 610 MB) downloads on first indexing, which uses about 2-3 GB of memory."}`,
+    semSources: "Download sources (mirrors for restricted networks)", semHf: "Hugging Face mirror (optional)", semNpm: "npm registry (optional)",
+    semApiHint: "Uses an OpenAI-compatible embeddings API (OpenAI, SiliconFlow, Ollama, ...). The text of every document and note is sent to this service.",
+    semBaseUrl: "Base URL", semModel: "Embedding model", semKey: "API key",
+    semKeySaved: "A key is saved; leave empty to keep it.", semKeyEnv: v => `When empty, the ${v} environment variable is used.`, semKeyNone: "Local servers such as Ollama need no key.", semKeyClear: "Remove the saved key",
+    semApiConfirm: host => `To build the semantic index, the text of every document and note is sent to ${host}. Searches send your query too. Continue?`,
+    semLocalConfirm: "This downloads about 1.1 GB of runtime and model files into the knowledge base folder. Continue?",
+    semRemoveBtn: size => `Remove the local model (${size})`, semRemoveConfirm: size => `Delete the local model runtime and model files (${size})? Documents, notes and the index stay; if semantic search uses the local model, it is turned off first.`,
+    semRemoved: size => `Local model removed, ${size} freed`,
+    semInstallingLong: line => `Installing the local model runtime. You can close this window; the install continues in pi.${line ? `\n${line}` : ""}`,
+    semInstallError: e => `Install failed: ${e}. On a restricted network, set an npm mirror under download sources and try again.`,
+    semProblem: { no_api_key: "No API key: enter one below or set the PI_KB_EMBEDDING_API_KEY environment variable.", runtime_missing: "The local model runtime is missing: choose Local model and save to reinstall it." },
+    semSavedOff: "Semantic search off", semSavedApi: "Switched to the online API; indexing in the background", semSavedLocal: "Switched to the local model; indexing in the background", semSavedInstalling: "Installing the local model runtime…",
   },
 }[LANG];
 
-const state = { status: null, docs: [], view: "all", q: "", hits: null, selected: null, focusPage: null, doc: null, editing: false, uploading: "" };
+const state = { status: null, docs: [], view: "all", q: "", hits: null, selected: null, focusPage: null, doc: null, editing: false, uploading: "", answer: null };
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -424,6 +547,8 @@ function renderHeader() {
   document.querySelectorAll("[data-t]").forEach(el => { const v = T[el.dataset.t]; if (typeof v === "string") el.textContent = v; });
   $("q").placeholder = T.search;
   $("upload").textContent = T.upload;
+  $("askBtn").textContent = T.ask;
+  $("askBtn").title = T.askTip;
   const seg = $("enabledSeg");
   seg.title = T.enabledTip;
   const on = state.status?.enabled;
@@ -448,6 +573,7 @@ function renderSide() {
     <div class="nav-label">${esc(T.actions)}</div>
     <button class="nav" id="newNoteBtn"><span class="ico">＋</span><span class="name">${esc(T.newNote)}</span></button>
     <button class="nav" id="syncBtn"><span class="ico">↻</span><span class="name">${esc(T.sync)}</span></button>
+    <button class="nav" id="semBtn"><span class="ico">⚙</span><span class="name">${esc(T.settings)}</span></button>
     <div class="side-foot">${esc(T.folder)}<br>${esc(state.status?.root ?? "")}</div>`;
 }
 
@@ -465,6 +591,22 @@ function card(d, extra = "") {
   </button>`;
 }
 
+/** The AI answer card: question, answer with clickable [n] citations, and the cited sources. */
+function answerCard() {
+  const a = state.answer;
+  if (!a) return "";
+  const head = `<div class="answer-head">✨ <b>${esc(T.askTitle)}</b><span class="q">${esc(a.question)}</span><button id="askClose" aria-label="close">✕</button></div>`;
+  if (a.loading) return `<div class="answer">${head}<div class="progress"><span class="spin"></span>${esc(T.askLoading)}</div></div>`;
+  if (a.error) return `<div class="answer">${head}<p class="bad">${esc(a.error)}</p></div>`;
+  const r = a.result;
+  if (!r.answer) return `<div class="answer">${head}<p class="none">${esc(T.askNone)}</p>${r.queries.length ? `<p class="fine">${esc(T.askSearched(r.queries.join(" · ")))}</p>` : ""}</div>`;
+  const body = markdown(r.answer).replace(/\[(\d+)\]/g, (whole, n) => r.sources[n - 1] ? `<button class="ref" data-ref="${n}" title="${esc(r.sources[n - 1].title)}">${n}</button>` : whole);
+  const cite = s => s.page ? `${s.title} · ${T.page(s.page)}` : s.title;
+  const sources = r.sources.map(s => `<button data-ref="${s.n}"><span class="num">[${s.n}]</span><span>${esc(cite(s))}</span></button>`).join("");
+  return `<div class="answer">${head}<div class="md">${body}</div>${sources ? `<div class="answer-src">${sources}</div>` : ""}
+    <p class="fine">${esc(T.askCheck)} ${esc(T.answeredBy(modelName(r.model)))}${r.queries.length ? ` ${esc(T.askSearched(r.queries.join(" · ")))}` : ""}</p></div>`;
+}
+
 function renderList() {
   const im = state.status?.imports;
   const busy = state.uploading || (im?.active && im.current ? T.importing(im.done + 1, im.total, im.current) : "");
@@ -480,8 +622,9 @@ function renderList() {
             ${h.heading || h.match === "semantic" ? `<div class="meta">${h.match === "semantic" ? `<span class="sem" title="${esc(T.semanticHitTip)}">${esc(T.semanticHit)}</span>` : ""}${h.heading ? `§ ${esc(h.heading)}` : ""}</div>` : ""}
           </button>`;
         }).join("")
-      : `<div class="empty">${esc(T.noHits(state.q))}<br><small>${esc(T.noHitsHint)}</small></div>`;
-    $("list").innerHTML = `<div class="list-head"><h2>${esc(state.q)}</h2><span class="sub">${esc(T.results(hits.length))}</span>${progress}</div><div class="group">${body}</div>`;
+      // Next to an answer to this same question, "no results" would read as a contradiction.
+      : state.answer?.question === state.q.trim() ? "" : `<div class="empty">${esc(T.noHits(state.q))}<br><small>${esc(T.noHitsHint)}</small></div>`;
+    $("list").innerHTML = `<div class="list-head"><h2>${esc(state.q)}</h2><span class="sub">${esc(T.results(hits.length))}</span>${progress}</div><div class="group">${answerCard()}${body}</div>`;
     return;
   }
   const docs = visibleDocs();
@@ -489,7 +632,7 @@ function renderList() {
   const empty = state.docs.length
     ? `<div class="empty">${esc(T.emptyView)}</div>`
     : `<div class="empty"><b>${esc(T.empty)}</b><br>${esc(T.emptyHint)}<br><button class="btn primary" id="emptyUpload">${esc(T.upload)}</button></div>`;
-  $("list").innerHTML = `<div class="list-head"><h2>${esc(title)}</h2><span class="sub">${esc(T.items(docs.length))}</span>${progress}</div><div class="group">${docs.length ? docs.map(d => card(d)).join("") : empty}</div>`;
+  $("list").innerHTML = `<div class="list-head"><h2>${esc(title)}</h2><span class="sub">${esc(T.items(docs.length))}</span>${progress}</div><div class="group">${answerCard()}${docs.length ? docs.map(d => card(d)).join("") : empty}</div>`;
 }
 
 async function renderPreview() {
@@ -502,7 +645,9 @@ async function renderPreview() {
     catch (e) { pv.innerHTML = `<div class="pv"><div class="empty">${esc(e.message)}</div></div>`; return; }
     if (state.selected !== id) return;
   }
-  const { doc, text } = state.doc;
+  const { doc } = state.doc;
+  // Notes come with their whole file in `raw` (front matter included), which is what the editor edits.
+  const text = state.doc.raw ?? state.doc.text;
   const back = `<button class="btn back" id="back">${esc(T.back)}</button>`;
   if (doc.collection === "wiki") {
     const { fields, body } = splitNote(text);
@@ -542,6 +687,8 @@ async function renderPreview() {
 }
 
 function semanticLine(sem) {
+  if (sem?.installing != null) return T.semInstalling;
+  if (sem?.installError) return T.semInstallFailed;
   if (!sem || sem.provider === "off") return T.semOff;
   if (sem.state === "error") return T.semError;
   if (sem.download != null) return T.semDownload(Math.round(sem.download));
@@ -555,7 +702,7 @@ function overview() {
   return `<div class="pv"><h1>${esc(T.overview)}</h1>
     <div class="stats">${stat(st.docs, T.ovDocs)}${stat(st.pages, T.ovPages)}${stat(st.wiki, T.ovNotes)}</div>
     ${st.enabled ? "" : `<p class="warn-line">${esc(T.ovStatusOff)}</p>`}
-    <p class="${st.semantic?.state === "error" ? "warn-line" : "sem-line"}">🧠 ${esc(semanticLine(st.semantic))}</p>
+    <p class="${st.semantic?.state === "error" || st.semantic?.installError ? "warn-line" : "sem-line"}">🧠 ${esc(semanticLine(st.semantic))}<button id="semOpen">${esc(T.semSetup)} →</button></p>
     <ul class="tips">${T.ovTips.map(t => `<li>${esc(t)}</li>`).join("")}</ul></div>`;
 }
 
@@ -667,6 +814,53 @@ $("enabledSeg").addEventListener("click", async e => {
   catch (err) { toast(err.message); }
 });
 $("upload").addEventListener("click", () => $("files").click());
+
+// ---- ask the knowledge base ----
+let askAbort = null;
+async function askAi() {
+  const question = state.q.trim();
+  if (!question) { toast(T.askEmpty); $("q").focus(); return; }
+  askAbort?.abort();
+  const abort = askAbort = new AbortController();
+  state.answer = { question, loading: true };
+  renderList();
+  try {
+    const res = await fetch("/api/kb/ask", { method: "POST", signal: abort.signal, headers: { "x-token": TOKEN, "content-type": "application/json" }, body: JSON.stringify({ question, model: models.pick || undefined }) });
+    const data = await res.json().catch(() => ({}));
+    if (abort !== askAbort) return;
+    if (!res.ok) {
+      const [problem, ...detail] = String(data.error || `HTTP ${res.status}`).split(": ");
+      if (problem === "cancelled") { state.answer = null; renderList(); return; }
+      const say = T.askProblems[problem];
+      throw new Error(typeof say === "function" ? say(detail.join(": ")) : say || data.error);
+    }
+    state.answer = { question, result: data };
+  } catch (e) {
+    if (abort.signal.aborted) return;
+    state.answer = { question, error: e.message === "Failed to fetch" ? T.offline : e.message };
+  }
+  renderList();
+}
+$("askBtn").addEventListener("click", askAi);
+
+// Model for Ask AI: "" follows pi's current model; a pick is remembered in this browser.
+const models = { list: [], current: "", pick: "" };
+try { models.pick = JSON.parse(localStorage.getItem("pi-kb-prefs") || "{}").askModel || ""; } catch {}
+const modelName = key => models.list.find(m => m.key === key)?.name || String(key || "").split("/").slice(1).join("/") || key;
+async function loadModels() {
+  let r;
+  try { r = await api("/models"); } catch { return; }
+  models.list = r.models || []; models.current = r.current || "";
+  if (models.pick && models.list.length && !models.list.some(m => m.key === models.pick)) models.pick = "";
+  const multi = new Set(models.list.map(m => m.provider)).size > 1;
+  const opt = (v, t) => `<option value="${esc(v)}"${v === models.pick ? " selected" : ""}>${esc(t)}</option>`;
+  $("askModel").innerHTML = opt("", T.followPi(modelName(models.current))) + models.list.map(m => opt(m.key, multi ? `${m.name} · ${m.provider}` : m.name)).join("");
+  $("askModel").title = T.askModel;
+}
+$("askModel").addEventListener("change", e => {
+  models.pick = e.target.value;
+  try { localStorage.setItem("pi-kb-prefs", JSON.stringify({ askModel: models.pick })); } catch {}
+});
 $("files").addEventListener("change", e => { upload(e.target.files, false); e.target.value = ""; });
 $("noteFiles").addEventListener("change", e => { $("newNote").close(); upload(e.target.files, true); e.target.value = ""; });
 
@@ -674,10 +868,14 @@ $("side").addEventListener("click", async e => {
   const b = e.target.closest("button"); if (!b) return;
   if (b.dataset.view) { state.view = b.dataset.view; state.hits = null; state.q = ""; $("q").value = ""; renderSide(); renderList(); return; }
   if (b.id === "newNoteBtn") { $("newNoteErr").hidden = true; $("newNote").showModal(); return; }
+  if (b.id === "semBtn") return openSemantic();
   if (b.id === "syncBtn") { try { const r = await api("/sync", { body: {} }); etags = {}; await refresh(); toast(T.synced(r.updated, r.removed)); } catch (err) { toast(err.message); } }
 });
 $("list").addEventListener("click", e => {
   if (e.target.closest("#emptyUpload")) return $("files").click();
+  if (e.target.closest("#askClose")) { askAbort?.abort(); state.answer = null; renderList(); return; }
+  const ref = e.target.closest("[data-ref]");
+  if (ref && state.answer?.result) { const s = state.answer.result.sources[ref.dataset.ref - 1]; if (s) select(s.docId, s.page); return; }
   const c = e.target.closest(".card"); if (!c) return;
   select(c.dataset.id, Number(c.dataset.page) || null);
 });
@@ -685,6 +883,7 @@ $("preview").addEventListener("click", async e => {
   const b = e.target.closest("button"); if (!b) return;
   const id = state.selected, doc = state.doc?.doc;
   if (b.id === "back") { $("app").classList.remove("detail"); return; }
+  if (b.id === "semOpen") return openSemantic();
   if (b.id === "openOriginal") return openOriginal(id, Number(b.dataset.page) || null);
   if (b.dataset.page && b.closest(".page-mark")) return openOriginal(id, Number(b.dataset.page));
   if (b.id === "editNote") { state.editing = true; renderPreview(); return; }
@@ -716,6 +915,100 @@ $("newNote").querySelector("form").addEventListener("submit", async e => {
   } catch (err) { $("newNoteErr").textContent = err.message; $("newNoteErr").hidden = false; }
 });
 
+// ---- semantic search settings ----
+const sem = { info: null, ocr: null, mode: "off", clearKey: false, poll: null };
+const fmtSize = n => n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(n / 1e6))} MB`;
+function renderSemantic() {
+  const info = sem.info, f = $("semDlg").querySelector("form");
+  if (!info) return;
+  $("semSeg").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === sem.mode));
+  f.querySelectorAll("[data-mode]").forEach(el => el.hidden = el.dataset.mode !== sem.mode);
+  $("semLocalHint").textContent = T.semLocalHint(info.local.model, info.local.installed, fmtSize(info.local.bytes));
+  const key = info.api.keySaved && !sem.clearKey;
+  $("semKeyHint").innerHTML = [key ? esc(T.semKeySaved) : info.api.keyEnv ? esc(T.semKeyEnv(info.api.keyEnv)) : esc(T.semKeyNone),
+    key ? `<button type="button" class="link" id="semClearKey">${esc(T.semKeyClear)}</button>` : ""].join(" ");
+  f.apiKey.placeholder = key ? "••••••••" : "";
+  const installing = info.installing != null;
+  // Show a problem only next to the choice it belongs to.
+  const problem = sem.mode === "local" && info.installError ? T.semInstallError(info.installError)
+    : sem.mode === info.provider && info.provider !== "off" ? (info.problem ? T.semProblem[info.problem] : info.error ?? "") : "";
+  $("semState").hidden = !(installing && sem.mode === "local") && !problem;
+  $("semState").classList.toggle("bad", !installing && !!problem);
+  $("semState").textContent = installing && sem.mode === "local" ? T.semInstallingLong(info.installing) : problem;
+  $("semSave").disabled = installing;
+  $("semRemove").hidden = !info.local.bytes || installing;
+  $("semRemove").className = "link";
+  $("semRemove").textContent = T.semRemoveBtn(fmtSize(info.local.bytes));
+}
+async function loadSemantic(fill) {
+  sem.info = await api("/semantic");
+  if (fill) {
+    const f = $("semDlg").querySelector("form"), i = sem.info;
+    sem.ocr = await api("/ocr");
+    const langs = { ...T.ocrLangs };
+    if (!langs[sem.ocr.language]) langs[sem.ocr.language] = T.ocrOther(sem.ocr.language);
+    f.ocrLanguage.innerHTML = Object.entries(langs).map(([v, label]) => `<option value="${esc(v)}">${esc(label)}</option>`).join("");
+    f.ocrLanguage.value = sem.ocr.language; f.ocrServer.value = sem.ocr.serverUrl;
+    sem.mode = i.provider; sem.clearKey = false;
+    f.baseUrl.value = i.api.baseUrl; f.model.value = i.api.model; f.apiKey.value = "";
+    f.hfEndpoint.value = i.local.hfEndpoint; f.npmRegistry.value = i.local.npmRegistry;
+  }
+  renderSemantic();
+  // Follow an install until it ends, then show the result.
+  clearTimeout(sem.poll);
+  if (sem.info.installing != null && $("semDlg").open) sem.poll = setTimeout(() => loadSemantic(false).catch(() => {}), 1500);
+}
+async function openSemantic() {
+  $("semErr").hidden = true;
+  try { await loadSemantic(true); $("semDlg").showModal(); } catch (e) { toast(e.message); }
+}
+$("semDlg").addEventListener("close", () => clearTimeout(sem.poll));
+$("semDlg").addEventListener("click", async e => {
+  if (e.target.closest("[data-close]")) return $("semDlg").close();
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.closest("#semSeg")) { sem.mode = b.dataset.v; renderSemantic(); return; }
+  if (b.id === "semClearKey") { sem.clearKey = true; renderSemantic(); return; }
+  if (b.id === "semRemove") {
+    const size = fmtSize(sem.info.local.bytes);
+    if (!confirm(T.semRemoveConfirm(size))) return;
+    try { await api("/semantic/remove", { body: {} }); toast(T.semRemoved(size)); etags.status = ""; await refresh(); await loadSemantic(true); }
+    catch (err) { toast(err.message); }
+  }
+});
+$("semDlg").querySelector("form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const f = e.target, info = sem.info, mode = sem.mode;
+  const ocr = { language: f.ocrLanguage.value, serverUrl: f.ocrServer.value.trim() };
+  const ocrChanged = ocr.language !== sem.ocr.language || ocr.serverUrl !== sem.ocr.serverUrl;
+  const body = {
+    provider: mode,
+    api: { baseUrl: f.baseUrl.value.trim(), model: f.model.value.trim(), apiKey: f.apiKey.value, clearKey: sem.clearKey },
+    local: { hfEndpoint: f.hfEndpoint.value.trim(), npmRegistry: f.npmRegistry.value.trim() },
+  };
+  // Leave semantic search alone when only OCR changed: saving "local" again would reinstall a missing runtime.
+  const semChanged = mode !== info.provider || body.api.apiKey || sem.clearKey
+    || (mode === "api" && (body.api.baseUrl !== info.api.baseUrl || body.api.model !== info.api.model))
+    || (mode === "local" && (body.local.hfEndpoint !== info.local.hfEndpoint || body.local.npmRegistry !== info.local.npmRegistry));
+  // Say what leaves the machine, or what gets downloaded, before switching to it.
+  if (semChanged && mode === "api" && (info.provider !== "api" || body.api.baseUrl !== info.api.baseUrl)) {
+    let host; try { host = new URL(body.api.baseUrl).host; } catch { host = body.api.baseUrl; }
+    if (!confirm(T.semApiConfirm(host))) return;
+  }
+  if (semChanged && mode === "local" && info.provider !== "local" && !info.local.installed && !confirm(T.semLocalConfirm)) return;
+  try {
+    const done = [];
+    if (ocrChanged) { sem.ocr = await api("/ocr", { body: ocr }); done.push(T.ocrSaved); }
+    if (semChanged) {
+      const r = await api("/semantic", { body });
+      etags.status = ""; await refresh();
+      if (r.installing != null) { toast(T.semSavedInstalling); await loadSemantic(false); return; }
+      done.push(r.provider === "off" ? T.semSavedOff : r.provider === "api" ? T.semSavedApi : T.semSavedLocal);
+    }
+    $("semDlg").close();
+    if (done.length) toast(done.join(" · "));
+  } catch (err) { $("semErr").textContent = err.message; $("semErr").hidden = false; }
+});
+
 // Drag files anywhere: choose "documents" or "notes" by dropping on one half.
 let dragDepth = 0;
 const hasFiles = e => [...(e.dataTransfer?.types ?? [])].includes("Files");
@@ -742,7 +1035,8 @@ refresh().then(() => {
   if (link.get("doc")) select(link.get("doc"), Number(link.get("page")) || null);
 });
 setInterval(() => { if (!document.hidden) refresh(); }, 10000);
-window.addEventListener("focus", refresh);
+window.addEventListener("focus", () => { refresh(); loadModels(); });
+loadModels();
 </script>
 </body>
 </html>
