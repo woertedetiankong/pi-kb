@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { createHub, type WebApp, type WebHub } from "../src/hub.ts";
 import { KnowledgeBase } from "../src/kb.ts";
+import { ImportQueue } from "../src/queue.ts";
 import { KbWebApp } from "../src/web.ts";
 
 const fixtures = join(import.meta.dirname, "fixtures");
@@ -30,8 +31,16 @@ before(async () => {
 	process.env.PI_KB_TESSDATA ??= join(tmpdir(), "pi-kb-test-tessdata");
 	root = mkdtempSync(join(tmpdir(), "pi-kb-web-"));
 	kb = new KnowledgeBase(root);
+	const queue = new ImportQueue((item, signal) => kb.addFile(item.path, { ...item, signal }), () => {});
 	const app = new KbWebApp(
-		{ kb: () => kb, enabled: () => enabled, setEnabled: (on) => { enabled = on; }, changed: () => { changes++; } },
+		{
+			kb: () => kb,
+			enabled: () => enabled,
+			setEnabled: (on) => { enabled = on; },
+			changed: () => { changes++; },
+			enqueue: (item) => queue.enqueue([item]),
+			importStatus: () => ({ ...queue.status, active: queue.active }),
+		},
 		join(import.meta.dirname, "..", "web", "kb.html"),
 	);
 	hub = createHub({ agentDir: root, token: TOKEN, port: 0 });
@@ -77,10 +86,24 @@ test("hub rejects foreign Host headers", async () => {
 	assert.equal(status, 403);
 });
 
+/** Upload through the background queue and wait for the result, as the page does. */
+async function upload(name: string, body: string | Buffer, query = "") {
+	const res = await (await call(`/api/kb/upload?name=${encodeURIComponent(name)}${query}`, { method: "POST", headers: { "content-type": "application/octet-stream" }, body: body as BodyInit })).json();
+	if (!res.job) return res;
+	for (;;) {
+		const r = await (await call(`/api/kb/import?job=${res.job}`)).json();
+		if (r.done) return { result: r.results[0] };
+		const { imports } = await (await call("/api/kb/status")).json();
+		assert.equal(typeof imports.active, "boolean", "the page can show progress");
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	}
+}
+
 test("upload, list, search, read pages and fetch the original PDF", async () => {
 	const pdf = readFileSync(join(fixtures, "xr100-manual.pdf"));
-	const up = await (await call("/api/kb/upload?name=xr100-manual.pdf", { method: "POST", headers: { "content-type": "application/octet-stream" }, body: pdf })).json();
+	const up = await upload("xr100-manual.pdf", pdf);
 	assert.equal(up.result.status, "added");
+	assert.equal(up.result.path, "xr100-manual.pdf", "results name the file, not the temporary path");
 	assert.equal(up.result.doc.source, "upload:xr100-manual.pdf");
 	assert.ok(changes > 0, "the terminal status bar is told to refresh");
 	const id = up.result.doc.id;
@@ -97,8 +120,23 @@ test("upload, list, search, read pages and fetch the original PDF", async () => 
 	assert.deepEqual(Buffer.from(await file.arrayBuffer()), pdf);
 	assert.equal((await call("/api/kb/file?id=k-000000000000")).status, 400);
 
-	const bad = await (await call("/api/kb/upload?name=x.xyz", { method: "POST", headers: { "content-type": "application/octet-stream" }, body: "x" })).json();
+	const bad = await upload("x.xyz", "x");
 	assert.equal(bad.result.reason, "unsupported");
+	assert.equal((await call("/api/kb/import?job=999")).status, 404);
+});
+
+test("uploading a new version asks first, then replaces or keeps both", async () => {
+	const v1 = await upload("spec.md", "# Spec\n\nlimit 10 A");
+	assert.equal(v1.result.status, "added");
+	assert.equal((await upload("spec.md", "# Spec\n\nlimit 10 A")).result.status, "exists", "same content: already present, no question");
+	assert.deepEqual(await upload("spec.md", "# Spec\n\nlimit 12 A"), { versions: ["spec.md"] });
+	const kept = await upload("spec.md", "# Spec\n\nlimit 12 A", "&onUpdate=keep");
+	assert.equal(kept.result.doc.title, "spec.md (2)");
+	const replaced = await upload("spec.md", "# Spec\n\nlimit 15 A", "&onUpdate=replace");
+	assert.equal(replaced.result.doc.title, "spec.md");
+	assert.equal(replaced.result.replaced.length, 2, "both earlier versions go");
+	const specs = (await (await call("/api/kb/docs")).json()).docs.filter((d: { title: string }) => d.title.startsWith("spec.md"));
+	assert.deepEqual(specs.map((d: { id: string }) => d.id), [replaced.result.doc.id]);
 });
 
 test("notes: create, refuse duplicates, edit, remove; toggle the knowledge base", async () => {

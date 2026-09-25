@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.2.2 — 2026-09-25
+
+### Managing a growing knowledge base
+
+- Files with the same name no longer share a title: when names clash, titles show as much of the folder path as tells them apart (`[project-3/README.md]`, `[project-17/README.md]`), on the earlier document too. Unique names are unchanged; web uploads, which have no folder, are numbered (`README.md (2)`). Retrieval checked against v0.2.1 on 54 documents including 15 same-named READMEs: identical ranks for all 24 questions.
+- Importing a changed file from the same path (or uploading one with the same name) asks first: replace the old version, keep both, or cancel. A replacement keeps the old title and deletes the old original and index, so the knowledge base no longer quietly holds two revisions of a manual.
+- Web uploads go through the same background queue as `/kb add`: the page shows progress (also for imports started in the terminal) and asks about new versions in a dialog.
+- `/kb list [words]` filters by title and shows at most 50 items, pointing to `/kb web` for the rest.
+
 ## v0.2.1 — 2026-09-25
 
 ### Importing

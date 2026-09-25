@@ -25,7 +25,7 @@ Supported material: PDF, images (PNG / JPG etc., via OCR), Markdown and plain te
 | `/kb cancel` | Stop the import in progress (files already imported are kept) |
 | `/kb add <note.md…> --note` | Add as experience notes in the wiki |
 | `/kb note [focus]` | Ask the agent to review this conversation and save what is worth keeping as wiki notes |
-| `/kb list` | List documents and notes |
+| `/kb list [words]` | List documents and notes (up to 50; add words to filter by title) |
 | `/kb search <keywords>` | Search it yourself |
 | `/kb remove <id>` | Delete (a note's file is deleted too) |
 | `/kb sync` | Re-index after editing the wiki by hand (also done at startup) |
@@ -118,7 +118,7 @@ This question set is mostly natural language and cross-language, which is hard f
 
 `/kb web` opens a local page (listening on `127.0.0.1` only, access token required):
 
-- Drop files on the page to import them: the left half as documents, the right half (Markdown) as experience notes
+- Drop files on the page to import them: the left half as documents, the right half (Markdown) as experience notes. They go through the same background queue as `/kb add`, with progress on the page; imports started in the terminal show their progress there too
 - Search results show pages and open right at that page; for PDFs, "View page" opens the original at that page in the browser
 - Browse the converted text (tables and headings rendered as Markdown), create and edit notes, delete, and turn the knowledge base on or off
 - 中文 / English switch; add `?lang=en` or `?lang=zh` to a link to choose the language, `?q=<keywords>` to search directly, `?doc=<id>&page=<n>` to open a page of a document
@@ -186,6 +186,8 @@ runtime/, models/         runtime and model files for local semantic search (onl
 - Parsing runs in a separate process, so pi stays responsive and Tesseract's debug output does not scribble over the terminal. `/kb cancel` stops the current file right away.
 - Rough speed (Apple silicon Mac): a 162-page datasheet takes about 1.5 minutes, a 1530-page technical reference manual about 14 minutes.
 - When the agent imports with `kb_add`, it waits up to 30 seconds; if the import is not done by then it tells you it is importing in the background, and you are notified when it finishes.
+- **Same file names**: files with the same name in different folders (say, several `README.md`) get titles with enough of the folder path to tell them apart, such as `[project-3/README.md]` and `[project-17/README.md]`, so citations are unambiguous. A unique file name stays as it is. Uploads from the web page have no folder, so a repeated name is numbered: `README.md (2)`.
+- **New versions**: importing a file from the same path again (for web uploads, the same file name) with changed content asks first: **Replace the old version / Keep both / Cancel import**. A replacement keeps the old title, so earlier citations still fit, and the old original and index are deleted. Unchanged files simply show as already present, without asking.
 
 ## Parsing and search
 

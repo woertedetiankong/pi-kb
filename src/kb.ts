@@ -40,6 +40,8 @@ export interface AddResult {
 	reason?: AddReason;
 	/** English detail for the model and for unexpected errors. */
 	message?: string;
+	/** Ids of the older versions this import replaced. */
+	replaced?: string[];
 }
 
 /**
@@ -78,6 +80,12 @@ export function pathsOutside(inputs: string[], dir: string): string[] {
 		const rel = relative(base, real(resolve(dir, expandHome(input))));
 		return rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
 	});
+}
+
+/** The last `depth` parts of a document's source path, e.g. "project-3/README.md"; uploads have only a name. */
+export function sourcePath(source: string, depth: number): string {
+	const path = source.startsWith("upload:") ? source.slice("upload:".length) : source;
+	return path.split(/[\\/]+/).filter(Boolean).slice(-depth).join("/");
 }
 
 export function formatCitation(hit: Pick<SearchHit, "title" | "page">): string {
@@ -175,7 +183,10 @@ export class KnowledgeBase {
 	 * `wiki: true` is copied into the wiki folder as a note instead.
 	 * Aborting `signal` stops the conversion and nothing is saved.
 	 */
-	async addFile(path: string, options: { wiki?: boolean; source?: string; signal?: AbortSignal } = {}): Promise<AddResult> {
+	async addFile(
+		path: string,
+		options: { wiki?: boolean; source?: string; signal?: AbortSignal; replace?: string[] } = {},
+	): Promise<AddResult> {
 		const cancelled = (): AddResult => ({ path, status: "skipped", reason: "cancelled", message: "import cancelled" });
 		try {
 			if (options.signal?.aborted) return cancelled();
@@ -198,6 +209,13 @@ export class KnowledgeBase {
 			if (!text.trim()) return { path, status: "failed", reason: "no_text", message: "no text could be extracted" };
 
 			const name = basename(path);
+			const source = options.source ?? path;
+			// A new version takes the title of the first version it replaces, so earlier citations still fit.
+			const replaced = (options.replace ?? [])
+				.map((old) => this.store.getDoc(old))
+				.filter((d): d is DocRecord => d?.collection === "docs")
+				.sort((a, b) => a.added_at.localeCompare(b.added_at));
+			const title = replaced[0]?.title ?? this.titleFor(source);
 			mkdirSync(join(this.root, "raw", id), { recursive: true });
 			copyFileSync(path, join(this.root, "raw", id, name));
 			const rel = join("converted", `${id}.md`);
@@ -206,10 +224,10 @@ export class KnowledgeBase {
 			const paged = converted.pages.some((p) => p.page !== null);
 			const doc: DocRecord = {
 				id,
-				title: name,
+				title,
 				collection: "docs",
 				kind: converted.kind,
-				source: options.source ?? path,
+				source,
 				path: rel,
 				pages: paged ? converted.pages.length : null,
 				chars: text.length,
@@ -217,13 +235,55 @@ export class KnowledgeBase {
 				added_at: new Date().toISOString(),
 			};
 			this.store.putDoc(doc, chunkPages(converted.pages));
+			for (const old of replaced) if (old.id !== id) this.remove(old.id);
 			void this.indexer.kick();
-			return { path, status: "added", doc };
+			return { path, status: "added", doc, replaced: replaced.map((d) => d.id) };
 		} catch (error) {
 			if (options.signal?.aborted) return cancelled();
 			const message = error instanceof Error ? error.message : String(error);
 			return { path, status: "failed", reason: /LibreOffice/.test(message) ? "needs_libreoffice" : undefined, message };
 		}
+	}
+
+	/**
+	 * Imported documents that `path` is a newer version of: the same file imported before (or, for
+	 * an upload, a document with the same file name) whose content differs. Empty when the content
+	 * is already in the knowledge base, which addFile reports as "already present".
+	 */
+	previousVersions(path: string, upload?: { name: string }): DocRecord[] {
+		if (this.store.getDoc(`k-${sha(readFileSync(path)).slice(0, 12)}`)) return [];
+		const name = upload?.name ?? basename(path);
+		return this.store
+			.listDocs("docs")
+			.filter((d) => (upload ? sourcePath(d.source, 1) === name : d.source === path || d.source === `upload:${name}`));
+	}
+
+	/**
+	 * A title citations can tell apart: the file name, or when another document has the same name,
+	 * as much of the folder path as differs (project-3/README.md). Documents it clashes with get
+	 * the same treatment; uploads, which have no folder, are numbered instead.
+	 */
+	private titleFor(source: string): string {
+		const docs = this.store.listDocs("docs");
+		const taken = new Set(docs.map((d) => d.title));
+		const name = sourcePath(source, 1);
+		const upload = source.startsWith("upload:");
+		// Once same-named documents show their folders, later ones do too, even while the bare name is free.
+		const sameName = docs.filter((d) => (d.title === name || d.title.endsWith(`/${name}`)) && !d.source.startsWith("upload:"));
+		if (!taken.has(name) && (!sameName.length || upload)) return name;
+		const clashing = sameName.filter((d) => d.title === name);
+		const depth = upload ? 1 : source.split(/[\\/]+/).filter(Boolean).length;
+		for (let k = 2; k <= depth; k++) {
+			const title = sourcePath(source, k);
+			// Show enough folders to differ from every same-named document, not only the ones still bare.
+			if (taken.has(title) || sameName.some((d) => sourcePath(d.source, k) === title)) continue;
+			for (const d of clashing) {
+				const renamed = sourcePath(d.source, k);
+				if (!taken.has(renamed)) this.store.renameDoc(d.id, renamed);
+			}
+			return title;
+		}
+		for (let n = 2; ; n++) if (!taken.has(`${name} (${n})`)) return `${name} (${n})`;
 	}
 
 	private addWikiFile(path: string): AddResult {

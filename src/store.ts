@@ -107,6 +107,20 @@ export class Store {
 		return { docs: row.docs ?? 0, wiki: row.wiki ?? 0, pages: row.pages ?? 0 };
 	}
 
+	/** Change a document's title; its chunks carry the title too, and their vectors are rebuilt. */
+	renameDoc(id: string, title: string): void {
+		this.db.exec("BEGIN");
+		try {
+			this.db.prepare("UPDATE docs SET title = ? WHERE id = ?").run(title, id);
+			this.db.prepare("UPDATE chunks SET title = ? WHERE doc_id = ?").run(title, id);
+			this.db.prepare("DELETE FROM vectors WHERE doc_id = ?").run(id);
+			this.db.exec("COMMIT");
+		} catch (error) {
+			this.db.exec("ROLLBACK");
+			throw error;
+		}
+	}
+
 	/** Replace a document and all of its chunks atomically. */
 	putDoc(doc: DocRecord, chunks: Chunk[]): void {
 		this.db.exec("BEGIN");

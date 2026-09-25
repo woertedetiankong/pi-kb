@@ -4,6 +4,10 @@ export interface ImportItem {
 	path: string;
 	/** Import Markdown as a wiki note. */
 	wiki: boolean;
+	/** Recorded origin when it is not the path, e.g. "upload:manual.pdf" for web uploads. */
+	source?: string;
+	/** Older versions this file replaces once it is imported. */
+	replace?: string[];
 }
 
 /** One /kb add or kb_add call: its files are imported in order, after earlier jobs. */

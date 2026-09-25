@@ -2,7 +2,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 import { type WebApp, type WebBinary, type WebLanguage, type WebRequest, webError } from "./hub.ts";
-import type { KnowledgeBase } from "./kb.ts";
+import type { AddResult, KnowledgeBase } from "./kb.ts";
+import type { ImportItem, ImportJob, ImportStatus } from "./queue.ts";
 import type { Collection } from "./store.ts";
 
 const UPLOAD_LIMIT = 200 * 1024 * 1024;
@@ -24,7 +25,13 @@ export interface KbWebHost {
 	setEnabled(on: boolean): void;
 	/** Something changed on the page; refresh the terminal status bar. */
 	changed(): void;
+	/** Import in the background, on the same queue as /kb add. */
+	enqueue(item: ImportItem): ImportJob;
+	importStatus(): ImportStatus & { active: boolean };
 }
+
+/** How long a finished upload's results wait for the page to collect them. */
+const JOB_KEEP_MS = 10 * 60_000;
 
 /** The knowledge base page and API, mounted on the pi-web hub at /kb/ and /api/kb/. */
 export class KbWebApp implements WebApp {
@@ -34,6 +41,9 @@ export class KbWebApp implements WebApp {
 	readonly languages: WebLanguage[] = ["zh", "en"];
 	private readonly host: KbWebHost;
 	private readonly pageFile: string;
+	/** Upload jobs by number, so the page can poll for their results. */
+	private readonly jobs = new Map<number, { job: ImportJob; finished: boolean }>();
+	private lastJob = 0;
 
 	constructor(host: KbWebHost, pageFile: string) {
 		this.host = host;
@@ -54,7 +64,9 @@ export class KbWebApp implements WebApp {
 					const stats = kb.store.stats();
 					const { state, done, total, download, problem } = kb.indexer.status;
 					const semantic = { provider: kb.config.semantic.provider, state, done, total, download: download?.progress, problem };
-					return { enabled: this.host.enabled(), root: kb.root, ...stats, semantic };
+					const imports = this.host.importStatus();
+					const current = imports.current ? basename(imports.current) : undefined;
+					return { enabled: this.host.enabled(), root: kb.root, ...stats, semantic, imports: { ...imports, current } };
 				}
 				case "GET /docs":
 					return { docs: kb.store.listDocs() };
@@ -82,18 +94,42 @@ export class KbWebApp implements WebApp {
 				case "POST /upload": {
 					const name = basename(req.query.get("name") ?? "").replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_");
 					if (!name || name.startsWith(".")) throw webError(400, "missing file name");
+					const note = req.query.get("note") === "1";
+					const onUpdate = req.query.get("onUpdate");
 					const body = await req.raw(UPLOAD_LIMIT);
-					// Keep the original name: it becomes the document title.
+					// Keep the original name: it becomes the document title. The file stays until the queue is done with it.
 					const dir = mkdtempSync(join(tmpdir(), "pi-kb-upload-"));
+					let queued = false;
 					try {
 						const file = join(dir, name);
 						writeFileSync(file, body);
-						const result = await kb.addFile(file, { wiki: req.query.get("note") === "1", source: `upload:${name}` });
-						return { result: { ...result, path: name } };
+						const previous = note ? [] : kb.previousVersions(file, { name });
+						// A new version of an imported document: let the page ask whether to replace it.
+						if (previous.length && onUpdate !== "replace" && onUpdate !== "keep") return { versions: previous.map((d) => d.title) };
+						const replace = onUpdate === "replace" ? previous.map((d) => d.id) : undefined;
+						const job = this.host.enqueue({ path: file, wiki: note, source: `upload:${name}`, replace });
+						queued = true;
+						const id = ++this.lastJob;
+						const entry = { job, finished: false };
+						this.jobs.set(id, entry);
+						void job.done.then(() => {
+							entry.finished = true;
+							rmSync(dir, { recursive: true, force: true });
+							this.host.changed();
+							setTimeout(() => this.jobs.delete(id), JOB_KEEP_MS).unref();
+						});
+						return { job: id };
 					} finally {
-						rmSync(dir, { recursive: true, force: true });
-						this.host.changed();
+						if (!queued) rmSync(dir, { recursive: true, force: true });
 					}
+				}
+				case "GET /import": {
+					const entry = this.jobs.get(Number(req.query.get("job")));
+					if (!entry) throw webError(404, "unknown import");
+					if (!entry.finished) return { done: false };
+					this.jobs.delete(Number(req.query.get("job")));
+					const results: AddResult[] = entry.job.results.map((r) => ({ ...r, path: basename(r.path) }));
+					return { done: true, results };
 				}
 				case "POST /remove": {
 					const body = await req.json();

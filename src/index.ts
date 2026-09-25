@@ -18,6 +18,8 @@ const TOOLS = ["kb_search", "kb_read", "kb_add", "kb_note"];
 const READ_LIMIT = 30_000;
 /** How long kb_add waits for an import before leaving it to finish in the background. */
 const KB_ADD_WAIT = 30_000;
+/** /kb list shows this many items; the web page shows everything. */
+const LIST_LIMIT = 50;
 const SUBCOMMANDS = ["on", "off", "status", "add", "cancel", "list", "search", "note", "remove", "sync", "semantic", "eval", "open", "web", "lang"];
 /** Model-facing text is English regardless of the interface language. */
 const MODEL = messages("en");
@@ -96,7 +98,13 @@ function summarizeAdds(results: AddResult[], m: Messages): string {
 	for (const r of results) {
 		const label = r.doc ? `${r.doc.title} (${r.doc.id}${r.doc.pages ? `, ${m.pages(r.doc.pages)}` : ""})` : r.path;
 		const why =
-			r.reason === "unsupported" ? m.reasons.unsupported(extname(r.path) || "(none)") : r.reason ? m.reasons[r.reason] : r.message;
+			r.reason === "unsupported"
+				? m.reasons.unsupported(extname(r.path) || "(none)")
+				: r.reason
+					? m.reasons[r.reason]
+					: r.replaced?.length
+						? m.replacedOld
+						: r.message;
 		lines.push(`- ${m.addStatus[r.status]}: ${label}${why ? ` — ${why}` : ""}`);
 	}
 	return lines.join("\n");
@@ -141,6 +149,8 @@ export default function piKb(pi: ExtensionAPI) {
 			changed: () => {
 				if (lastCtx) refresh(lastCtx);
 			},
+			enqueue: (item) => imports.enqueue([item]),
+			importStatus: () => ({ ...imports.status, active: imports.active }),
 		},
 		fileURLToPath(new URL("../web/kb.html", import.meta.url)),
 	);
@@ -185,7 +195,7 @@ export default function piKb(pi: ExtensionAPI) {
 	/** Repaints the status bar every second while importing, so the elapsed time moves. */
 	let ticker: NodeJS.Timeout | undefined;
 	const imports = new ImportQueue(
-		(item, signal) => open().addFile(item.path, { wiki: item.wiki, signal }),
+		(item, signal) => open().addFile(item.path, { wiki: item.wiki, signal, source: item.source, replace: item.replace }),
 		() => {
 			if (imports.active && !ticker) {
 				ticker = setInterval(() => lastCtx && refresh(lastCtx), 1000);
@@ -198,10 +208,23 @@ export default function piKb(pi: ExtensionAPI) {
 		},
 	);
 
-	/** Queue files and folders for import; the job resolves when all of them are done. */
-	const startImport = (paths: string[], cwd: string, note: boolean): ImportJob => {
-		const { files, skipped } = open().collectFiles(paths, cwd);
-		return imports.enqueue(files.map((path) => ({ path, wiki: note })), skipped);
+	/**
+	 * Queue files and folders for import; the job resolves when all of them are done. Files that are
+	 * new versions of imported documents are asked about first (replace, keep both, or cancel);
+	 * without a UI both are kept. Returns undefined when the user cancels.
+	 */
+	const startImport = async (paths: string[], cwd: string, note: boolean, ctx: ExtensionContext): Promise<ImportJob | undefined> => {
+		const base = open();
+		const { files, skipped } = base.collectFiles(paths, cwd);
+		const versions = new Map(note ? [] : files.map((path) => [path, base.previousVersions(path).map((d) => d.id)] as const).filter(([, ids]) => ids.length));
+		if (versions.size && ctx.hasUI) {
+			const m = t();
+			const [replace, keep] = m.versionChoices;
+			const choice = await ctx.ui.select(m.versionAsk([...versions.keys()].map((f) => basename(f))), [...m.versionChoices]);
+			if (choice !== replace && choice !== keep) return undefined;
+			if (choice === keep) versions.clear();
+		} else versions.clear();
+		return imports.enqueue(files.map((path) => ({ path, wiki: note, replace: versions.get(path) })), skipped);
 	};
 
 	/** Tell the user how a background import went. */
@@ -353,7 +376,11 @@ export default function piKb(pi: ExtensionAPI) {
 					return { content: [{ type: "text", text }], details: undefined };
 				}
 			}
-			const job = startImport(params.paths, ctx.cwd, params.as_note ?? false);
+			const job = await startImport(params.paths, ctx.cwd, params.as_note ?? false, ctx);
+			if (!job) {
+				const text = "The user cancelled this import; nothing was imported. Do not retry on your own, but if the user asks for it again, call kb_add again.";
+				return { content: [{ type: "text", text }], details: undefined };
+			}
 			let timer: NodeJS.Timeout | undefined;
 			const finished = await Promise.race([
 				job.done.then(() => true),
@@ -465,7 +492,11 @@ export default function piKb(pi: ExtensionAPI) {
 						ctx.ui.notify(m.usageAdd, "warning");
 						return;
 					}
-					const job = startImport(paths, ctx.cwd, note);
+					const job = await startImport(paths, ctx.cwd, note, ctx);
+					if (!job) {
+						ctx.ui.notify(m.importCancelled, "info");
+						return;
+					}
 					const queued = job.total - job.results.length;
 					if (!queued) {
 						reportImport(job.results);
@@ -481,15 +512,17 @@ export default function piKb(pi: ExtensionAPI) {
 					return;
 				}
 				case "list": {
-					const docs = base.store.listDocs();
-					const body = docs.length
-						? docs
-								.map((d) => {
-									const kind = m.kinds[d.collection === "wiki" ? "note" : d.kind] ?? d.kind;
-									return `${padDisplay(kind, 7)}${d.id}  ${d.title}${d.pages ? ` · ${m.pages(d.pages)}` : ""}`;
-								})
-								.join("\n")
-						: m.listEmpty;
+					const filter = rest.join(" ").trim();
+					const words = filter.toLowerCase().split(/\s+/).filter(Boolean);
+					const all = base.store.listDocs();
+					const docs = all.filter((d) => words.every((w) => `${d.title} ${d.id}`.toLowerCase().includes(w)));
+					const shown = docs.slice(0, LIST_LIMIT);
+					const lines = shown.map((d) => {
+						const kind = m.kinds[d.collection === "wiki" ? "note" : d.kind] ?? d.kind;
+						return `${padDisplay(kind, 7)}${d.id}  ${d.title}${d.pages ? ` · ${m.pages(d.pages)}` : ""}`;
+					});
+					if (docs.length > shown.length) lines.push(m.listMore(shown.length, docs.length));
+					const body = lines.length ? lines.join("\n") : filter ? m.listNone(filter) : m.listEmpty;
 					show(ctx, m.listTitle(docs.length), body);
 					return;
 				}
