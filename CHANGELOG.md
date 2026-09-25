@@ -1,13 +1,24 @@
 # Changelog
 
-## Unreleased
+## v0.3.0 — 2026-09-25
+
+### Ask the knowledge base on the web page
 
 - "✨ Ask AI" on the web page answers a question from the knowledge base and cites each fact [n], with pi's current model or one picked next to the button (same choice as on the sessions and learn pages: follow pi, or a fixed model remembered in the browser); citations open the source at its page. The model plans a few searches first (other language, a manual's wording, the bare product name), then answers only from what they found and says so when the documents do not cover the question. On the fictional test corpus gpt-6-sol answered 13 of 13 questions correctly, including three the documents do not cover and one unrelated question (no model call when nothing is found).
-- `/reload` no longer takes the web page down: the shared pi-web server restarts at the same address once the reloaded plugins mount, so open pages (knowledge base, sessions, learn) reconnect. `/kb web stop` still stops it. `src/hub.ts` changed; pi-sessions and pi-learn carry the same copy.
-- The web API returns a note's body without its front matter (`text`), with the fields in `note` and the whole file in `raw` for editing, so pi-learn no longer quizzes on note metadata such as creation dates.
+
+### Settings on the web page
+
 - The web page has a Settings dialog. Semantic search: it switches between off, the local model and an online API, takes the endpoint, model and key (the key is never sent back to the page), sets npm/Hugging Face mirrors, follows the local runtime install, and removes the local model; the page and `/kb semantic local` share one install, so starting it in both places runs it once.
 - OCR can be set on the web page too (languages from a list, optional OCR server such as PaddleOCR), and OCR changes now apply to the next import without restarting pi.
 - Settings stay in step across pi windows: each one notices when `config.json` changes (within about 2 seconds) and switches semantic search, OCR, on/off and language to match; saving a setting starts from the file, so it no longer overwrites a change made in another window.
+
+### One web page for sessions, knowledge and learning
+
+- `/reload` no longer takes the web page down: the shared pi-web server restarts at the same address once the reloaded plugins mount, so open pages (knowledge base, sessions, learn) reconnect. `/kb web stop` still stops it. `src/hub.ts` changed; pi-sessions and pi-learn carry the same copy.
+- The web API returns a note's body without its front matter (`text`), with the fields in `note` and the whole file in `raw` for editing, so pi-learn no longer quizzes on note metadata such as creation dates.
+
+### Note reminder and model checks
+
 - The note reminder also recognises fixes made through other tools that write files, such as pi-robot's `code` runner, not only edit, write and bash. Read-only tools and knowledge base tools never count.
 - `scripts/model-check --installed` runs with your installed extensions and skills. Two new scenarios check the overlap with pi-embedded-docs: saving a project PDF must use `kb_add`, and a question about a project PDF must not file it away. A fictional XR-200 datasheet (generated, no third-party content) is the fixture. With pi-robot installed, gpt-6-sol kept the two tool sets apart in every run.
 
