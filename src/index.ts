@@ -1,9 +1,9 @@
 import { type ExtensionAPI, type ExtensionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { unwatchFile, watchFile } from "node:fs";
-import { basename, extname, join } from "node:path";
+import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
-import { kbRoot } from "./config.ts";
+import { checkWritable, copyContent, expandDir, kbLocation, LocationError } from "./config.ts";
 import { type LanguageSetting, type Messages, messages, resolveLanguage } from "./i18n.ts";
 import { type AddResult, formatCitation, KnowledgeBase, type NoteMode, pathsOutside } from "./kb.ts";
 import { renderNote } from "./notes.ts";
@@ -139,13 +139,54 @@ export default function piKb(pi: ExtensionAPI) {
 	let configWatch: { file: string; listener: () => void } | undefined;
 	const open = () => {
 		if (!kb) {
-			kb = new KnowledgeBase(kbRoot());
+			const location = kbLocation();
+			kb = new KnowledgeBase(location.localDir, { dir: location.dir });
 			kb.onSemantic = repaint;
-			const watch = { file: join(kb.root, "config.json"), listener: () => kb?.reloadConfig() && repaint() };
+			const watch = {
+				file: join(kb.localDir, "config.json"),
+				listener: () => {
+					if (!kb?.reloadConfig()) return;
+					// Another window moved the knowledge base: follow it.
+					if (resolve(kbLocation().dir) !== resolve(kb.root)) reopen();
+					repaint();
+				},
+			};
 			watchFile(watch.file, { persistent: false, interval: 2000 }, watch.listener);
 			configWatch = watch;
 		}
 		return kb;
+	};
+	const close = () => {
+		if (configWatch) unwatchFile(configWatch.file, configWatch.listener);
+		configWatch = undefined;
+		kb?.close();
+		kb = undefined;
+	};
+	/** Open the knowledge base again at its (new) location and index what is there. */
+	const reopen = () => {
+		close();
+		open().sync();
+		void open().indexSemantic();
+	};
+
+	/**
+	 * Move the content to another folder (undefined: back to the default), copying what is here
+	 * unless `copy` is false (e.g. the folder already holds this knowledge base from another computer).
+	 */
+	const relocate = (input: string | undefined, copy: boolean) => {
+		const location = kbLocation();
+		if (location.source === "env") throw new LocationError("location_env");
+		if (imports.active) throw new LocationError("location_busy");
+		const target = input?.trim() ? expandDir(input) : location.localDir;
+		if (resolve(target) === resolve(location.dir)) return;
+		checkWritable(target);
+		if (copy) {
+			// Older knowledge bases describe their documents in docs/ on the first sync.
+			open().sync();
+			copyContent(location.dir, target);
+		}
+		open().updateConfig({ dataDir: resolve(target) === resolve(location.localDir) ? undefined : target });
+		reopen();
 	};
 
 	/** The local runtime install, shared by /kb semantic local and the web page; at most one runs. */
@@ -155,7 +196,7 @@ export default function piKb(pi: ExtensionAPI) {
 	const useLocal = (): Promise<boolean> => {
 		if (install) return install.done;
 		const base = open();
-		const runtimeDir = join(base.root, "runtime");
+		const runtimeDir = join(base.localDir, "runtime");
 		const switchOn = () => open().updateConfig({ semantic: { ...open().config.semantic, provider: "local" } });
 		installError = undefined;
 		if (runtimeInstalled(runtimeDir)) {
@@ -200,7 +241,7 @@ export default function piKb(pi: ExtensionAPI) {
 			setEnabled: (on) => {
 				override = undefined;
 				open().updateConfig({ enabled: on });
-				if (on) open().syncWiki();
+				if (on) open().sync();
 				if (lastCtx) refresh(lastCtx);
 			},
 			changed: () => {
@@ -214,6 +255,11 @@ export default function piKb(pi: ExtensionAPI) {
 				installError = undefined;
 			},
 			model: () => (lastCtx ? { model: lastCtx.model, modelRegistry: lastCtx.modelRegistry } : undefined),
+			location: () => kbLocation(),
+			relocate: (dir, copy) => {
+				relocate(dir, copy);
+				if (lastCtx) refresh(lastCtx);
+			},
 		},
 		fileURLToPath(new URL("../web/kb.html", import.meta.url)),
 	);
@@ -313,7 +359,7 @@ export default function piKb(pi: ExtensionAPI) {
 		const flag = pi.getFlag("kb");
 		if (flag === "on" || flag === "off") override = flag === "on";
 		if (enabled()) {
-			open().syncWiki();
+			open().sync();
 			void open().indexSemantic();
 		}
 		refresh(ctx);
@@ -323,10 +369,7 @@ export default function piKb(pi: ExtensionAPI) {
 		lastCtx = undefined;
 		// The runtime is torn down (quit, reload, or a session switch): stop importing; finished files are kept.
 		imports.cancel();
-		if (configWatch) unwatchFile(configWatch.file, configWatch.listener);
-		configWatch = undefined;
-		kb?.close();
-		kb = undefined;
+		close();
 		// Reload brings new code: leave the shared hub (it stops once every app has left) and remount on session_start.
 		if (event.reason === "quit" || event.reason === "reload") await hub().unmount(webApp.id);
 	});
@@ -548,7 +591,7 @@ export default function piKb(pi: ExtensionAPI) {
 				case "off": {
 					override = undefined;
 					base.updateConfig({ enabled: sub === "on" });
-					if (sub === "on") base.syncWiki();
+					if (sub === "on") base.sync();
 					refresh(ctx);
 					ctx.ui.notify(sub === "on" ? m.enabled : m.disabled, "info");
 					return;
@@ -635,7 +678,7 @@ export default function piKb(pi: ExtensionAPI) {
 					return;
 				}
 				case "sync": {
-					const { updated, removed } = base.syncWiki();
+					const { updated, removed } = base.sync();
 					refresh(ctx);
 					ctx.ui.notify(m.synced(updated, removed), "info");
 					return;
@@ -708,7 +751,7 @@ export default function piKb(pi: ExtensionAPI) {
 						return;
 					}
 					if (action === "local") {
-						const runtimeDir = join(base.root, "runtime");
+						const runtimeDir = join(base.localDir, "runtime");
 						// Already installing (maybe started from the web page): just wait for it.
 						if (!install && !runtimeInstalled(runtimeDir) && ctx.hasUI && !(await ctx.ui.confirm(m.localTitle, m.localBody(runtimeDir)))) return;
 						if (!(await useLocal())) {
@@ -720,7 +763,7 @@ export default function piKb(pi: ExtensionAPI) {
 						return;
 					}
 					if (action === "remove") {
-						const size = localModelDirs(base.root).reduce((n, dir) => n + folderSize(dir), 0);
+						const size = localModelDirs(base.localDir).reduce((n, dir) => n + folderSize(dir), 0);
 						if (!size) {
 							ctx.ui.notify(m.localNone, "info");
 							return;
@@ -735,7 +778,7 @@ export default function piKb(pi: ExtensionAPI) {
 						if (inUse) base.updateConfig({ semantic: { ...cfg, provider: "off" } });
 						refresh(ctx);
 						try {
-							ctx.ui.notify(m.localRemoved(formatSize(removeLocalModel(base.root))), "info");
+							ctx.ui.notify(m.localRemoved(formatSize(removeLocalModel(base.localDir))), "info");
 						} catch (error) {
 							ctx.ui.notify(m.removeFailed(error instanceof Error ? error.message : String(error)), "error");
 						}
@@ -746,9 +789,9 @@ export default function piKb(pi: ExtensionAPI) {
 				}
 				case "eval": {
 					const [action = "run"] = rest;
-					const file = questionsFile(base.root);
+					const file = questionsFile(base.localDir);
 					if (action === "init") {
-						const created = initQuestions(base.root);
+						const created = initQuestions(base.localDir);
 						const [cmd, ...cmdArgs] = opener();
 						await pi.exec(cmd, [...cmdArgs, file]).catch(() => undefined);
 						ctx.ui.notify(created ? m.evalCreated(file) : m.evalExists(file), "info");
@@ -759,7 +802,7 @@ export default function piKb(pi: ExtensionAPI) {
 							ctx.ui.notify(m.noteNeedsOn, "warning");
 							return;
 						}
-						initQuestions(base.root);
+						initQuestions(base.localDir);
 						pi.sendUserMessage(m.evalDraft(file), ctx.isIdle() ? undefined : { deliverAs: "followUp" });
 						return;
 					}
@@ -767,7 +810,7 @@ export default function piKb(pi: ExtensionAPI) {
 						ctx.ui.notify(m.usageEval, "warning");
 						return;
 					}
-					const text = readQuestions(base.root);
+					const text = readQuestions(base.localDir);
 					if (text === undefined) {
 						ctx.ui.notify(m.evalNoFile, "warning");
 						return;
@@ -786,7 +829,7 @@ export default function piKb(pi: ExtensionAPI) {
 						if (ctx.hasUI) ctx.ui.setStatus("kb", m.evalRunning(done, total));
 					});
 					refresh(ctx);
-					const saved = writeReport(base.root, report, m.evalText);
+					const saved = writeReport(base.localDir, report, m.evalText);
 					const first = report.modes[0];
 					show(
 						ctx,

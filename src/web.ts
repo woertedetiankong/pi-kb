@@ -5,7 +5,7 @@ import { type WebApp, type WebBinary, type WebLanguage, type WebRequest, webErro
 import type { AddResult, KnowledgeBase } from "./kb.ts";
 import type { ImportItem, ImportJob, ImportStatus } from "./queue.ts";
 import { ask, AskError, listModels, type ModelContext } from "./ask.ts";
-import type { SemanticConfig } from "./config.ts";
+import { type KbLocation, LocationError, type SemanticConfig } from "./config.ts";
 import { apiKeyEnv, folderSize, localModelDirs, removeLocalModel, runtimeInstalled } from "./semantic/providers.ts";
 import { parseNote } from "./notes.ts";
 import type { Collection } from "./store.ts";
@@ -40,6 +40,10 @@ export interface KbWebHost {
 	forgetInstallError(): void;
 	/** pi's current model, for answering questions on the page; undefined while pi switches sessions. */
 	model(): ModelContext | undefined;
+	/** Where the knowledge base is, and how that was decided. */
+	location(): KbLocation;
+	/** Move the content to `dir` (undefined: the default folder), copying it there unless `copy` is false. */
+	relocate(dir: string | undefined, copy: boolean): void;
 }
 
 /** An http(s) URL, or undefined when empty; anything else is the caller's mistake. */
@@ -191,8 +195,8 @@ export class KbWebApp implements WebApp {
 							model: cfg.local.model,
 							hfEndpoint: cfg.local.hfEndpoint ?? "",
 							npmRegistry: cfg.local.npmRegistry ?? "",
-							installed: runtimeInstalled(join(kb.root, "runtime")),
-							bytes: localModelDirs(kb.root).reduce((n, dir) => n + folderSize(dir), 0),
+							installed: runtimeInstalled(join(kb.localDir, "runtime")),
+							bytes: localModelDirs(kb.localDir).reduce((n, dir) => n + folderSize(dir), 0),
 						},
 						error,
 						problem,
@@ -231,7 +235,7 @@ export class KbWebApp implements WebApp {
 					// Stop using the model before its files go away.
 					if (kb.config.semantic.provider === "local") kb.updateConfig({ semantic: { ...kb.config.semantic, provider: "off" } });
 					this.host.changed();
-					return { freed: removeLocalModel(kb.root) };
+					return { freed: removeLocalModel(kb.localDir) };
 				}
 				case "GET /models":
 					return listModels(this.host.model());
@@ -248,6 +252,25 @@ export class KbWebApp implements WebApp {
 						throw error;
 					}
 				}
+				case "GET /location": {
+					const { dir, localDir, source } = this.host.location();
+					return { dir, localDir, source, docs: kb.store.stats().docs, notes: kb.store.stats().wiki };
+				}
+				case "POST /location": {
+					const body = await req.json();
+					const dir = typeof body.dir === "string" && body.dir.trim() ? body.dir : undefined;
+					try {
+						this.host.relocate(dir, body.copy !== false);
+					} catch (error) {
+						// The page words these in its own language.
+						if (error instanceof LocationError) throw webError(error.problem === "location_busy" || error.problem === "location_env" ? 409 : 400, error.message);
+						throw error;
+					}
+					this.host.changed();
+					const now = this.host.location();
+					const fresh = this.host.kb().store.stats();
+					return { dir: now.dir, localDir: now.localDir, source: now.source, docs: fresh.docs, notes: fresh.wiki };
+				}
 				case "GET /ocr":
 					return { language: kb.config.ocrLanguage, serverUrl: kb.config.ocrServerUrl ?? "" };
 				case "POST /ocr": {
@@ -259,7 +282,7 @@ export class KbWebApp implements WebApp {
 					return { language: kb.config.ocrLanguage, serverUrl: kb.config.ocrServerUrl ?? "" };
 				}
 				case "POST /sync": {
-					const result = kb.syncWiki();
+					const result = kb.sync();
 					this.host.changed();
 					return result;
 				}

@@ -1,4 +1,6 @@
+import { mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
+import { dirname } from "node:path";
 import type { DatabaseSync as Database } from "node:sqlite";
 import type { Chunk } from "./chunk.ts";
 import { type Candidate, MIN_COVERAGE, planQuery, score, snippet, termScores } from "./search.ts";
@@ -76,6 +78,7 @@ export class Store {
 
 	constructor(file: string) {
 		const { DatabaseSync } = loadSqlite();
+		mkdirSync(dirname(file), { recursive: true });
 		this.db = new DatabaseSync(file);
 		this.db.exec("PRAGMA journal_mode = WAL;");
 		this.db.exec(SCHEMA);

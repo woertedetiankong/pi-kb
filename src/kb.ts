@@ -53,6 +53,18 @@ export interface AddResult {
 const SEMANTIC_ONLY_WITH_KEYWORDS = 3;
 const SEMANTIC_ONLY_ALONE = 5;
 const sha = (data: string | Buffer) => createHash("sha256").update(data).digest("hex");
+
+/** A wiki note's id: from its path inside the content folder, with forward slashes on every system. */
+const wikiId = (root: string, file: string) => `w-${sha(relative(root, file).split(sep).join("/")).slice(0, 12)}`;
+
+/**
+ * The search index for a content folder. The default layout keeps it in the folder (kb.db, as
+ * before); a folder elsewhere gets one under this machine's indexes/, keyed by its path.
+ */
+export function indexFile(localDir: string, dir: string): string {
+	if (resolve(dir) === resolve(localDir)) return join(localDir, "kb.db");
+	return join(localDir, "indexes", sha(resolve(dir)).slice(0, 12), "kb.db");
+}
 const PAGE_MARK = /^<!-- kb:page (\d+) -->$/m;
 /** Files kept in the wiki folder for navigation and history rather than as knowledge. */
 const WIKI_META = new Set(["index.md", "log.md", "SCHEMA.md"]);
@@ -104,7 +116,10 @@ export class KnowledgeBase {
 	readonly converter: Converter;
 	readonly vectors: VectorIndex;
 	readonly indexer: SemanticIndexer;
+	/** Where the content lives: raw/, converted/, docs/ and wiki/. May be a synced or shared folder. */
 	readonly root: string;
+	/** This machine's own files: config.json, the search index, OCR data and the local model. */
+	readonly localDir: string;
 	config: KbConfig;
 	/** Called whenever background embedding makes progress or fails. */
 	onSemantic?: (status: IndexerStatus) => void;
@@ -112,15 +127,21 @@ export class KnowledgeBase {
 	/** config.json's modification time and size when last read or written. */
 	private configStamp: string;
 
-	constructor(root: string) {
-		this.root = root;
-		for (const dir of ["raw", "converted", "wiki"]) mkdirSync(join(root, dir), { recursive: true });
-		this.configStamp = configStamp(root);
-		this.config = loadConfig(root);
-		this.store = new Store(join(root, "kb.db"));
+	/**
+	 * `localDir` holds this machine's files; the content lives in `options.dir`, or there too.
+	 * The index is a cache of the content (see sync()), so the content folder can be synced
+	 * between computers or shared, while SQLite never sits in a synced folder.
+	 */
+	constructor(localDir: string, options: { dir?: string } = {}) {
+		this.localDir = localDir;
+		this.root = options.dir ?? localDir;
+		for (const dir of ["raw", "converted", "wiki"]) mkdirSync(join(this.root, dir), { recursive: true });
+		this.configStamp = configStamp(localDir);
+		this.config = loadConfig(localDir);
+		this.store = new Store(indexFile(localDir, this.root));
 		this.converter = new Converter({
 			ocrLanguage: this.config.ocrLanguage,
-			tessdataDir: process.env.PI_KB_TESSDATA || join(root, "tessdata"),
+			tessdataDir: process.env.PI_KB_TESSDATA || join(localDir, "tessdata"),
 			ocrServerUrl: this.config.ocrServerUrl,
 		});
 		this.vectors = new VectorIndex(this.store.db);
@@ -130,7 +151,7 @@ export class KnowledgeBase {
 
 	/** (Re)create the embedding provider from the config; call kick() on the indexer to start embedding. */
 	private applySemantic(): void {
-		this.provider = createProvider(this.config.semantic, this.root);
+		this.provider = createProvider(this.config.semantic, this.localDir);
 		this.indexer.use(this.provider);
 	}
 
@@ -143,8 +164,8 @@ export class KnowledgeBase {
 		this.reloadConfig();
 		const before = this.config;
 		this.config = { ...this.config, ...change };
-		saveConfig(this.root, this.config);
-		this.configStamp = configStamp(this.root);
+		saveConfig(this.localDir, this.config);
+		this.configStamp = configStamp(this.localDir);
 		this.applyChanges(before);
 	}
 
@@ -163,11 +184,11 @@ export class KnowledgeBase {
 	 * Returns true when the config was reloaded.
 	 */
 	reloadConfig(): boolean {
-		const stamp = configStamp(this.root);
+		const stamp = configStamp(this.localDir);
 		if (stamp === this.configStamp) return false;
 		this.configStamp = stamp;
 		const before = this.config;
-		this.config = loadConfig(this.root);
+		this.config = loadConfig(this.localDir);
 		this.applyChanges(before);
 		return true;
 	}
@@ -279,6 +300,7 @@ export class KnowledgeBase {
 				added_at: new Date().toISOString(),
 			};
 			this.store.putDoc(doc, chunkPages(converted.pages));
+			this.writeManifest(doc);
 			for (const old of replaced) if (old.id !== id) this.remove(old.id);
 			void this.indexer.kick();
 			return { path, status: "added", doc, replaced: replaced.map((d) => d.id) };
@@ -323,7 +345,7 @@ export class KnowledgeBase {
 			if (taken.has(title) || sameName.some((d) => sourcePath(d.source, k) === title)) continue;
 			for (const d of clashing) {
 				const renamed = sourcePath(d.source, k);
-				if (!taken.has(renamed)) this.store.renameDoc(d.id, renamed);
+				if (!taken.has(renamed)) this.retitle(d, renamed);
 			}
 			return title;
 		}
@@ -347,7 +369,7 @@ export class KnowledgeBase {
 		const rel = relative(this.root, file);
 		const content = normalizeText(readFileSync(file, "utf8"));
 		const hash = sha(content);
-		const id = `w-${sha(rel).slice(0, 12)}`;
+		const id = wikiId(this.root, file);
 		const existing = this.store.getDoc(id);
 		if (existing?.hash === hash) return existing;
 		const note = parseNote(content, basename(file, extname(file)));
@@ -370,6 +392,75 @@ export class KnowledgeBase {
 		return doc;
 	}
 
+	/**
+	 * Bring the index in line with the content folder: documents (docs/*.json + converted/) and wiki
+	 * notes. Needed at start, and whenever another computer or a teammate may have changed the folder.
+	 */
+	sync(): { updated: number; removed: number } {
+		const docs = this.syncDocs();
+		const wiki = this.syncWiki();
+		if (docs.updated) void this.indexer.kick();
+		return { updated: docs.updated + wiki.updated, removed: docs.removed + wiki.removed };
+	}
+
+	private manifestFile(id: string): string {
+		return join(this.root, "docs", `${id}.json`);
+	}
+
+	/** Each document's facts in a small file of its own, so the index can be rebuilt and folders merged without conflicts. */
+	private writeManifest(doc: DocRecord): void {
+		mkdirSync(join(this.root, "docs"), { recursive: true });
+		// Forward slashes, so a folder shared between Windows and macOS reads the same.
+		const record = { ...doc, path: doc.path.split(sep).join("/") };
+		writeFileSync(this.manifestFile(doc.id), `${JSON.stringify(record, null, 2)}\n`);
+	}
+
+	private retitle(doc: DocRecord, title: string): void {
+		this.store.renameDoc(doc.id, title);
+		this.writeManifest({ ...doc, title });
+	}
+
+	/** Index documents described in docs/ and drop the ones whose description is gone. */
+	private syncDocs(): { updated: number; removed: number } {
+		const dir = join(this.root, "docs");
+		// Knowledge bases from before docs/ existed: describe what the index knows, once.
+		if (!existsSync(dir)) {
+			for (const doc of this.store.listDocs("docs")) this.writeManifest(doc);
+			return { updated: 0, removed: 0 };
+		}
+		const seen = new Set<string>();
+		let updated = 0;
+		for (const name of readdirSync(dir)) {
+			if (!name.endsWith(".json")) continue;
+			let record: DocRecord;
+			try {
+				record = JSON.parse(readFileSync(join(dir, name), "utf8"));
+			} catch {
+				continue; // half-synced or hand-broken file: try again next time
+			}
+			if (typeof record?.id !== "string" || `${record.id}.json` !== name || typeof record.path !== "string") continue;
+			const file = join(this.root, record.path);
+			if (!existsSync(file)) continue; // the text has not arrived yet (sync in progress)
+			seen.add(record.id);
+			const doc: DocRecord = { ...record, collection: "docs", path: record.path.split("/").join(sep) };
+			const known = this.store.getDoc(record.id);
+			if (!known) {
+				this.store.putDoc(doc, chunkPages(pagesOf(readFileSync(file, "utf8"))));
+				updated++;
+			} else if (known.title !== doc.title) {
+				this.store.renameDoc(doc.id, doc.title);
+			}
+		}
+		let removed = 0;
+		for (const doc of this.store.listDocs("docs")) {
+			if (!seen.has(doc.id)) {
+				this.store.deleteDoc(doc.id);
+				removed++;
+			}
+		}
+		return { updated, removed };
+	}
+
 	/** Bring the index in line with the wiki folder, which people may edit by hand or in Obsidian. */
 	syncWiki(): { updated: number; removed: number } {
 		const seen = new Set<string>();
@@ -380,7 +471,7 @@ export class KnowledgeBase {
 				const full = join(dir, entry.name);
 				if (entry.isDirectory()) walk(full);
 				else if (isMarkdown(entry.name) && !(dir === this.wikiDir && WIKI_META.has(entry.name))) {
-					const before = this.store.getDoc(`w-${sha(relative(this.root, full)).slice(0, 12)}`)?.hash;
+					const before = this.store.getDoc(wikiId(this.root, full))?.hash;
 					const doc = this.indexWikiFile(full);
 					seen.add(doc.id);
 					if (doc.hash !== before) updated++;
@@ -571,7 +662,10 @@ export class KnowledgeBase {
 	remove(id: string): DocRecord {
 		const doc = this.store.getDoc(id);
 		if (!doc) throw new Error(`No knowledge base document with id ${id}`);
-		if (doc.collection === "docs") rmSync(join(this.root, "raw", doc.id), { recursive: true, force: true });
+		if (doc.collection === "docs") {
+			rmSync(join(this.root, "raw", doc.id), { recursive: true, force: true });
+			rmSync(this.manifestFile(doc.id), { force: true });
+		}
 		rmSync(join(this.root, doc.path), { force: true });
 		this.store.deleteDoc(id);
 		return doc;
@@ -612,6 +706,13 @@ function renderConverted(title: string, pages: ConvertedPage[]): string {
 		.map((p) => (p.page === null ? p.markdown : `<!-- kb:page ${p.page} -->\n${p.markdown}`))
 		.join("\n\n");
 	return `<!-- kb:source ${title} -->\n\n${body}\n`;
+}
+
+/** The pages a document was indexed from, read back from its converted Markdown. */
+function pagesOf(markdown: string): ConvertedPage[] {
+	const pages = splitConverted(markdown.replace(/^<!-- kb:source .* -->\n*/, ""));
+	// A paged document starts with an empty part before its first page marker.
+	return pages.some((p) => p.page !== null) ? pages.filter((p) => p.page !== null) : pages;
 }
 
 function splitConverted(markdown: string): ConvertedPage[] {

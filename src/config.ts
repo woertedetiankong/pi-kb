@@ -1,6 +1,6 @@
-import { chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import type { LanguageSetting } from "./i18n.ts";
 import { profileFor } from "./semantic/models.ts";
 
@@ -15,6 +15,11 @@ export interface KbConfig {
 	language: LanguageSetting;
 	/** Semantic (vector) search; off by default. */
 	semantic: SemanticConfig;
+	/**
+	 * Folder for the content (documents, notes), e.g. in iCloud or a network drive; unset keeps it
+	 * in the default folder. This config, the index and the models always stay on this machine.
+	 */
+	dataDir?: string;
 }
 
 export interface SemanticConfig {
@@ -55,8 +60,62 @@ export const DEFAULT_SEMANTIC: SemanticConfig = {
 
 const DEFAULTS: KbConfig = { enabled: true, ocrLanguage: "eng+chi_sim", language: "auto", semantic: DEFAULT_SEMANTIC };
 
-export function kbRoot(): string {
-	return process.env.PI_KB_DIR || join(homedir(), ".pi", "kb");
+export interface KbLocation {
+	/** This machine's files: config.json, index, OCR data, local model. */
+	localDir: string;
+	/** The content: raw/, converted/, docs/, wiki/. */
+	dir: string;
+	/** env: PI_KB_DIR (both folders, cannot be changed from the page); config: chosen on the page. */
+	source: "default" | "config" | "env";
+}
+
+export const DEFAULT_DIR = join(homedir(), ".pi", "kb");
+
+/** PI_KB_DIR, else the folder chosen on the page, else ~/.pi/kb. */
+export function kbLocation(): KbLocation {
+	const env = process.env.PI_KB_DIR?.trim();
+	if (env) return { localDir: env, dir: env, source: "env" };
+	const dataDir = loadConfig(DEFAULT_DIR).dataDir;
+	if (dataDir && isAbsolute(dataDir)) return { localDir: DEFAULT_DIR, dir: dataDir, source: "config" };
+	return { localDir: DEFAULT_DIR, dir: DEFAULT_DIR, source: "default" };
+}
+
+/** Problems with a chosen folder, explained by the interface in the user's language. */
+export type LocationProblem = "location_env" | "location_busy" | "location_relative" | "location_not_writable";
+export class LocationError extends Error {
+	readonly problem: LocationProblem;
+	constructor(problem: LocationProblem, detail?: string) {
+		super(detail ? `${problem}: ${detail}` : problem);
+		this.problem = problem;
+	}
+}
+
+/** "~/Dropbox/kb" → absolute path; a relative path would depend on where pi was started. */
+export function expandDir(input: string): string {
+	const path = input.trim().replace(/^~(?=$|[\\/])/, homedir());
+	if (!path || !isAbsolute(path)) throw new LocationError("location_relative");
+	return resolve(path);
+}
+
+export function checkWritable(dir: string): void {
+	const probe = join(dir, `.pi-kb-${process.pid}.probe`);
+	try {
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(probe, "");
+		rmSync(probe, { force: true });
+	} catch (error) {
+		throw new LocationError("location_not_writable", (error as NodeJS.ErrnoException).code ?? String(error));
+	}
+}
+
+/** The content folders, which move with the knowledge base. */
+export const CONTENT_DIRS = ["raw", "converted", "docs", "wiki"];
+
+/** Copy the content into `to`, keeping whatever is already there (another computer's copy, say). */
+export function copyContent(from: string, to: string): void {
+	for (const name of CONTENT_DIRS) {
+		if (existsSync(join(from, name))) cpSync(join(from, name), join(to, name), { recursive: true, force: false, errorOnExist: false });
+	}
 }
 
 export function loadConfig(root: string): KbConfig {

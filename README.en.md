@@ -13,7 +13,7 @@ Requires Node.js 22.19+ and pi 0.87 or later. Used daily on macOS; the full test
 pi install git:github.com/woertedetiankong/pi-kb
 
 # Or pin a version that does not follow the repository
-pi install git:github.com/woertedetiankong/pi-kb@v0.3.1
+pi install git:github.com/woertedetiankong/pi-kb@v0.4.0
 
 # Or try it for this run only, without installing
 pi -e git:github.com/woertedetiankong/pi-kb
@@ -186,17 +186,24 @@ A small catalog (counts, wiki note titles, recent documents) is added to the sys
 
 ## Storage
 
-`~/.pi/kb` by default (change with `PI_KB_DIR`), all plain files:
+`~/.pi/kb` by default, all plain files, in two parts:
 
 ```
+# Content: documents and notes (can move, and can be synced between computers)
 raw/<id>/<original file>  copy of the original
 converted/<id>.md         converted Markdown with <!-- kb:page N --> page markers
+docs/<id>.json            each document's description (title, source, pages); the index is rebuilt from it
 wiki/**/*.md              experience notes; edit them with Obsidian or any editor
-kb.db                     SQLite FTS5 index (trigram tokenizer, works for Chinese and English)
-config.json               { "enabled", "language", "ocrLanguage", "ocrServerUrl", "semantic" }
+
+# This machine: always stays in ~/.pi/kb
+kb.db                     search index (SQLite FTS5, trigram tokenizer, Chinese and English) and semantic vectors;
+                          indexes/<key>/kb.db when the content lives elsewhere. It is a cache: delete it and it is rebuilt
+config.json               { "enabled", "language", "ocrLanguage", "ocrServerUrl", "semantic", "dataDir" }
 tessdata/                 OCR language data (downloaded on first OCR)
 runtime/, models/         runtime and model files for local semantic search (only after /kb semantic local; /kb semantic remove deletes them)
 ```
+
+**Moving it**: on the web page, Settings → Location takes a folder (in iCloud, Dropbox or a network drive, say) and can copy the current documents there; other pi windows follow. Point several computers at the same synced folder to share one knowledge base: each computer keeps its own index, and SQLite never sits in the synced folder, so syncing cannot corrupt it. Documents and notes added on another computer become searchable when pi starts or after "Sync with the folder" (`/kb sync`). With the `PI_KB_DIR` environment variable, content and local files both live in that folder and the page cannot change it.
 
 ## Importing
 

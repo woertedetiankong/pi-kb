@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { createHub, sharedHub, type WebApp, type WebHub } from "../src/hub.ts";
+import { LocationError } from "../src/config.ts";
 import { KnowledgeBase } from "../src/kb.ts";
 import { ImportQueue } from "../src/queue.ts";
 import { KbWebApp } from "../src/web.ts";
@@ -51,6 +52,10 @@ before(async () => {
 				installError = undefined;
 			},
 			model: () => undefined,
+			location: () => ({ localDir: root, dir: root, source: "default" }),
+			relocate: () => {
+				throw new LocationError("location_env");
+			},
 		},
 		join(import.meta.dirname, "..", "web", "kb.html"),
 	);
@@ -236,6 +241,15 @@ test("ask: an empty question is refused, and a missing model is reported by code
 	assert.equal(res.status, 409);
 	assert.equal((await res.json()).error, "no_model", "the page words it in its own language");
 	assert.deepEqual(await (await call("/api/kb/models")).json(), { models: [] }, "no model list while pi has no session");
+});
+
+test("location: shown with its source; a refused move is reported by code", async () => {
+	const where = await (await call("/api/kb/location")).json();
+	assert.equal(where.dir, root);
+	assert.equal(where.source, "default");
+	const res = await post("/api/kb/location", { dir: "/elsewhere" });
+	assert.equal(res.status, 409);
+	assert.equal((await res.json()).error, "location_env", "the page explains it");
 });
 
 test("shared token: reuses the pi-sessions token, and the hub stops when the last app leaves", async () => {

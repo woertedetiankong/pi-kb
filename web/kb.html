@@ -183,6 +183,11 @@ dialog.dlg::backdrop { background: rgba(0,0,0,.35); }
 .dlg .seg { justify-self: start; }
 .dlg [data-mode] { display: grid; gap: 10px; }
 .dlg h3 { margin: 4px 0 0; font-size: 14px; }
+.dlg .loc-now { font-size: 13px; overflow-wrap: anywhere; }
+.dlg .loc-now .num { font-size: 12.5px; }
+.dlg #locEdit { display: grid; gap: 10px; }
+.dlg label.check { display: flex; gap: 6px; align-items: center; color: var(--text); font-size: 13px; }
+.dlg .loc-actions { display: flex; gap: 12px; align-items: center; }
 .dlg h3 + .seg { margin-top: -2px; }
 .dlg hr { border: 0; border-top: 1px solid var(--line); margin: 6px 0 0; width: 100%; }
 .dlg select { height: 34px; border: 1px solid var(--line-strong); border-radius: 7px; padding: 0 8px; font: inherit; background: var(--bg); color: var(--text); outline: none; }
@@ -296,6 +301,16 @@ dialog.dlg::backdrop { background: rgba(0,0,0,.35); }
     <label><span data-t="ocrLanguage"></span><select name="ocrLanguage"></select></label>
     <label><span data-t="ocrServer"></span><input type="text" name="ocrServer" placeholder="http://localhost:8828/ocr"></label>
     <p class="hint" data-t="ocrServerHint"></p>
+    <hr>
+    <h3 data-t="locTitle"></h3>
+    <p class="hint" data-t="locHint"></p>
+    <p class="loc-now"><span class="num" id="locDir"></span> <span class="kind" id="locSource"></span></p>
+    <div id="locEdit">
+      <label><span data-t="locNew"></span><input type="text" name="locDir" autocomplete="off"></label>
+      <label class="check"><input type="checkbox" name="locCopy" checked> <span data-t="locCopy"></span></label>
+      <div class="loc-actions"><button type="button" class="btn" id="locMove" data-t="locMove"></button><button type="button" class="link" id="locReset" data-t="locReset"></button></div>
+    </div>
+    <p class="hint" id="locEnv" hidden data-t="locEnv"></p>
     <div class="err" id="semErr" hidden></div>
     <div class="row"><span class="fine"><button type="button" id="semRemove" hidden></button></span><button type="button" class="btn" data-close data-t="cancel"></button><button class="btn primary" id="semSave" data-t="save"></button></div>
   </form>
@@ -315,7 +330,7 @@ const T = {
     enabledTip: "开启后 pi 的 agent 会使用知识库；关闭后相关工具和提示词都会移除",
     views: "浏览", all: "全部", docs: "文档", notes: "经验笔记",
     kinds: { pdf: "PDF", office: "Office", image: "图片", text: "文本", note: "笔记" },
-    actions: "操作", newNote: "新建笔记", sync: "同步 wiki 文件夹", folder: "位置",
+    actions: "操作", newNote: "新建笔记", sync: "同步资料和笔记", folder: "位置",
     empty: "知识库还是空的", emptyHint: "把 PDF、图片或 Markdown 拖到页面上即可导入",
     emptyView: "这里还没有内容", noHits: q => `没有找到“${q}”`, noHitsHint: "换几个关键词，或者试试同义词、另一种语言",
     results: n => `${n} 条结果`, items: n => `${n} 项`, pages: n => `${n} 页`,
@@ -332,7 +347,7 @@ const T = {
     type: "类型", pageCount: "页数", source: "来源", added: "导入时间", id: "ID", tags: "标签", updated: "更新", created: "创建", project: "项目",
     openOriginal: "查看原文件", viewPage: "看原页", page: n => `第 ${n} 页`, remove: "删除", edit: "编辑", save: "保存", cancel: "取消", back: "← 返回",
     confirmRemoveDoc: t => `删除“${t}”？知识库里保存的副本也会删除。`, confirmRemoveNote: t => `删除笔记“${t}”？笔记文件会被删除。`,
-    removed: "已删除", saved: "已保存", synced: (u, r) => `wiki 已同步：更新 ${u}，移除 ${r}`,
+    removed: "已删除", saved: "已保存", synced: (u, r) => `已同步：更新 ${u}，移除 ${r}`,
     noteTitle: "标题", noteTags: "标签（用逗号分隔，可不填）", noteBody: "内容（Markdown）", importNotes: "或导入 Markdown 文件",
     offline: "连接不到 pi。pi 可能已经退出，在 pi 中运行 /kb web 重新打开。",
     kbOn: "知识库已开启", kbOff: "知识库已关闭", loadingDoc: "正在读取…",
@@ -354,6 +369,14 @@ const T = {
     ocrLanguage: "识别语言", ocrServer: "OCR 服务地址（可不填）", ocrServerHint: "不填则用内置的 Tesseract。填入 PaddleOCR 等服务的地址后改用它，中文扫描件的识别效果好很多。",
     ocrLangs: { "eng+chi_sim": "简体中文 + 英文", "eng+chi_tra": "繁体中文 + 英文", "eng+chi_sim+chi_tra": "简体 + 繁体 + 英文", eng: "仅英文", "eng+chi_sim+jpn": "简体中文 + 日文 + 英文" },
     ocrOther: v => `其他：${v}`, ocrSaved: "文字识别设置已保存",
+    locTitle: "存放位置", locHint: "资料和笔记放在这个文件夹里。可以选 iCloud、坚果云、Dropbox 或网络盘里的文件夹，让几台电脑共用同一个知识库。检索索引、设置和模型始终留在本机，不会被同步弄坏。",
+    locSource: { default: "默认", config: "自选", env: "环境变量 PI_KB_DIR" }, locNew: "新位置（完整路径，例如 ~/Dropbox/pi-kb 或 D:\\pi-kb）",
+    locCopy: "把现有资料和笔记复制过去（原位置的文件保留）", locMove: "移到这里", locReset: "恢复默认位置",
+    locEnv: "位置由环境变量 PI_KB_DIR 指定，要在网页上修改，请先去掉这个环境变量。",
+    locConfirmCopy: (dir, d, n) => `把知识库移到 ${dir}？现有 ${d} 份资料和 ${n} 条笔记会复制过去，原位置的文件保留。`,
+    locConfirmUse: dir => `改用 ${dir} 里的知识库？当前位置的资料不会带过去（文件仍在原处）。`,
+    locMoved: (dir, d, n) => `已切换到 ${dir}：${d} 份资料、${n} 条笔记`,
+    locProblems: { location_env: "位置由环境变量 PI_KB_DIR 指定，网页上不能修改", location_busy: "正在导入文件，等导入完成后再移动", location_relative: "请填写完整路径，例如 ~/Dropbox/pi-kb 或 D:\\pi-kb", location_not_writable: d => `这个文件夹不能写入（${d}）` },
     semTitle: "语义检索", semModeOff: "关闭", semModeLocal: "本机模型", semModeApi: "在线接口",
     semOffHint: "只按关键词搜索。不下载模型，也不向外发送任何内容。",
     semLocalHint: (model, installed, size) => `在这台电脑上运行 ${model}，文档内容不会外传。${installed ? `运行时已安装（本机模型共占用 ${size}）。` : "首次开启会安装运行时（约 500MB），第一次建索引时再下载模型（约 610MB）；建索引时约占用 2–3GB 内存。"}`,
@@ -376,7 +399,7 @@ const T = {
     enabledTip: "When on, pi's agent uses the knowledge base; when off, its tools and prompt are removed",
     views: "Browse", all: "All", docs: "Documents", notes: "Experience notes",
     kinds: { pdf: "PDF", office: "Office", image: "Image", text: "Text", note: "Note" },
-    actions: "Actions", newNote: "New note", sync: "Sync wiki folder", folder: "Location",
+    actions: "Actions", newNote: "New note", sync: "Sync with the folder", folder: "Location",
     empty: "The knowledge base is empty", emptyHint: "Drop PDFs, images or Markdown on the page to import them",
     emptyView: "Nothing here yet", noHits: q => `No results for "${q}"`, noHitsHint: "Try other keywords, synonyms, or the other language",
     results: n => `${n} result${n === 1 ? "" : "s"}`, items: n => `${n} item${n === 1 ? "" : "s"}`, pages: n => `${n} pages`,
@@ -393,7 +416,7 @@ const T = {
     type: "Type", pageCount: "Pages", source: "Source", added: "Imported", id: "ID", tags: "Tags", updated: "Updated", created: "Created", project: "Project",
     openOriginal: "Open original", viewPage: "View page", page: n => `Page ${n}`, remove: "Delete", edit: "Edit", save: "Save", cancel: "Cancel", back: "← Back",
     confirmRemoveDoc: t => `Delete "${t}"? Its stored copy is deleted too.`, confirmRemoveNote: t => `Delete the note "${t}"? The note file is deleted.`,
-    removed: "Deleted", saved: "Saved", synced: (u, r) => `Wiki synced: ${u} updated, ${r} removed`,
+    removed: "Deleted", saved: "Saved", synced: (u, r) => `Synced: ${u} updated, ${r} removed`,
     noteTitle: "Title", noteTags: "Tags (comma separated, optional)", noteBody: "Content (Markdown)", importNotes: "or import Markdown files",
     offline: "Cannot reach pi. It may have exited; run /kb web in pi to reopen this page.",
     kbOn: "Knowledge base on", kbOff: "Knowledge base off", loadingDoc: "Loading…",
@@ -415,6 +438,14 @@ const T = {
     ocrLanguage: "Languages", ocrServer: "OCR server (optional)", ocrServerHint: "Empty uses the built-in Tesseract. Enter the address of a service such as PaddleOCR to use it instead; it reads Chinese scans much better.",
     ocrLangs: { "eng+chi_sim": "English + Simplified Chinese", "eng+chi_tra": "English + Traditional Chinese", "eng+chi_sim+chi_tra": "English + Simplified + Traditional Chinese", eng: "English only", "eng+chi_sim+jpn": "English + Simplified Chinese + Japanese" },
     ocrOther: v => `Other: ${v}`, ocrSaved: "Text recognition settings saved",
+    locTitle: "Location", locHint: "Documents and notes live in this folder. Pick one in iCloud, Dropbox or a network drive to share one knowledge base between computers. The search index, settings and models always stay on this machine, so syncing cannot corrupt them.",
+    locSource: { default: "default", config: "chosen", env: "PI_KB_DIR" }, locNew: "New location (full path, e.g. ~/Dropbox/pi-kb or D:\\pi-kb)",
+    locCopy: "Copy the current documents and notes there (the originals stay)", locMove: "Move here", locReset: "Back to the default",
+    locEnv: "The PI_KB_DIR environment variable sets the location; unset it to change it here.",
+    locConfirmCopy: (dir, d, n) => `Move the knowledge base to ${dir}? The ${d} documents and ${n} notes are copied there; the originals stay.`,
+    locConfirmUse: dir => `Use the knowledge base in ${dir}? The current documents are not taken along (they stay where they are).`,
+    locMoved: (dir, d, n) => `Now at ${dir}: ${d} documents, ${n} notes`,
+    locProblems: { location_env: "PI_KB_DIR sets the location, so it cannot be changed here", location_busy: "Files are being imported; move after the import finishes", location_relative: "Enter a full path, e.g. ~/Dropbox/pi-kb or D:\\pi-kb", location_not_writable: d => `This folder cannot be written (${d})` },
     semTitle: "Semantic search", semModeOff: "Off", semModeLocal: "Local model", semModeApi: "Online API",
     semOffHint: "Keyword search only. Nothing is downloaded and nothing leaves this machine.",
     semLocalHint: (model, installed, size) => `Runs ${model} on this computer; document text stays here. ${installed ? `The runtime is installed (the local model uses ${size} in total).` : "Turning it on installs the runtime (about 500 MB); the model (about 610 MB) downloads on first indexing, which uses about 2-3 GB of memory."}`,
@@ -949,6 +980,8 @@ async function loadSemantic(fill) {
   if (fill) {
     const f = $("semDlg").querySelector("form"), i = sem.info;
     sem.ocr = await api("/ocr");
+    renderLocation(await api("/location"));
+    f.locDir.value = ""; f.locCopy.checked = true;
     const langs = { ...T.ocrLangs };
     if (!langs[sem.ocr.language]) langs[sem.ocr.language] = T.ocrOther(sem.ocr.language);
     f.ocrLanguage.innerHTML = Object.entries(langs).map(([v, label]) => `<option value="${esc(v)}">${esc(label)}</option>`).join("");
@@ -1012,6 +1045,40 @@ $("semDlg").querySelector("form").addEventListener("submit", async e => {
     if (done.length) toast(done.join(" · "));
   } catch (err) { $("semErr").textContent = err.message; $("semErr").hidden = false; }
 });
+
+// ---- location ----
+let where = null;
+function renderLocation(loc) {
+  where = loc;
+  $("locDir").textContent = loc.dir;
+  $("locSource").textContent = T.locSource[loc.source] || loc.source;
+  $("locEdit").hidden = loc.source === "env";
+  $("locEnv").hidden = loc.source !== "env";
+  $("locReset").hidden = loc.source !== "config";
+}
+async function moveLocation(dir) {
+  const f = $("semDlg").querySelector("form"), copy = f.locCopy.checked;
+  const shown = dir || where.localDir;
+  if (!confirm(copy ? T.locConfirmCopy(shown, where.docs, where.notes) : T.locConfirmUse(shown))) return;
+  $("semErr").hidden = true;
+  try {
+    const loc = await api("/location", { body: { dir, copy } });
+    renderLocation(loc); f.locDir.value = "";
+    etags = {}; await refresh();
+    toast(T.locMoved(loc.dir, loc.docs, loc.notes));
+  } catch (err) {
+    const [problem, ...detail] = err.message.split(": ");
+    const say = T.locProblems[problem];
+    $("semErr").textContent = typeof say === "function" ? say(detail.join(": ")) : say || err.message;
+    $("semErr").hidden = false;
+  }
+}
+$("locMove").addEventListener("click", () => {
+  const dir = $("semDlg").querySelector("form").locDir.value.trim();
+  if (!dir) { $("semDlg").querySelector("form").locDir.focus(); return; }
+  moveLocation(dir);
+});
+$("locReset").addEventListener("click", () => moveLocation(""));
 
 // Drag files anywhere: choose "documents" or "notes" by dropping on one half.
 let dragDepth = 0;

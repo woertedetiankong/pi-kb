@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.4.0 — 2026-09-25
+
+### Choose where the knowledge base lives
+
+- Content and index are separate. Documents and notes (`raw/`, `converted/`, `wiki/`, and a new `docs/<id>.json` per document) are plain files; the SQLite index is a cache on this machine, rebuilt from the files when it is missing or when another computer changed them. Existing knowledge bases get their `docs/` descriptions on the first start, with nothing to do. An index rebuilt from the files matched the original exactly on real datasheets (193 chunks, same ranks for 8 searches).
+- Settings → Location on the web page moves the content to any folder, e.g. in iCloud or Dropbox, optionally copying what is there; other pi windows follow within seconds. Several computers pointed at the same synced folder share one knowledge base, each with its own index, so the sync never touches SQLite. Config, index, OCR data and models stay in `~/.pi/kb`. `PI_KB_DIR` still puts everything in one folder.
+- "Sync with the folder" (`/kb sync`) now picks up documents too, not only wiki notes. Note ids use `/` on every system, so a folder shared between Windows and macOS gives the same ids.
+
 ## v0.3.1 — 2026-09-25
 
 - Asking while files are still importing no longer gets "the knowledge base has nothing on this": `kb_search` tells the agent which files are still being imported, and it says so (checked with gpt-6-sol in pi).

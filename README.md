@@ -13,7 +13,7 @@
 pi install git:github.com/woertedetiankong/pi-kb
 
 # 或锁定到某个版本，不随仓库更新而变化
-pi install git:github.com/woertedetiankong/pi-kb@v0.3.1
+pi install git:github.com/woertedetiankong/pi-kb@v0.4.0
 
 # 或不安装，只在这次运行中试用
 pi -e git:github.com/woertedetiankong/pi-kb
@@ -186,17 +186,24 @@ system prompt 里会注入一个很小的目录（数量、wiki 笔记标题、�
 
 ## 存储
 
-默认在 `~/.pi/kb`（可用 `PI_KB_DIR` 修改），全部是普通文件：
+默认在 `~/.pi/kb`，全部是普通文件，分两部分：
 
 ```
+# 内容：资料和笔记（可以换位置、在几台电脑间同步）
 raw/<id>/<原文件>        原件副本
 converted/<id>.md        转换后的 Markdown，带 <!-- kb:page N --> 页码标记
+docs/<id>.json           每份资料的描述（标题、来源、页数），索引据此重建
 wiki/**/*.md             经验笔记，可直接用 Obsidian 或编辑器维护
-kb.db                    SQLite FTS5 索引（trigram 分词，中英文都能搜）
-config.json              { "enabled", "language", "ocrLanguage", "ocrServerUrl", "semantic" }
+
+# 本机：永远留在 ~/.pi/kb
+kb.db                    检索索引（SQLite FTS5，trigram 分词，中英文都能搜）和语义向量；
+                         内容放在别处时在 indexes/<编号>/kb.db。它是缓存，删掉会自动重建
+config.json              { "enabled", "language", "ocrLanguage", "ocrServerUrl", "semantic", "dataDir" }
 tessdata/                OCR 语言包（首次 OCR 时自动下载）
 runtime/, models/        本机语义模型的运行时和模型文件（只在 /kb semantic local 后出现；/kb semantic remove 删除）
 ```
+
+**换存放位置**：在网页「设置 → 存放位置」里填一个文件夹（例如 iCloud、坚果云、Dropbox 或网络盘里的），可以选择把现有资料复制过去，其他 pi 窗口会自动跟着切换。几台电脑都指向同一个同步文件夹，就共用一个知识库：每台电脑用自己的索引，SQLite 从不放进同步文件夹，所以不会被同步软件弄坏。另一台电脑新加的资料和笔记，在 pi 启动时或点「同步资料和笔记」（`/kb sync`）后就能搜到。设置了环境变量 `PI_KB_DIR` 时，内容和本机文件都放在那个目录，网页上不能修改。
 
 ## 导入
 
