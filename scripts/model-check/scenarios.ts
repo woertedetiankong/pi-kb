@@ -26,6 +26,11 @@ export interface Scenario {
 	answer?: RegExp;
 	/** Files written into the project directory before the run. */
 	files?: Record<string, string>;
+	/** Files copied into the project directory: name there → path relative to the repository. */
+	copy?: Record<string, string>;
+	/** Tools that must be called, or must not be, beyond kb_search and kb_note. */
+	requireTools?: string[];
+	forbidTools?: string[];
 }
 
 const addJs = "export function add(a, b) {\n\tconst x = a + b;\n\treturn x;\n}\n";
@@ -126,6 +131,26 @@ export const scenarios: Scenario[] = [
 			"greet.test.js": 'import assert from "node:assert/strict";\nimport { test } from "node:test";\nimport { greet } from "./greet.js";\n\ntest("greets by name", () => {\n\tassert.equal(greet("Ada"), "Hello, Ada!");\n});\n',
 			"package.json": '{ "type": "module" }\n',
 		},
+	},
+	{
+		id: "save-workspace-pdf",
+		about: "Saving a PDF from the project: kb_add keeps it, not a session-only import such as pi-embedded-docs' document_import",
+		prompt: "把项目里的 xr200-datasheet.pdf 收进知识库。",
+		search: "any",
+		note: "forbidden",
+		requireTools: ["kb_add"],
+		forbidTools: ["document_import"],
+		copy: { "xr200-datasheet.pdf": "scripts/model-check/corpus/xr200-datasheet.pdf" },
+	},
+	{
+		id: "workspace-datasheet",
+		about: "A question about a datasheet in the project, not in the knowledge base: read it, but do not file it away unasked",
+		prompt: "项目里有一份 xr200-datasheet.pdf，这颗芯片的 I2C 地址是多少？",
+		search: "any",
+		note: "forbidden",
+		forbidTools: ["kb_add"],
+		answer: /0x2C/i,
+		copy: { "xr200-datasheet.pdf": "scripts/model-check/corpus/xr200-datasheet.pdf" },
 	},
 	{
 		id: "setup-fact",

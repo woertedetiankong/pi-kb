@@ -218,8 +218,9 @@ npm test
 单元测试不调用模型。想确认模型会不会主动用知识库，运行：
 
 ```bash
-node scripts/model-check/run.ts                      # 默认 openai-codex/gpt-6-luna，13 个场景各跑 2 次
+node scripts/model-check/run.ts                      # 默认 openai-codex/gpt-6-luna，15 个场景各跑 2 次
 node scripts/model-check/run.ts --model <provider/id> --runs 5 --only debug-note,missing
+node scripts/model-check/run.ts --installed               # 用你已安装的全部插件和 skill 跑（需要先安装 pi-kb）
 ```
 
 每次运行都复制一份全新的虚构资料库（XR-100 芯片手册、Orbit 部署手册、YF-20 打印机 FAQ、一条 SPI 踩坑笔记，外加几篇无关文档），在空项目目录里执行 `pi -p --mode json`，只加载本扩展，不会动你的 `~/.pi/kb`。场景在 `scripts/model-check/scenarios.ts`，检查：
@@ -228,13 +229,15 @@ node scripts/model-check/run.ts --model <provider/id> --runs 5 --only debug-note
 - 调试出不明显的根因、得知环境信息时是否调用 `kb_note`；已有相关笔记时是否用 `append` 追加；改代码、查资料这类日常工作是否不记
 - 引用是否和 `kb_search` / `kb_read` 输出的完全一致（`[xr100-manual.pdf p.1]`），资料没有直接答案时是否先说明
 
-会真实调用模型、产生费用（13 × 2 次约几分钟）。逐次结果和回答原文写在输出目录的 `report.md`。
+会真实调用模型、产生费用（15 × 2 次约几分钟）。逐次结果和回答原文写在输出目录的 `report.md`。
 
 gpt-5.5 的结果（2026-09-24）：该搜时都搜了、没有编造引用；调试后记笔记 8/8、补充已有笔记都用了 `append`、日常工作没有乱记。仍不稳定的一点：问"XR-100 支持 USB-C 供电吗"（资料没写）时，约 5/8 次会先说明"手册没提到"，其余直接从电压范围推断出结论。
 
 gpt-6-luna 的结果（2026-09-24，每个场景 3 次）：最终 34/36。改进前它经常用 `scope: "docs"` 搜索，把 wiki 笔记排除在外；还会把章节名写进引用；调试后记笔记 0/3；两次对用户说"之后我会记住"，实际却没有保存。现在的系统提示、`scope` 参数说明和上面的自动提醒解决了这些问题：调试后记笔记 3/3，设备信息 3/3，日常场景没有误触发。
 
 gpt-6-sol 的结果（2026-09-24，每个场景 3 次，使用当前的提示和提醒机制）：36/36。它不需要提醒就会在调试后和得知设备信息后记笔记，追加时只写新内容。有一次把"产线 Flash 型号"追加进了 SPI 分频那条笔记；放进去没错，但单独建一条会更好。
+
+和 pi-robot 一起用（2026-09-25，gpt-6-sol，`--installed`，每个场景 3 次）：pi-robot 里的 pi-embedded-docs 也有一套 `document_*` 工具（导入、搜索、阅读、看页面图片），但它只在当前会话、当前工作目录里有效。实测两者分工清楚：问知识库里的内容时，27 次全部用 `kb_search`；说"收进知识库"时用 `kb_add`，不用 `document_import`；只问工作目录里某份 PDF 的问题时，先查知识库，没有就用 `document_*` 读那份 PDF，不会擅自收进知识库。唯一的问题是提醒机制：模型改用 pi-robot 的 `code` 工具跑 Python 改文件时，一开始没被识别为"修复"，现在已经修好。
 
 ## 许可证
 

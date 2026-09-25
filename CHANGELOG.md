@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- The note reminder also recognises fixes made through other tools that write files, such as pi-robot's `code` runner, not only edit, write and bash. Read-only tools and knowledge base tools never count.
+- `scripts/model-check --installed` runs with your installed extensions and skills. Two new scenarios check the overlap with pi-embedded-docs: saving a project PDF must use `kb_add`, and a question about a project PDF must not file it away. A fictional XR-200 datasheet (generated, no third-party content) is the fixture. With pi-robot installed, gpt-6-sol kept the two tool sets apart in every run.
+
 ## v0.2.2 — 2026-09-25
 
 ### Managing a growing knowledge base

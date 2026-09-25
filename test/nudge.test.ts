@@ -22,6 +22,17 @@ test("a fix made with a shell command counts, a read-only command does not", () 
 	for (const cmd of ["npm test 2>&1", "ls -la", "grep -n x f.js", "node app.js >/dev/null"]) assert.ok(!shellWrites(cmd), cmd);
 });
 
+test("a fix made through another extension's code runner counts too", () => {
+	const code = (id: string, code: string) => ({ role: "assistant", content: [{ type: "toolCall", name: "code", id, arguments: { code } }] });
+	const res = (id: string, toolName: string, isError = false) => ({ role: "toolResult", toolName, toolCallId: id, isError, content: [] });
+	const fixed = [user("修一下"), call("bash"), result("bash", true), call("edit"), result("edit", true)];
+	const write = "from pathlib import Path\np=Path('config.json')\np.write_text(p.read_text().lstrip('\\ufeff'))";
+	assert.equal(noteNudge([...fixed, code("1", write), res("1", "code"), reply("好了")]), "debugged");
+	assert.equal(noteNudge([...fixed, code("2", "print(open('config.json').read())"), res("2", "code"), reply("看了")]), undefined, "reading is not fixing");
+	const search = { role: "assistant", content: [{ type: "toolCall", name: "kb_search", id: "3", arguments: { query: "echo x > f" } }] };
+	assert.equal(noteNudge([...fixed, search, res("3", "kb_search"), reply("…")]), undefined, "knowledge base tools never count");
+});
+
 test("routine edits, lookups and failures without a fix do not nudge", () => {
 	assert.equal(noteNudge([user("rename x to total"), call("read"), result("read"), call("edit"), result("edit"), reply("done")]), undefined);
 	assert.equal(noteNudge([user("How do I roll back Orbit?"), call("kb_search"), result("kb_search"), reply("…")]), undefined);

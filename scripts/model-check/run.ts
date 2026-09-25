@@ -2,10 +2,12 @@
  * Check how a real model uses the knowledge base: does it call kb_search and kb_note on its own,
  * and does it cite exactly what kb_search printed?
  *
- *   node scripts/model-check/run.ts [--model openai-codex/gpt-6-luna] [--runs 2] [--only id,id] [--jobs 4] [--out dir]
+ *   node scripts/model-check/run.ts [--model openai-codex/gpt-6-luna] [--runs 2] [--only id,id] [--jobs 4] [--out dir] [--installed]
  *
  * Every run gets a fresh copy of a small fictional knowledge base and an empty project folder,
  * and runs `pi -p --mode json` with only this extension loaded. Your own ~/.pi/kb is not touched.
+ * --installed runs with your installed extensions and skills instead (pi-kb must be installed),
+ * to see how the tools fare next to others, such as pi-robot's document_* tools.
  * Without a UI, kb_note saves without asking, into the throwaway copy.
  */
 import { spawn } from "node:child_process";
@@ -25,6 +27,7 @@ const { values: args } = parseArgs({
 		jobs: { type: "string", default: "4" },
 		out: { type: "string" },
 		thinking: { type: "string" },
+		installed: { type: "boolean", default: false },
 	},
 });
 
@@ -65,8 +68,9 @@ async function buildSeed(dir: string): Promise<string[]> {
 }
 
 function runPi(cwd: string, kbDir: string, prompt: string): Promise<string> {
-	const piArgs = ["-p", "--mode", "json", "--no-session", "--no-extensions", "--no-skills", "--no-prompt-templates"];
-	piArgs.push("-e", join(repo, "src/index.ts"), "--model", args.model!);
+	const piArgs = ["-p", "--mode", "json", "--no-session"];
+	if (!args.installed) piArgs.push("--no-extensions", "--no-skills", "--no-prompt-templates", "-e", join(repo, "src/index.ts"));
+	piArgs.push("--model", args.model!);
 	if (args.thinking) piArgs.push("--thinking", args.thinking);
 	piArgs.push("--", prompt);
 	return new Promise((resolve, reject) => {
@@ -146,6 +150,8 @@ function check(s: Scenario, calls: ToolCall[], answer: string, titles: string[])
 	};
 	expect(s.search, "kb_search");
 	expect(s.note, "kb_note");
+	for (const name of s.requireTools ?? []) expect("required", name);
+	for (const name of s.forbidTools ?? []) expect("forbidden", name);
 	expect(s.nudge ?? (s.note === "forbidden" ? "forbidden" : "any"), "nudge");
 	if (s.noteMode) {
 		const notes = calls.filter((c) => c.name === "kb_note");
@@ -185,13 +191,14 @@ const chosen = scenarios.filter((s) => !only || only.includes(s.id));
 const runs = Number(args.runs);
 const jobs = chosen.flatMap((scenario) => Array.from({ length: runs }, (_, i) => ({ scenario, run: i + 1 })));
 const results: RunResult[] = [];
-console.log(`${args.model}: ${chosen.length} scenarios × ${runs} runs → ${out}`);
+console.log(`${args.model}${args.installed ? " with installed extensions" : ""}: ${chosen.length} scenarios × ${runs} runs → ${out}`);
 
 await pool(jobs, Number(args.jobs), async ({ scenario, run }) => {
 	const dir = join(out, `${scenario.id}-${run}`);
 	const project = join(dir, "project");
 	mkdirSync(project, { recursive: true });
 	for (const [name, text] of Object.entries(scenario.files ?? {})) writeFileSync(join(project, name), text);
+	for (const [name, from] of Object.entries(scenario.copy ?? {})) cpSync(join(repo, from), join(project, name));
 	cpSync(seed, join(dir, "kb"), { recursive: true });
 	const started = Date.now();
 	let result: RunResult;
@@ -211,7 +218,7 @@ await pool(jobs, Number(args.jobs), async ({ scenario, run }) => {
 results.sort((a, b) => chosen.indexOf(a.scenario) - chosen.indexOf(b.scenario) || a.run - b.run);
 const passed = results.filter((r) => !r.problems.length).length;
 const report = [
-	`# pi-kb model check — ${args.model}`,
+	`# pi-kb model check — ${args.model}${args.installed ? " (installed extensions)" : ""}`,
 	"",
 	`${passed}/${results.length} runs passed · cost $${results.reduce((n, r) => n + r.cost, 0).toFixed(2)}`,
 	"",

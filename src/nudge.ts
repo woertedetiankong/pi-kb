@@ -23,10 +23,12 @@ interface Part {
 	text?: string;
 	name?: string;
 	id?: string;
-	arguments?: { command?: unknown };
+	arguments?: unknown;
 }
 
 const EDIT_TOOLS = new Set(["edit", "write"]);
+/** Tools that only look; any other tool whose arguments write files (bash, a code runner) counts as an edit. */
+const READ_ONLY = new Set(["read", "grep", "find", "ls"]);
 /** Shell commands that change files: sed -i, redirects into a file, tee, mv/cp, scripts that write. */
 const SHELL_WRITE =
 	/\bsed\s+(-\w*\s+)*-i|\bperl\s+-\w*i|(^|[^0-9&>])>{1,2}\s*(?!&|\/dev\/null)[\w./~"'-]|\btee\b|\b(mv|cp)\s|write_(bytes|text)\(|writeFileSync\(|open\([^)]*["'][wa]b?["']/;
@@ -58,11 +60,13 @@ export function noteNudge(messages: Message[]): NudgeReason | undefined {
 	if (run.some((m) => m.role === "custom" && m.customType === NUDGE_TYPE)) return undefined;
 	if (run.some((m) => m.role === "assistant" && parts(m).some((p) => p.type === "toolCall" && p.name === "kb_note"))) return undefined;
 
-	// Bash calls whose command changes files, so a fix made with sed or a script counts too.
+	// Calls that change files through a shell or a code runner (pi-robot's code tool, say), not edit/write.
 	const shellEdits = new Set(
 		run.flatMap((m) =>
 			m.role === "assistant"
-				? parts(m).filter((p) => p.type === "toolCall" && p.name === "bash" && typeof p.arguments?.command === "string" && shellWrites(p.arguments.command)).map((p) => p.id)
+				? parts(m)
+						.filter((p) => p.type === "toolCall" && !READ_ONLY.has(p.name ?? "") && !p.name?.startsWith("kb_") && shellWrites(JSON.stringify(p.arguments ?? {})))
+						.map((p) => p.id)
 				: [],
 		),
 	);
