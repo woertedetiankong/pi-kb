@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.6.0 — 2026-09-26
 
 Collections: group your global knowledge base by topic, and choose per project what it sees.
 
