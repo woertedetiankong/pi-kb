@@ -249,7 +249,7 @@ To keep everything in one folder, index and models included (on an external disk
 
 ## Parsing and search
 
-- Parsing uses [LiteParse](https://github.com/run-llama/liteparse): PDFs become Markdown with headings and tables, keeping physical page numbers; images and scanned pages go through Tesseract OCR (`eng+chi_sim` by default).
+- Parsing uses [LiteParse](https://github.com/run-llama/liteparse): PDFs become Markdown with headings and tables, keeping physical page numbers; images and scanned pages go through Tesseract OCR (`eng+chi_sim` by default). The Chinese model makes OCR about 4x slower, so a PDF whose own text has no Chinese is OCR'd with the other languages only (a 162-page English datasheet: about 2 minutes instead of 7½); scans and images, which have no text to judge by, get every language.
 - Search uses Node's built-in `node:sqlite` with FTS5 trigram, so there are no native dependencies. Terms of 3+ characters use the index, 1–2 character terms (such as 电压) use LIKE; long Chinese sentences are split into trigrams for fuzzy matching, ranked by term coverage plus BM25.
 - English function words like how / the, Chinese question words like 怎么、如何、什么, and lone Chinese characters (such as 用) are ignored.
 - With several terms, more than half must match: with two terms both must appear, unless the other term is on another page of the same document (so "Python 列表排序" does not match a page just because it mentions Python).

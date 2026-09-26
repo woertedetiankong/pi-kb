@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+From a simulated first session (a new user importing six English M5Stack PDFs and asking in Chinese):
+
+- Faster imports of English documents: the Chinese OCR model made Tesseract about 4x slower (a 162-page datasheet: 455 s instead of 112 s) for 6% more OCR text. A PDF whose own text has no Chinese, Japanese or Korean is now OCR'd without those languages; scans and images keep every configured language, and an OCR server keeps its own.
+- The status bar showed "first OCR: downloading language data" for the whole first file (5 minutes on a large PDF). It now shows while the data is actually downloading, and only for the languages the file needs.
+- The semantic search tip no longer says a Chinese question won't find English documents: pi's answers found them every time by searching in both languages. It now says that your own searches (`/kb search`, the web page) are the ones that need the exact words.
+
 ## v0.5.8 — 2026-09-26
 
 - First run: while the knowledge base is empty, pi says once how to add documents (`/kb add`, `/kb web`) and that you then just ask; `/kb status` repeats the hint while it stays empty.

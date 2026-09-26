@@ -94,8 +94,16 @@ export interface ConvertOptions {
 }
 
 const TESSDATA_URL = "https://github.com/tesseract-ocr/tessdata_best/raw/main";
+/** Tesseract languages for Chinese, Japanese and Korean. */
+const CJK_LANGUAGES = new Set(["chi_sim", "chi_tra", "jpn", "kor"]);
+/** Han, kana and hangul. */
+const CJK_CHAR = /[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/g;
+/** A document with this much text of its own shows which scripts it uses... */
+const NATIVE_TEXT_MIN = 200;
+/** ...and with this many CJK characters, it uses them (a stray symbol or name does not count). */
+const CJK_MIN = 3;
 /** Languages whose models load a vertical-text companion that LiteParse does not download itself. */
-const VERTICAL = new Set(["chi_sim", "chi_tra", "jpn", "kor"]);
+const VERTICAL = CJK_LANGUAGES;
 
 /**
  * Fetch `<lang>_vert.traineddata` for CJK languages. Without it Tesseract prints
@@ -175,17 +183,17 @@ function runParse(
 export class Converter {
 	private options: ConvertOptions;
 	private readonly children = new Set<ChildProcess>();
-	private verticalReady?: Promise<void>;
+	private readonly verticalReady = new Map<string, Promise<void>>();
 
 	constructor(options: ConvertOptions) {
 		this.options = options;
 	}
 
-	private get parseConfig(): Record<string, unknown> {
+	private parseConfig(ocrLanguage: string): Record<string, unknown> {
 		return {
 			outputFormat: "markdown",
 			ocrEnabled: true,
-			ocrLanguage: this.options.ocrLanguage,
+			ocrLanguage,
 			tessdataPath: this.options.tessdataDir,
 			ocrServerUrl: this.options.ocrServerUrl,
 			// Keep native text when OCR fails (for example, language data cannot be downloaded).
@@ -200,9 +208,9 @@ export class Converter {
 	 * OCR languages whose Tesseract data is not on disk yet. LiteParse downloads them from GitHub on
 	 * first use (about 13-15 MB each); empty when an OCR server is set.
 	 */
-	missingOcrData(): string[] {
+	missingOcrData(language = this.options.ocrLanguage): string[] {
 		if (this.options.ocrServerUrl) return [];
-		return this.options.ocrLanguage
+		return language
 			.split("+")
 			.filter((lang) => lang && !existsSync(join(this.options.tessdataDir, `${lang}.traineddata`)));
 	}
@@ -215,12 +223,30 @@ export class Converter {
 
 	/** Use other OCR settings from the next conversion on; running ones finish with the old settings. */
 	setOcr(ocr: Pick<ConvertOptions, "ocrLanguage" | "ocrServerUrl">): void {
-		if (ocr.ocrLanguage !== this.options.ocrLanguage) this.verticalReady = undefined;
 		this.options = { ...this.options, ...ocr };
 	}
 
-	/** Convert a file to Markdown pages. Aborting stops the conversion and rejects. */
-	async convert(path: string, signal?: AbortSignal): Promise<Converted> {
+	/**
+	 * The OCR languages for one document. Chinese, Japanese and Korean models make Tesseract about
+	 * 4x slower (a 162-page English datasheet: 455 s with eng+chi_sim, 112 s with eng, for 6% more
+	 * OCR text), so they are left out when the document's own text is plentiful and has none of
+	 * those scripts. Scans and images have no text of their own to judge by and keep every language.
+	 */
+	async ocrLanguageFor(path: string, kind: SourceKind, signal?: AbortSignal): Promise<string> {
+		const configured = this.options.ocrLanguage;
+		const others = configured.split("+").filter((lang) => lang && !CJK_LANGUAGES.has(lang.replace(/_vert$/, "")));
+		if (kind === "image" || this.options.ocrServerUrl || !others.length || others.length === configured.split("+").length) return configured;
+		const probe = await this.run(path, { outputFormat: "markdown", ocrEnabled: false, continueOnPageError: true, maxPages: 5000, quiet: true }, signal);
+		const text = (probe.pages ?? []).map((p) => p.markdown).join("");
+		if (text.replace(/\s/g, "").length < NATIVE_TEXT_MIN || (text.match(CJK_CHAR) ?? []).length >= CJK_MIN) return configured;
+		return others.join("+");
+	}
+
+	/**
+	 * Convert a file to Markdown pages. Aborting stops the conversion and rejects. `onDownload` is told
+	 * when the OCR language data this file needs is being downloaded (true), and when it is there (false).
+	 */
+	async convert(path: string, signal?: AbortSignal, onDownload?: (downloading: boolean) => void): Promise<Converted> {
 		const kind = sourceKind(path);
 		if (!kind) throw new Error(`Unsupported file type: ${extname(path) || path}`);
 		if (kind === "text") {
@@ -228,11 +254,35 @@ export class Converter {
 			const text = HTML.has(extname(path).toLowerCase()) ? htmlToText(raw) : raw;
 			return { kind, pages: [{ page: null, markdown: normalizeText(text) }] };
 		}
+		const language = await this.ocrLanguageFor(path, kind, signal);
 		if (!this.options.ocrServerUrl) {
-			this.verticalReady ??= ensureVerticalModels(this.options.tessdataDir, this.options.ocrLanguage);
-			await this.verticalReady;
+			let vertical = this.verticalReady.get(language);
+			if (!vertical) this.verticalReady.set(language, (vertical = ensureVerticalModels(this.options.tessdataDir, language)));
+			await vertical;
 		}
-		const result = await this.run(path, this.parseConfig, signal);
+		// LiteParse downloads missing language data at the start of OCR and says nothing; watch the
+		// files so the status bar shows the download only while it happens.
+		let watch: NodeJS.Timeout | undefined;
+		if (onDownload && this.missingOcrData(language).length) {
+			onDownload(true);
+			watch = setInterval(() => {
+				if (this.missingOcrData(language).length) return;
+				clearInterval(watch);
+				watch = undefined;
+				onDownload(false);
+			}, 500);
+			watch.unref();
+		}
+		let result: WorkerOk;
+		try {
+			result = await this.run(path, this.parseConfig(language), signal);
+		} finally {
+			if (watch) {
+				clearInterval(watch);
+				// Downloaded after the last look: still say so, in case the caller keeps showing the note.
+				if (!this.missingOcrData(language).length) onDownload?.(false);
+			}
+		}
 		const pages = (result.pages ?? []).map((p) => ({
 			page: kind === "image" ? null : p.pageNum,
 			markdown: normalizeText(p.markdown),

@@ -274,7 +274,7 @@ export class KnowledgeBase {
 			 */
 			replace?: boolean;
 			/** Told when the import has to wait for something the user should know about. */
-			onNote?: (note: "ocr_download") => void;
+			onNote?: (note: "ocr_download" | undefined) => void;
 		} = {},
 	): Promise<AddResult> {
 		const cancelled = (): AddResult => ({ path, status: "skipped", reason: "cancelled", message: "import cancelled" });
@@ -293,9 +293,10 @@ export class KnowledgeBase {
 			const existing = this.store.getDoc(id);
 			if (existing) return { path, status: "exists", doc: existing };
 
-			// The first OCR downloads Tesseract data (about 40 MB); say so instead of looking stuck.
-			if (Converter.mayOcr(path) && this.converter.missingOcrData().length) options.onNote?.("ocr_download");
-			const converted = await this.converter.convert(path, options.signal);
+			// The first OCR downloads Tesseract data (about 40 MB); say so while it happens instead of looking stuck.
+			const converted = await this.converter.convert(path, options.signal, (downloading) =>
+				options.onNote?.(downloading ? "ocr_download" : undefined),
+			);
 			if (options.signal?.aborted) return cancelled();
 			const text = converted.pages.map((p) => p.markdown).join("");
 			// Images come back as an empty ```text fence when OCR finds nothing.

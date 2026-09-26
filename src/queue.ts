@@ -40,7 +40,7 @@ interface QueuedJob extends ImportJob {
 }
 
 /** `note` tells the queue why the current file takes long, for the status bar and the page. */
-export type ImportFn = (item: ImportItem, signal: AbortSignal, note: (note: ImportNote) => void) => Promise<AddResult>;
+export type ImportFn = (item: ImportItem, signal: AbortSignal, note: (note: ImportNote | undefined) => void) => Promise<AddResult>;
 
 /**
  * Imports files one at a time in the background, so /kb add returns at once and

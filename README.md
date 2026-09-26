@@ -249,7 +249,7 @@ runtime/, models/        本机语义模型的运行时和模型文件（只在 
 
 ## 解析与检索
 
-- 解析用 [LiteParse](https://github.com/run-llama/liteparse)：PDF 输出带标题和表格的 Markdown，按物理页保留页码；图片和扫描页走 Tesseract OCR（默认 `eng+chi_sim`）。
+- 解析用 [LiteParse](https://github.com/run-llama/liteparse)：PDF 输出带标题和表格的 Markdown，按物理页保留页码；图片和扫描页走 Tesseract OCR（默认 `eng+chi_sim`）。中文模型会让 OCR 慢约 4 倍，所以自身文字里没有中文的 PDF 只用其余语言识别（一份 162 页的英文数据手册：约 2 分钟，而不是 7 分半）；扫描件和图片没有文字可供判断，仍使用全部语言。
 - 检索用 Node 内置的 `node:sqlite` + FTS5 trigram，无需原生依赖。3 个字以上的词走索引，1–2 字的词（如"电压"）走 LIKE；长中文句子会拆成 trigram 做模糊匹配，按"命中词覆盖率 + BM25"排序。
 - 查询里的 how / the 这类英文虚词、"怎么、如何、什么"这类疑问词和落单的汉字（如"用"）会被忽略。
 - 有多个词时要命中超过一半：两个词时两个都要有，除非另一个词出现在同一份文档的其他页（例如"Python 列表排序"不会因为某页提到 Python 就算命中）。

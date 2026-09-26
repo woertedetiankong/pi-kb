@@ -131,7 +131,7 @@ test("OCR data that cannot be downloaded fails the image instead of storing it e
 	const kb = new KnowledgeBase(root);
 	try {
 		kb.updateConfig({ ocrLanguage: "eng" });
-		const notes: string[] = [];
+		const notes: (string | undefined)[] = [];
 		const r = await kb.addFile(join(import.meta.dirname, "fixtures", "scan-note.png"), { onNote: (n) => notes.push(n) });
 		assert.equal(r.status, "failed");
 		assert.equal(r.reason, "ocr_unavailable");
