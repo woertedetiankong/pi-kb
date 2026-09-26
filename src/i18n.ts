@@ -72,6 +72,11 @@ const en = {
 	usageSearch: "Usage: /kb search <query>",
 	searchTitle: (n: number, q: string) => `📚 ${plural(n, "result")} for "${q}"`,
 	noMatches: "No matches.",
+	welcome:
+		"📚 Knowledge base ready. Add your documents with /kb add <file or folder> (PDFs, images, Markdown; dragging files in works), or drop them on the page from /kb web. Then just ask: pi searches them and cites the page.",
+	emptyHint: "Nothing here yet: add documents with /kb add <file or folder>, or drop them on the page from /kb web.",
+	semanticTip:
+		"Tip: semantic search is off, so only the exact words match: a Chinese question won't find English documents (or the other way round), and other wording may be missed. Turn it on with /kb semantic local (runs on this computer, about 1.1 GB to download) or /kb semantic api (an online service; your documents' text is sent to it).",
 	wikiNote: "wiki note",
 	usageRemove: "Usage: /kb remove <id> (see /kb list)",
 	removeTitle: (title: string) => `Remove ${title}?`,
@@ -246,6 +251,11 @@ const zh: Messages = {
 	usageSearch: "用法：/kb search <关键词>",
 	searchTitle: (n, q) => `📚 “${q}” 共 ${n} 条结果`,
 	noMatches: "没有找到匹配内容。",
+	welcome:
+		"📚 知识库已就绪。用 /kb add <文件或文件夹> 添加资料（PDF、图片、Markdown，也可以直接把文件拖进终端），或在 /kb web 打开的网页上拖入文件。之后直接提问即可：pi 会检索资料并注明页码。",
+	emptyHint: "知识库还是空的：用 /kb add <文件或文件夹> 添加资料，或在 /kb web 打开的网页上拖入文件。",
+	semanticTip:
+		"提示：语义检索未开启，只能按字面匹配：用中文提问搜不到英文资料（反之亦然），换个说法也可能搜不到。可以用 /kb semantic local 开启（在本机运行，需下载约 1.1 GB），或 /kb semantic api（在线服务，资料文字会发送给该服务）。",
 	wikiNote: "wiki 笔记",
 	usageRemove: "用法：/kb remove <id>（id 见 /kb list）",
 	removeTitle: (title) => `删除 ${title}？`,

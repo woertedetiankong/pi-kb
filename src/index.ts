@@ -434,6 +434,19 @@ export default function piKb(pi: ExtensionAPI) {
 		return { job: imports.enqueue(files.map((path) => ({ path, wiki: note, replace: versions.has(path), scope: where.get(path) })), skipped), placed };
 	};
 
+	/** True the first time a hint is asked for, false ever after (remembered in config.json). */
+	const firstTime = (tip: string): boolean => {
+		const shown = open().config.tips ?? [];
+		if (shown.includes(tip)) return false;
+		open().updateConfig({ tips: [...shown, tip] });
+		return true;
+	};
+	const semanticOff = () => open().config.semantic.provider === "off";
+	const isEmpty = () => {
+		const { docs, wiki } = lib().stats();
+		return docs + wiki === 0;
+	};
+
 	/** Tell the user how a background import went. */
 	const reportImport = (results: AddResult[]) => {
 		const ctx = lastCtx;
@@ -441,7 +454,9 @@ export default function piKb(pi: ExtensionAPI) {
 		if (!ctx || (results.some((r) => r.reason === "cancelled") && results.every((r) => r.status === "skipped"))) return;
 		const m = t();
 		const summary = summarizeAdds(results, m);
-		show(ctx, m.importTitle, summary);
+		// After the first documents arrive, say once why a question in the other language may find nothing.
+		const tip = results.some((r) => r.status === "added") && semanticOff() && firstTime("semantic") ? `\n\n${m.semanticTip}` : "";
+		show(ctx, m.importTitle, summary + tip);
 		ctx.ui.notify(summary.split("\n")[0], results.some((r) => r.status === "failed") ? "warning" : "info");
 	};
 
@@ -459,6 +474,8 @@ export default function piKb(pi: ExtensionAPI) {
 		}
 		attachProject(ctx.cwd);
 		refresh(ctx);
+		// A new install shows "0 docs" and nothing else: say once how to start.
+		if (enabled() && ctx.hasUI && isEmpty() && firstTime("welcome")) ctx.ui.notify(t().welcome, "info");
 	});
 
 	pi.on("session_shutdown", async (event) => {
@@ -542,7 +559,10 @@ export default function piKb(pi: ExtensionAPI) {
 			const hits = await lib().find(params.query, { limit: params.limit, collection: scope });
 			let text = hits.length
 				? formatHits(hits, MODEL, !!project)
-				: "No matches. Try fewer or different keywords, synonyms, or the other language.";
+				: "No matches. Try fewer or different keywords, synonyms, or the other language." +
+					(semanticOff()
+						? " Semantic search is off, so only exact words match. If the answer is likely in the knowledge base but in another language or other wording, tell the user once that they can turn on semantic search with /kb semantic."
+						: "");
 			// Files still importing are not searchable yet; without this the model tells the user the knowledge base lacks them.
 			const pending = imports.pending();
 			if (pending.length) {
@@ -802,7 +822,8 @@ export default function piKb(pi: ExtensionAPI) {
 					const { docs, wiki, pages } = base.store.stats();
 					const importing = imports.active ? m.importing(imports.status.done, imports.status.total) : "";
 					const own = project ? `\n${m.projectStatus(project.info.name, project.kb.store.stats().docs, project.kb.store.stats().wiki, project.info.dir)}` : "";
-					ctx.ui.notify(m.status(enabled(), docs, pages, wiki, base.root) + own + importing, "info");
+					const empty = isEmpty() && !imports.active ? `\n${m.emptyHint}` : "";
+					ctx.ui.notify(m.status(enabled(), docs, pages, wiki, base.root) + own + importing + empty, "info");
 					return;
 				}
 				case "init": {
@@ -898,7 +919,8 @@ export default function piKb(pi: ExtensionAPI) {
 						return;
 					}
 					const hits = await lib().find(query, { limit: 10 });
-					show(ctx, m.searchTitle(hits.length, query), hits.length ? formatHits(hits, m, !!project) : m.noMatches);
+					const none = semanticOff() ? `${m.noMatches}\n\n${m.semanticTip}` : m.noMatches;
+					show(ctx, m.searchTitle(hits.length, query), hits.length ? formatHits(hits, m, !!project) : none);
 					return;
 				}
 				case "remove": {

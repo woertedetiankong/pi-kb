@@ -223,7 +223,7 @@ wiki/**/*.md             经验笔记，可直接用 Obsidian 或编辑器维护
 # 本机：永远留在 ~/.pi/kb
 kb.db                    检索索引（SQLite FTS5，trigram 分词，中英文都能搜）和语义向量；
                          内容放在别处时在 indexes/<编号>/kb.db。它是缓存，删掉会自动重建
-config.json              { "enabled", "language", "ocrLanguage", "ocrServerUrl", "semantic", "dataDir" }
+config.json              { "enabled", "language", "ocrLanguage", "ocrServerUrl", "semantic", "dataDir", "tips" }
 tessdata/                OCR 语言包（首次 OCR 时自动下载）
 runtime/, models/        本机语义模型的运行时和模型文件（只在 /kb semantic local 后出现；/kb semantic remove 删除）
 ```

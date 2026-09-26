@@ -20,6 +20,8 @@ export interface KbConfig {
 	 * in the default folder. This config, the index and the models always stay on this machine.
 	 */
 	dataDir?: string;
+	/** One-time hints already shown, e.g. "welcome" and "semantic", so they are not repeated. */
+	tips?: string[];
 }
 
 export interface SemanticConfig {
