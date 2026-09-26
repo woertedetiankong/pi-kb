@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.5.8 — 2026-09-26
 
 - First run: while the knowledge base is empty, pi says once how to add documents (`/kb add`, `/kb web`) and that you then just ask; `/kb status` repeats the hint while it stays empty.
 - Semantic search: after the first import, a one-time tip explains that with keyword search only, a Chinese question won't find English documents (and the other way round), and how to turn semantic search on (local or online, with what each costs). `/kb search` shows it when nothing is found, and the agent's `kb_search` tells the model, so it can mention `/kb semantic` if a question likely missed for that reason. Shown tips are remembered in `config.json` (`tips`).
