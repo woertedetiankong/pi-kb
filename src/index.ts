@@ -25,7 +25,7 @@ const VIEW_LIMIT = 4;
 const KB_ADD_WAIT = 30_000;
 /** /kb list shows this many items; the web page shows everything. */
 const LIST_LIMIT = 50;
-const SUBCOMMANDS = ["on", "off", "status", "add", "cancel", "list", "search", "note", "lint", "remove", "sync", "init", "move", "semantic", "eval", "open", "web", "lang"];
+const SUBCOMMANDS = ["on", "off", "status", "add", "cancel", "list", "search", "note", "lint", "remove", "init", "move", "semantic", "eval", "open", "web", "lang", "sync"];
 /** Model-facing text is English regardless of the interface language. */
 const MODEL = messages("en");
 
@@ -136,6 +136,21 @@ export function padDisplay(text: string, width: number): string {
 	return text + " ".repeat(Math.max(1, width - displayWidth(text)));
 }
 
+/**
+ * The documents and notes `query` names: its id, its exact title, or else every item whose
+ * title (or id) contains all its words. An empty query names everything.
+ */
+export function matchDocs<T extends { id: string; title: string }>(docs: T[], query: string): T[] {
+	const q = query.trim().toLowerCase();
+	if (!q) return docs;
+	const byId = docs.filter((d) => d.id.toLowerCase() === q);
+	if (byId.length) return byId;
+	const byTitle = docs.filter((d) => d.title.toLowerCase() === q);
+	if (byTitle.length) return byTitle;
+	const words = q.split(/\s+/);
+	return docs.filter((d) => words.every((w) => `${d.title} ${d.id}`.toLowerCase().includes(w)));
+}
+
 /** A plain-text table whose columns line up in a terminal, Chinese included. */
 export function textTable(rows: string[][]): string[] {
 	const widths = rows[0].map((_, i) => Math.max(...rows.map((r) => displayWidth(r[i] ?? ""))) + 2);
@@ -228,9 +243,10 @@ export default function piKb(pi: ExtensionAPI) {
 	};
 	/** Everything in reach: the project's knowledge base (if any) and the user's global one. */
 	const lib = () => {
-		// Teammates' notes and documents arrive with git pull: pick them up without /kb sync.
-		const pulled = project?.kb.syncIfChanged();
-		if (pulled && (pulled.updated || pulled.removed)) repaint();
+		// Changes made elsewhere need no /kb sync: teammates' notes arriving with git pull, documents
+		// and notes from another computer through a synced folder, notes edited by hand.
+		const changed = [project?.kb.syncIfChanged(), open().syncIfChanged()].some((r) => r && (r.updated || r.removed));
+		if (changed) repaint();
 		return new Library(open(), project);
 	};
 	const close = () => {
@@ -793,6 +809,35 @@ export default function piKb(pi: ExtensionAPI) {
 		},
 	});
 
+	/**
+	 * The document or note the user named for /kb remove or /kb move: by id, title or words from
+	 * the title; asks when several match (or none was named), undefined when there is nothing to act on.
+	 */
+	const choose = async (args: string[], action: "remove" | "move", ctx: ExtensionContext) => {
+		const m = t();
+		const query = args.join(" ").trim();
+		const all = lib().listDocs();
+		const matches = matchDocs(all, query);
+		if (matches.length === 1) return matches[0];
+		if (!matches.length) {
+			ctx.ui.notify(query ? m.listNone(query) : m.listEmpty, "warning");
+			return undefined;
+		}
+		if (!ctx.hasUI) {
+			ctx.ui.notify(query ? m.pickMany(query, matches.length) : action === "remove" ? m.usageRemove : m.usageMove, "warning");
+			return undefined;
+		}
+		const shown = matches.slice(0, LIST_LIMIT);
+		// The id keeps same-titled items apart.
+		const labels = shown.map((d) => {
+			const kind = m.kinds[d.collection === "wiki" ? "note" : d.kind] ?? d.kind;
+			const tag = project ? `${m.scopeTag[d.scope]} ` : "";
+			return `${tag}${kind} · ${d.title}${d.pages ? ` · ${m.pages(d.pages)}` : ""} · ${d.id}`;
+		});
+		const choice = await ctx.ui.select(m.pickTitle(action, shown.length, matches.length), labels);
+		return choice === undefined ? undefined : shown[labels.indexOf(choice)];
+	};
+
 	pi.registerCommand("kb", {
 		description: "Knowledge base / 知识库: add | search | list | note | lint | init | move | web | semantic | eval | …",
 		getArgumentCompletions: (prefix) => {
@@ -839,17 +884,17 @@ export default function piKb(pi: ExtensionAPI) {
 					return;
 				}
 				case "move": {
-					const [id, to] = rest;
-					const found = id ? lib().locate(id) : undefined;
-					if (!found || (to !== "project" && to !== "global")) {
-						ctx.ui.notify(m.usageMove, "warning");
-						return;
-					}
-					if (to === "project" && !project) {
+					if (!project) {
 						ctx.ui.notify(m.noProject, "warning");
 						return;
 					}
-					const moved = lib().move(id, to);
+					const last = rest.at(-1);
+					const given = last === "project" || last === "global" ? last : undefined;
+					const doc = await choose(given ? rest.slice(0, -1) : rest, "move", ctx);
+					if (!doc) return;
+					// There are only two places, so without one it goes to the other.
+					const to: Scope = given ?? (doc.scope === "project" ? "global" : "project");
+					const moved = lib().move(doc.id, to);
 					refresh(ctx);
 					ctx.ui.notify(m.moved(moved.title, m.scopeLabel(to, project?.info.name ?? "")), "info");
 					return;
@@ -924,12 +969,8 @@ export default function piKb(pi: ExtensionAPI) {
 					return;
 				}
 				case "remove": {
-					const id = rest[0];
-					const doc = id ? lib().locate(id)?.doc : undefined;
-					if (!doc) {
-						ctx.ui.notify(m.usageRemove, "warning");
-						return;
-					}
+					const doc = await choose(rest, "remove", ctx);
+					if (!doc) return;
 					const what = doc.collection === "wiki" ? m.removeNote : m.removeDoc;
 					if (ctx.hasUI && !(await ctx.ui.confirm(m.removeTitle(doc.title), what))) return;
 					lib().remove(doc.id);

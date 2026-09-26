@@ -350,7 +350,7 @@ const T = {
     enabledTip: "开启后 pi 的 agent 会使用知识库；关闭后相关工具和提示词都会移除",
     views: "浏览", all: "全部", docs: "文档", notes: "经验笔记",
     kinds: { pdf: "PDF", office: "Office", image: "图片", text: "文本", note: "笔记" },
-    actions: "操作", newNote: "新建笔记", sync: "同步资料和笔记", folder: "位置",
+    actions: "操作", newNote: "新建笔记", folder: "位置",
     empty: "知识库还是空的", emptyHint: "把 PDF、图片或 Markdown 拖到页面上即可导入",
     emptyView: "这里还没有内容", noHits: q => `没有找到“${q}”`, noHitsHint: "换几个关键词，或者试试同义词、另一种语言",
     results: n => `${n} 条结果`, items: n => `${n} 项`, pages: n => `${n} 页`,
@@ -367,7 +367,7 @@ const T = {
     type: "类型", pageCount: "页数", source: "来源", added: "导入时间", id: "ID", tags: "标签", updated: "更新", created: "创建", project: "项目",
     openOriginal: "查看原文件", viewPage: "看原页", page: n => `第 ${n} 页`, remove: "删除", edit: "编辑", save: "保存", cancel: "取消", back: "← 返回",
     confirmRemoveDoc: t => `删除“${t}”？知识库里保存的副本也会删除。`, confirmRemoveNote: t => `删除笔记“${t}”？笔记文件会被删除。`,
-    removed: "已删除", saved: "已保存", synced: (u, r) => `已同步：更新 ${u}，移除 ${r}`,
+    removed: "已删除", saved: "已保存",
     noteTitle: "标题", noteTags: "标签（用逗号分隔，可不填）", noteBody: "内容（Markdown）", importNotesLink: "或导入 Markdown 文件",
     offline: "连接不到 pi。pi 可能已经退出，在 pi 中运行 /kb web 重新打开。",
     kbOn: "知识库已开启", kbOff: "知识库已关闭", loadingDoc: "正在读取…",
@@ -427,7 +427,7 @@ const T = {
     enabledTip: "When on, pi's agent uses the knowledge base; when off, its tools and prompt are removed",
     views: "Browse", all: "All", docs: "Documents", notes: "Experience notes",
     kinds: { pdf: "PDF", office: "Office", image: "Image", text: "Text", note: "Note" },
-    actions: "Actions", newNote: "New note", sync: "Sync with the folder", folder: "Location",
+    actions: "Actions", newNote: "New note", folder: "Location",
     empty: "The knowledge base is empty", emptyHint: "Drop PDFs, images or Markdown on the page to import them",
     emptyView: "Nothing here yet", noHits: q => `No results for "${q}"`, noHitsHint: "Try other keywords, synonyms, or the other language",
     results: n => pl(n, "result"), items: n => pl(n, "item"), pages: n => pl(n, "page"),
@@ -444,7 +444,7 @@ const T = {
     type: "Type", pageCount: "Pages", source: "Source", added: "Imported", id: "ID", tags: "Tags", updated: "Updated", created: "Created", project: "Project",
     openOriginal: "Open original", viewPage: "View page", page: n => `Page ${n}`, remove: "Delete", edit: "Edit", save: "Save", cancel: "Cancel", back: "← Back",
     confirmRemoveDoc: t => `Delete "${t}"? Its stored copy is deleted too.`, confirmRemoveNote: t => `Delete the note "${t}"? The note file is deleted.`,
-    removed: "Deleted", saved: "Saved", synced: (u, r) => `Synced: ${u} updated, ${r} removed`,
+    removed: "Deleted", saved: "Saved",
     noteTitle: "Title", noteTags: "Tags (comma separated, optional)", noteBody: "Content (Markdown)", importNotesLink: "or import Markdown files",
     offline: "Cannot reach pi. It may have exited; run /kb web in pi to reopen this page.",
     kbOn: "Knowledge base on", kbOff: "Knowledge base off", loadingDoc: "Loading…",
@@ -663,7 +663,6 @@ function renderSide() {
     ${sideTags()}
     <div class="nav-label">${esc(T.actions)}</div>
     <button class="nav" id="newNoteBtn"><span class="ico">＋</span><span class="name">${esc(T.newNote)}</span></button>
-    <button class="nav" id="syncBtn"><span class="ico">↻</span><span class="name">${esc(T.sync)}</span></button>
     <button class="nav" id="semBtn"><span class="ico">⚙</span><span class="name">${esc(T.settings)}</span></button>
     ${hasProject() ? `<div class="target">${esc(T.target)}<div class="seg" id="targetSeg"><button data-target="project" class="${target === "project" ? "on" : ""}" title="${esc(T.targetProject(state.status.project.name))} · ${esc(state.status.project.dir)}">${esc(T.scope.project)}</button><button data-target="global" class="${target === "global" ? "on" : ""}" title="${esc(T.scopeTip.global)}">${esc(T.scope.global)}</button></div></div>` : ""}
     <div class="side-foot">${esc(T.folder)}<br>${esc(state.status?.root ?? "")}</div>`;
@@ -993,7 +992,6 @@ $("side").addEventListener("click", async e => {
     try { const p = JSON.parse(localStorage.getItem("pi-kb-prefs") || "{}"); localStorage.setItem("pi-kb-prefs", JSON.stringify({ ...p, target })); } catch {}
     renderSide(); return;
   }
-  if (b.id === "syncBtn") { try { const r = await api("/sync", { body: {} }); etags = {}; await refresh(); toast(T.synced(r.updated, r.removed)); } catch (err) { toast(err.message); } }
 });
 $("list").addEventListener("click", e => {
   if (e.target.closest("#emptyUpload")) return $("files").click();

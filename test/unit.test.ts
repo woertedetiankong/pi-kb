@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { chunkPages } from "../src/chunk.ts";
 import { normalizeText } from "../src/convert.ts";
-import { ocrHint, padDisplay, opener, pageList, splitArgs } from "../src/index.ts";
+import { matchDocs, ocrHint, padDisplay, opener, pageList, splitArgs } from "../src/index.ts";
 import { pathsOutside } from "../src/kb.ts";
 import { containsTerm, coverage, planQuery } from "../src/search.ts";
 
@@ -123,4 +123,21 @@ test("ocrHint flags scanned pages and pictures with text, not stray characters",
 	assert.doesNotMatch(noImages, /view/);
 	// Images imported before OCR shares were recorded are all OCR.
 	assert.match(ocrHint([], "image", true), /This text was read from an image by OCR[\s\S]*viewing the image/);
+});
+
+test("matchDocs finds what /kb remove and /kb move name: id, exact title, or words from the title", () => {
+	const docs = [
+		{ id: "d-1a2b", title: "XR-100 手册.pdf" },
+		{ id: "d-3c4d", title: "XR-200 手册.pdf" },
+		{ id: "w-5e6f", title: "SPI 分频" },
+		{ id: "w-7a8b", title: "SPI 分频踩坑" },
+	];
+	const ids = (q: string) => matchDocs(docs, q).map((d) => d.id);
+	assert.deepEqual(ids("d-3c4d"), ["d-3c4d"], "an id");
+	assert.deepEqual(ids("D-3C4D"), ["d-3c4d"], "ids ignore case");
+	assert.deepEqual(ids("spi 分频"), ["w-5e6f"], "an exact title wins over titles that contain it");
+	assert.deepEqual(ids("xr-100"), ["d-1a2b"]);
+	assert.deepEqual(ids("手册"), ["d-1a2b", "d-3c4d"], "several matches: the user picks");
+	assert.deepEqual(ids("  "), docs.map((d) => d.id), "nothing named: everything");
+	assert.deepEqual(ids("docker"), []);
 });

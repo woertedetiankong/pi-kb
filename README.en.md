@@ -44,11 +44,11 @@ Supported material: PDF, images (PNG / JPG etc., via OCR), Markdown and plain te
 | `/kb note [focus]` | Ask the agent to review this conversation and save what is worth keeping as wiki notes |
 | `/kb lint` | Check the wiki notes: likely duplicates, broken `[[links]]`, project notes linking to global ones (teammates can't open them), notes without tags |
 | `/kb init` | Create a project knowledge base in the project (`.pi/kb`, shared with the team through git); see below |
-| `/kb move <id> project\|global` | Move a document or note to the project's or your global knowledge base |
+| `/kb move <title or id> [project\|global]` | Move a document or note to the project's or your global knowledge base (without a target: to the other one) |
 | `/kb list [words]` | List documents and notes (up to 50; add words to filter by title) |
 | `/kb search <keywords>` | Search it yourself |
-| `/kb remove <id>` | Delete (a note's file is deleted too) |
-| `/kb sync` | Re-index after editing the wiki by hand (also done at startup) |
+| `/kb remove <title or id>` | Delete (a note's file is deleted too) |
+| `/kb sync` | Re-read the folder now. Rarely needed: notes edited by hand and content from another computer or a teammate are picked up automatically |
 | `/kb semantic [status\|api\|local\|off\|remove]` | Semantic search: show status, use an online API, use a local model, turn off, delete the local model (frees about 1.1 GB; documents and notes stay) |
 | `/kb eval [init\|draft\|run]` | Measure retrieval: create the question file, let the agent draft questions, run the evaluation |
 | `/kb open` | Open the knowledge base folder |
@@ -145,7 +145,7 @@ git add .pi/kb && git commit -m "Project knowledge base"
 
 - **Searches cover this project and your global knowledge base**, marking hits [project] or [global]; other projects never show up. It is found from any subfolder of the project.
 - **Imports and notes go to the project by default**: files from inside the project go to it, files from anywhere else (say `~/Downloads`) to your global one, so a personal or vendor file does not end up in the team's repository by accident; `/kb add --project` or `--global` decides for you, and the web page has a "New material goes to: project / global" switch. When recording a lesson the agent decides: things that only concern this project (build and flashing steps, wiring, team conventions) go to the project, reusable knowledge (chips, tools) and personal preferences to your global one; the save dialog can switch it with one choice.
-- **Misplaced? Move it**: `/kb move <id> project|global`, or "Move to project / Move to global" on the page.
+- **Misplaced? Move it**: `/kb move <title or id>` (moves it to the other one), or "Move to project / Move to global" on the page.
 - **Committed**: notes, converted text (2-7% of the PDFs' size) and document descriptions. **Not committed**: originals and the local change log (see the generated `.pi/kb/.gitignore`; delete its `raw/` line to share originals too).
 - Teammates who pull the code get an index built when pi starts, and can search, ask AI and read the text with page numbers; "Open original" needs the original file. Later pulls show up by themselves: pi notices changed files in `.pi/kb` (within a few seconds) and indexes them before the next search.
 - The project knowledge base is committed: keep secrets out of it, and check the copyright before putting vendor documents' full text in a public repository.
@@ -228,7 +228,7 @@ tessdata/                 OCR language data (downloaded on first OCR)
 runtime/, models/         runtime and model files for local semantic search (only after /kb semantic local; /kb semantic remove deletes them)
 ```
 
-**Moving it**: your documents and notes can live in any folder. On the web page, Settings → Storage location takes a folder and can copy the current documents there; other pi windows follow. Choose a folder in iCloud or Dropbox and point several computers at it to share one knowledge base: documents and notes added on one computer become searchable on another when pi starts or after `/kb sync` ("Sync with the folder" on the page).
+**Moving it**: your documents and notes can live in any folder. On the web page, Settings → Storage location takes a folder and can copy the current documents there; other pi windows follow. Choose a folder in iCloud or Dropbox and point several computers at it to share one knowledge base: documents and notes added on one computer become searchable on another within seconds (pi notices the changed files at the next search or page load and indexes them).
 
 The "this machine" part above stays behind, each for its own reason:
 

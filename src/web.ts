@@ -331,11 +331,6 @@ export class KbWebApp implements WebApp {
 					this.host.changed();
 					return { doc };
 				}
-				case "POST /sync": {
-					const result = lib.sync();
-					this.host.changed();
-					return result;
-				}
 				default:
 					throw webError(404, "not found");
 			}
