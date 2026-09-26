@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- In a project with its own knowledge base, `/kb add` and the agent's `kb_add` put files from outside the project (say `~/Downloads/vendor.pdf`) into your global knowledge base unless you ask for the project with `--project` (or `scope: "project"`), so they are not committed for the team by accident. Files inside the project still go to the project; the message says where each went.
+- The agent is no longer told the knowledge base holds Office documents; supported material is PDF, images, Markdown and text (Office stays experimental).
+- Teammates' notes and documents arrive with `git pull` and are searchable without restarting pi or `/kb sync`: pi notices changed files in `.pi/kb` (looking at file sizes and times, at most every 2 seconds) and indexes them before the next search.
+- `/kb eval` inside a project measures what the agent searches, the project and your global knowledge base together; before, the project's material was left out. Without a project, results are unchanged (the old and new search returned identical hits in 60 comparisons).
+- A note's `project:` field names the project (its git repository), not the subfolder pi was started in.
+
 ## v0.5.0 — 2026-09-25
 
 ### Project knowledge bases, shared with the team

@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { KnowledgeBase } from "./kb.ts";
 import { now } from "./notes.ts";
 import type { SearchHit } from "./store.ts";
 
@@ -113,7 +112,15 @@ export function matches(hit: Pick<SearchHit, "title" | "docId" | "page">, expect
 	);
 }
 
-export async function runEval(kb: KnowledgeBase, questions: EvalQuestion[], onProgress?: (done: number, total: number) => void): Promise<EvalReport> {
+/** What an evaluation searches: one knowledge base, or the project and global ones together as the agent does. */
+export interface Searchable {
+	semanticReady(): boolean;
+	search(query: string, options: { limit?: number }): SearchHit[] | Promise<SearchHit[]>;
+	find(query: string, options: { limit?: number }): Promise<SearchHit[]>;
+	findSemantic(query: string, options: { limit?: number }): Promise<SearchHit[]>;
+}
+
+export async function runEval(kb: Searchable, questions: EvalQuestion[], onProgress?: (done: number, total: number) => void): Promise<EvalReport> {
 	const modes: EvalMode[] = kb.semanticReady() ? ["keyword", "hybrid", "semantic"] : ["keyword"];
 	const search: Record<EvalMode, (q: string) => Promise<SearchHit[]>> = {
 		keyword: async (q) => kb.search(q, { limit: LIMIT }),

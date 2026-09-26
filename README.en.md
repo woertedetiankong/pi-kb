@@ -115,7 +115,7 @@ Measure whether the knowledge base actually finds the answers in your own materi
    ```
 
    Right of the bar is where the answer is (part of a file name or note title, optionally with a page; separate several acceptable answers with `;`); `-` means the knowledge base has no answer. Phrase questions the way customers really ask, not copied from the text.
-3. Run `/kb eval`. The terminal shows a summary, and `~/.pi/kb/eval/reports/` keeps a per-question report (rank in each mode, and what came first).
+3. Run `/kb eval`. The terminal shows a summary, and `~/.pi/kb/eval/reports/` keeps a per-question report (rank in each mode, and what came first). Inside a project with its own knowledge base, the project and your global one are searched together, as the agent does.
 
 With semantic search on, three modes are compared: keyword only, keyword + semantic (what the agent uses), and semantic only.
 
@@ -141,10 +141,10 @@ git add .pi/kb && git commit -m "Project knowledge base"
 ```
 
 - **Searches cover this project and your global knowledge base**, marking hits [project] or [global]; other projects never show up. It is found from any subfolder of the project.
-- **Imports and notes go to the project by default**: `/kb add --global` sends files to your global one, and the web page has a "New material goes to: project / global" switch. When recording a lesson the agent decides: things that only concern this project (build and flashing steps, wiring, team conventions) go to the project, reusable knowledge (chips, tools) and personal preferences to your global one; the save dialog can switch it with one choice.
+- **Imports and notes go to the project by default**: files from inside the project go to it, files from anywhere else (say `~/Downloads`) to your global one, so a personal or vendor file does not end up in the team's repository by accident; `/kb add --project` or `--global` decides for you, and the web page has a "New material goes to: project / global" switch. When recording a lesson the agent decides: things that only concern this project (build and flashing steps, wiring, team conventions) go to the project, reusable knowledge (chips, tools) and personal preferences to your global one; the save dialog can switch it with one choice.
 - **Misplaced? Move it**: `/kb move <id> project|global`, or "Move to project / Move to global" on the page.
 - **Committed**: notes, converted text (2-7% of the PDFs' size) and document descriptions. **Not committed**: originals and the local change log (see the generated `.pi/kb/.gitignore`; delete its `raw/` line to share originals too).
-- Teammates who pull the code get an index built when pi starts, and can search, ask AI and read the text with page numbers; "Open original" needs the original file. Later pushes show up after restarting pi or `/kb sync`.
+- Teammates who pull the code get an index built when pi starts, and can search, ask AI and read the text with page numbers; "Open original" needs the original file. Later pulls show up by themselves: pi notices changed files in `.pi/kb` (within a few seconds) and indexes them before the next search.
 - The project knowledge base is committed: keep secrets out of it, and check the copyright before putting vendor documents' full text in a public repository.
 
 ## Web page

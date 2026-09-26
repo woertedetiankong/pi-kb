@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, type Dirent, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { chunkPages } from "./chunk.ts";
@@ -397,10 +397,55 @@ export class KnowledgeBase {
 	 * notes. Needed at start, and whenever another computer or a teammate may have changed the folder.
 	 */
 	sync(): { updated: number; removed: number } {
+		// Taken first, so a change made while syncing is still noticed next time.
+		const stamp = this.contentStamp();
 		const docs = this.syncDocs();
 		const wiki = this.syncWiki();
+		this.syncedStamp = stamp;
+		this.checkedAt = Date.now();
 		if (docs.updated) void this.indexer.kick();
 		return { updated: docs.updated + wiki.updated, removed: docs.removed + wiki.removed };
+	}
+
+	private syncedStamp?: string;
+	private checkedAt = 0;
+
+	/**
+	 * Sync when the files changed since the last sync, e.g. after a git pull brought teammates' notes.
+	 * Looks at file sizes and times only, and at most once per `every` ms; undefined when nothing was done.
+	 */
+	syncIfChanged(every = 2000): { updated: number; removed: number } | undefined {
+		if (Date.now() - this.checkedAt < every) return undefined;
+		this.checkedAt = Date.now();
+		if (this.contentStamp() === this.syncedStamp) return undefined;
+		return this.sync();
+	}
+
+	/** Every file the index is built from, with its size and modification time. */
+	private contentStamp(): string {
+		const parts: string[] = [];
+		const walk = (dir: string) => {
+			let entries: Dirent[];
+			try {
+				entries = readdirSync(dir, { withFileTypes: true });
+			} catch {
+				return;
+			}
+			for (const entry of entries) {
+				const full = join(dir, entry.name);
+				if (entry.isDirectory()) walk(full);
+				else {
+					try {
+						const info = statSync(full);
+						parts.push(`${full}\t${info.size}\t${info.mtimeMs}`);
+					} catch {
+						// removed while looking: the next check sees it
+					}
+				}
+			}
+		};
+		for (const sub of ["docs", "converted", "wiki"]) walk(join(this.root, sub));
+		return parts.join("\n");
 	}
 
 	private manifestFile(id: string): string {

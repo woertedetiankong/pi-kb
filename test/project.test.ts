@@ -4,8 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { KnowledgeBase } from "../src/kb.ts";
-import { Library } from "../src/library.ts";
+import { importScope, Library } from "../src/library.ts";
 import { findProjectKb, initProjectKb, projectRootFor } from "../src/project.ts";
+import { parseQuestions, runEval } from "../src/eval.ts";
 
 const fixtures = join(import.meta.dirname, "fixtures");
 let tmp: string;
@@ -126,5 +127,53 @@ test("a teammate's commit arrives through git: the originals are not there, and 
 	} finally {
 		bobProject.close();
 		bobGlobal.close();
+	}
+});
+
+test("an import with no scope chosen goes to the project only when the file is inside it", () => {
+	const repo = join(tmp, "placement");
+	const outside = join(tmp, "Downloads");
+	mkdirSync(join(repo, "docs"), { recursive: true });
+	mkdirSync(outside, { recursive: true });
+	writeFileSync(join(repo, "docs", "board.md"), "# Board\n");
+	writeFileSync(join(outside, "vendor.pdf"), "");
+	assert.equal(importScope(join(repo, "docs", "board.md"), repo), "project");
+	assert.equal(importScope(join(repo, "docs"), repo), "project");
+	assert.equal(importScope(join(outside, "vendor.pdf"), repo), "global");
+	// A sibling folder whose name starts like the project's is still outside it.
+	assert.equal(importScope(join(`${repo}-old`, "notes.md"), repo), "global");
+	assert.equal(importScope(join(repo, "docs", "board.md"), undefined), "global");
+});
+
+test("a pull is picked up without /kb sync: only files that changed trigger a sync, and not more than every few seconds", async () => {
+	const { project, global, info } = await twoKnowledgeBases("pull");
+	try {
+		project.sync();
+		assert.equal(project.syncIfChanged(0), undefined, "nothing changed");
+		const note = join(info.dir, "wiki", "reset.md");
+		writeFileSync(note, "# 复位键\n\n在背面。");
+		assert.equal(project.syncIfChanged(), undefined, "just synced: not looked at again yet");
+		assert.deepEqual(project.syncIfChanged(0), { updated: 1, removed: 0 });
+		assert.equal(project.syncIfChanged(0), undefined, "seen once");
+		rmSync(note);
+		assert.deepEqual(project.syncIfChanged(0), { updated: 0, removed: 1 });
+	} finally {
+		project.close();
+		global.close();
+	}
+});
+
+test("an evaluation searches the project and the global knowledge base together, as the agent does", async () => {
+	const { lib, project, global } = await twoKnowledgeBases("eval");
+	try {
+		await project.addFile(join(fixtures, "xr100-manual.pdf"));
+		await global.addFile(join(fixtures, "spi-lesson.md"), { wiki: true });
+		const { questions } = parseQuestions("CTRL_REG | xr100-manual.pdf p.2\nSPI 时钟分频 | SPI 时钟分频踩坑\n");
+		const report = await runEval(lib, questions);
+		assert.deepEqual([report.modes[0].mode, report.modes[0].hit8], ["keyword", 2], "the project's document and the global note are both found");
+		assert.equal((await runEval(global, questions)).modes[0].hit8, 1, "the global one alone misses the project's document");
+	} finally {
+		project.close();
+		global.close();
 	}
 });

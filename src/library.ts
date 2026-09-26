@@ -1,6 +1,6 @@
 import { cpSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import type { KnowledgeBase } from "./kb.ts";
+import { type KnowledgeBase, pathsOutside } from "./kb.ts";
 import { parseNote } from "./notes.ts";
 import type { ProjectKb } from "./project.ts";
 import type { Collection, DocRecord, SearchHit } from "./store.ts";
@@ -14,6 +14,15 @@ import type { Collection, DocRecord, SearchHit } from "./store.ts";
 export type Scope = "project" | "global";
 export type ScopedHit = SearchHit & { scope: Scope };
 export type ScopedDoc = DocRecord & { scope: Scope };
+type SearchOptions = { limit?: number; collection?: Collection };
+
+/**
+ * Where an import goes when nobody chose: files inside the project to its knowledge base, files
+ * from anywhere else to the global one, so a personal or vendor file is not committed for the team.
+ */
+export function importScope(path: string, projectRoot: string | undefined): Scope {
+	return projectRoot && !pathsOutside([path], projectRoot).length ? "project" : "global";
+}
 
 /** Reciprocal-rank constant, as in hybrid search: merges two ranked lists without comparing their scores. */
 const RRF_K = 60;
@@ -59,12 +68,31 @@ export class Library {
 	}
 
 	/** Both knowledge bases searched, merged by rank (their scores are not comparable), project first on ties. */
-	async find(query: string, options: { limit?: number; collection?: Collection } = {}): Promise<ScopedHit[]> {
+	find(query: string, options: SearchOptions = {}): Promise<ScopedHit[]> {
+		return this.merge(options, (kb, limit) => kb.find(query, { ...options, limit }));
+	}
+
+	/** Keyword search only, merged the same way (for evaluation). */
+	search(query: string, options: SearchOptions = {}): Promise<ScopedHit[]> {
+		return this.merge(options, (kb, limit) => kb.search(query, { ...options, limit }));
+	}
+
+	/** Semantic search only, merged the same way (for evaluation). */
+	findSemantic(query: string, options: SearchOptions = {}): Promise<ScopedHit[]> {
+		return this.merge(options, (kb, limit) => kb.findSemantic(query, { ...options, limit }));
+	}
+
+	/** Whether semantic search can answer in either knowledge base. */
+	semanticReady(): boolean {
+		return this.scopes.some(([, kb]) => kb.semanticReady());
+	}
+
+	private async merge(options: SearchOptions, each: (kb: KnowledgeBase, limit: number) => SearchHit[] | Promise<SearchHit[]>): Promise<ScopedHit[]> {
 		const limit = options.limit ?? 8;
-		if (!this.project) return (await this.global.find(query, options)).map((h) => ({ ...h, scope: "global" }));
+		if (!this.project) return (await each(this.global, limit)).map((h) => ({ ...h, scope: "global" }));
 		const merged: { hit: ScopedHit; score: number }[] = [];
 		for (const [scope, kb] of this.scopes) {
-			const hits = await kb.find(query, { ...options, limit });
+			const hits = await each(kb, limit);
 			hits.forEach((hit, rank) => merged.push({ hit: { ...hit, scope }, score: 1 / (RRF_K + rank) + (scope === "project" ? 1e-9 : 0) }));
 		}
 		return merged

@@ -43,6 +43,7 @@ const en = {
 	initCreated: (dir: string) => `Created the project knowledge base in ${dir}. Imports and notes in this project go there by default. Commit .pi/kb to share it: notes and document text are committed, original files are not (see .pi/kb/.gitignore).`,
 	initExists: (dir: string) => `This project already has a knowledge base: ${dir}`,
 	importingTo: (where: string) => `Importing into ${where}.`,
+	importOutside: (n: number) => `${n} file(s) from outside this project go to your global knowledge base; add --project to share them with the team.`,
 	usageMove: "Usage: /kb move <id> project | global",
 	moved: (title: string, where: string) => `Moved ${title} to ${where}`,
 	noteSwitch: (where: string) => `Save to ${where} instead`,
@@ -140,6 +141,7 @@ const en = {
 	evalBadLines: (lines: string) => `Skipped malformed lines ${lines} (format: question | document)`,
 	evalRunning: (done: number, total: number) => `📊 evaluating ${done}/${total}`,
 	evalSaved: (path: string) => `Full report: ${path}`,
+	evalScope: (name: string) => `Searched project "${name}" and your global knowledge base together, as the agent does.`,
 	evalSemanticOff: "Semantic search is off, so only keyword search is evaluated. Turn it on with /kb semantic to compare all three modes.",
 	evalSemanticPartial: (done: number, total: number) => `The semantic index is not complete (${done}/${total}); semantic results will be understated`,
 	evalDraft: (path: string) =>
@@ -204,6 +206,7 @@ const zh: Messages = {
 	initCreated: (dir) => `已在 ${dir} 创建项目知识库。在这个项目里导入的资料和记的经验默认放在这里。把 .pi/kb 提交到 git 即可和团队共享：笔记和资料文本会提交，原文件不提交（见 .pi/kb/.gitignore）。`,
 	initExists: (dir) => `这个项目已经有知识库了：${dir}`,
 	importingTo: (where) => `导入到${where}。`,
+	importOutside: (n) => `${n} 个项目目录以外的文件放进了我的全局知识库；加 --project 可以放进项目库与团队共享。`,
 	usageMove: "用法：/kb move <id> project | global",
 	moved: (title, where) => `已把 ${title} 移到${where}`,
 	noteSwitch: (where) => `改存到${where}`,
@@ -299,6 +302,7 @@ const zh: Messages = {
 	evalBadLines: (lines) => `以下行格式不对，已跳过：第 ${lines} 行（格式：问题 | 文档）`,
 	evalRunning: (done, total) => `📊 评测中 ${done}/${total}`,
 	evalSaved: (path) => `完整报告：${path}`,
+	evalScope: (name) => `与 agent 一样，同时检索了项目库「${name}」和我的全局知识库。`,
 	evalSemanticOff: "语义检索未开启，只评测关键词模式。用 /kb semantic 开启后，可以对比三种模式。",
 	evalSemanticPartial: (done, total) => `语义索引还没建完（${done}/${total}），语义模式的结果会偏低`,
 	evalDraft: (path) =>

@@ -10,7 +10,7 @@ import { renderNote } from "./notes.ts";
 import { sharedHub } from "./hub.ts";
 import type { SearchHit } from "./store.ts";
 import { KbWebApp } from "./web.ts";
-import { Library, type Scope } from "./library.ts";
+import { importScope, Library, type Scope } from "./library.ts";
 import { findProjectKb, initProjectKb, type ProjectKb, projectRootFor } from "./project.ts";
 import { initQuestions, parseQuestions, questionsFile, readQuestions, runEval, summaryRows, writeReport } from "./eval.ts";
 import { folderSize, installRuntime, localModelDirs, removeLocalModel, runtimeInstalled } from "./semantic/providers.ts";
@@ -180,7 +180,12 @@ export default function piKb(pi: ExtensionAPI) {
 		void kb.indexSemantic();
 	};
 	/** Everything in reach: the project's knowledge base (if any) and the user's global one. */
-	const lib = () => new Library(open(), project);
+	const lib = () => {
+		// Teammates' notes and documents arrive with git pull: pick them up without /kb sync.
+		const pulled = project?.kb.syncIfChanged();
+		if (pulled && (pulled.updated || pulled.removed)) repaint();
+		return new Library(open(), project);
+	};
 	const close = () => {
 		if (configWatch) unwatchFile(configWatch.file, configWatch.listener);
 		configWatch = undefined;
@@ -351,14 +356,24 @@ export default function piKb(pi: ExtensionAPI) {
 	);
 
 	/**
-	 * Queue files and folders for import; the job resolves when all of them are done. Files that are
+	 * Queue files and folders for import; the job resolves when all of them are done. Without a
+	 * `scope`, each file goes where importScope puts it; `placed` counts where they went. Files that are
 	 * new versions of imported documents are asked about first (replace, keep both, or cancel);
 	 * without a UI both are kept. Returns undefined when the user cancels.
 	 */
-	const startImport = async (paths: string[], cwd: string, note: boolean, ctx: ExtensionContext, scope: Scope = lib().defaultScope): Promise<ImportJob | undefined> => {
-		const base = lib().kb(scope);
-		const { files, skipped } = base.collectFiles(paths, cwd);
-		const versions = new Map(note ? [] : files.map((path) => [path, base.previousVersions(path).map((d) => d.id)] as const).filter(([, ids]) => ids.length));
+	const startImport = async (
+		paths: string[],
+		cwd: string,
+		note: boolean,
+		ctx: ExtensionContext,
+		scope?: Scope,
+	): Promise<{ job: ImportJob; placed: Record<Scope, number> } | undefined> => {
+		const library = lib();
+		const { files, skipped } = library.global.collectFiles(paths, cwd);
+		const where = new Map(files.map((path) => [path, scope ?? importScope(path, project?.info.root)] as const));
+		const versions = new Map(
+			note ? [] : files.map((path) => [path, library.kb(where.get(path)!).previousVersions(path).map((d) => d.id)] as const).filter(([, ids]) => ids.length),
+		);
 		if (versions.size && ctx.hasUI) {
 			const m = t();
 			const [replace, keep] = m.versionChoices;
@@ -366,7 +381,9 @@ export default function piKb(pi: ExtensionAPI) {
 			if (choice !== replace && choice !== keep) return undefined;
 			if (choice === keep) versions.clear();
 		} else versions.clear();
-		return imports.enqueue(files.map((path) => ({ path, wiki: note, replace: versions.get(path), scope })), skipped);
+		const placed = { project: 0, global: 0 };
+		for (const s of where.values()) placed[s]++;
+		return { job: imports.enqueue(files.map((path) => ({ path, wiki: note, replace: versions.get(path), scope: where.get(path) })), skipped), placed };
 	};
 
 	/** Tell the user how a background import went. */
@@ -413,7 +430,7 @@ export default function piKb(pi: ExtensionAPI) {
 			return;
 		}
 		sections.knowledge_base = [
-			"The user's personal knowledge base is enabled. It holds imported documents (PDF, Office, images, text) and wiki notes of past experience.",
+			"The user's personal knowledge base is enabled. It holds imported documents (PDF, images, Markdown, text) and wiki notes of past experience.",
 			"- When a question may be answered by the user's documents, datasheets, notes or earlier lessons, call kb_search first with short keywords; try synonyms or the other language if nothing matches.",
 			"- Open more context with kb_read (id and pages from the search result) before relying on a snippet for exact values.",
 			"- Cite what you use exactly as kb_search prints it, e.g. [manual.pdf p.12]: just the bracketed part, without section names or ids, next to the facts that came from that source. If the knowledge base has nothing relevant, say so and never invent a citation.",
@@ -517,7 +534,8 @@ export default function piKb(pi: ExtensionAPI) {
 			as_note: Type.Optional(Type.Boolean({ description: "Store Markdown files as wiki notes (experience, lessons)" })),
 			scope: Type.Optional(
 				Type.Union([Type.Literal("project"), Type.Literal("global")], {
-					description: "project: this project's shared knowledge base (default when it has one); global: the user's personal one",
+					description:
+						"project: this project's shared knowledge base; global: the user's personal one. Leave it out to put files inside this project into the project's and files from elsewhere into the global one",
 				}),
 			),
 		}),
@@ -535,24 +553,29 @@ export default function piKb(pi: ExtensionAPI) {
 					return { content: [{ type: "text", text }], details: undefined };
 				}
 			}
-			const where = project && params.scope !== "global" ? "project" : "global";
-			const job = await startImport(params.paths, ctx.cwd, params.as_note ?? false, ctx, where);
-			if (!job) {
+			const started = await startImport(params.paths, ctx.cwd, params.as_note ?? false, ctx, project ? params.scope : "global");
+			if (!started) {
 				const text = "The user cancelled this import; nothing was imported. Do not retry on your own, but if the user asks for it again, call kb_add again.";
 				return { content: [{ type: "text", text }], details: undefined };
 			}
+			const { job, placed } = started;
+			const placement =
+				project && !params.scope && placed.global
+					? `${placed.global} file(s) from outside this project went to the user's global knowledge base, not the project's; call kb_add with scope project only if the user wants them shared with the team.`
+					: "";
 			let timer: NodeJS.Timeout | undefined;
 			const finished = await Promise.race([
 				job.done.then(() => true),
 				new Promise<false>((resolve) => (timer = setTimeout(() => resolve(false), KB_ADD_WAIT))),
 			]);
 			clearTimeout(timer);
-			if (finished) return { content: [{ type: "text", text: summarizeAdds(job.results, MODEL) }], details: undefined };
+			if (finished) return { content: [{ type: "text", text: [summarizeAdds(job.results, MODEL), placement].filter(Boolean).join("\n") }], details: undefined };
 			// A long manual: let it finish in the background and tell the user then.
 			void job.done.then(reportImport);
 			const text = [
 				`Still importing in the background: ${job.results.length} of ${job.total} file(s) done so far. Each file becomes searchable as soon as it is done, and the user is notified when all are finished. Do not wait or poll for it; tell the user it is importing.`,
 				job.results.length ? summarizeAdds(job.results, MODEL) : "",
+				placement,
 			].filter(Boolean).join("\n");
 			return { content: [{ type: "text", text }], details: undefined };
 		},
@@ -592,7 +615,8 @@ export default function piKb(pi: ExtensionAPI) {
 			const mode: NoteMode = params.mode ?? "create";
 			// An existing note stays in its knowledge base; a new one goes where the model said (or the project's).
 			let scope: Scope = mode !== "create" && params.id ? (library.locate(params.id)?.scope ?? "global") : project ? (params.scope ?? "project") : "global";
-			const projectName = basename(ctx.cwd) || undefined;
+			// The project's name, not the subfolder pi happens to run in.
+			const projectName = basename(project?.info.root ?? projectRootFor(ctx.cwd)) || undefined;
 			let base = library.kb(scope);
 			let prepared = base.prepareNote({ ...params, project: projectName }, mode, params.id);
 			let edited: string | undefined;
@@ -702,17 +726,26 @@ export default function piKb(pi: ExtensionAPI) {
 						ctx.ui.notify(m.noProject, "warning");
 						return;
 					}
-					const scope: Scope = project && !rest.includes("--global") ? "project" : "global";
+					// Unset: files inside the project go to it, files from elsewhere to the global one.
+					const scope: Scope | undefined = !project || rest.includes("--global") ? "global" : wantProject ? "project" : undefined;
 					if (!paths.length) {
 						ctx.ui.notify(m.usageAdd, "warning");
 						return;
 					}
-					const job = await startImport(paths, ctx.cwd, note, ctx, scope);
-					if (!job) {
+					const started = await startImport(paths, ctx.cwd, note, ctx, scope);
+					if (!started) {
 						ctx.ui.notify(m.importCancelled, "info");
 						return;
 					}
-					if (project) ctx.ui.notify(m.importingTo(m.scopeLabel(scope, project.info.name)), "info");
+					const { job, placed } = started;
+					if (project) {
+						const name = project.info.name;
+						const text = [
+							placed.project ? m.importingTo(m.scopeLabel("project", name)) : "",
+							placed.global ? (scope ? m.importingTo(m.scopeLabel("global", name)) : m.importOutside(placed.global)) : "",
+						].filter(Boolean).join(" ");
+						if (text) ctx.ui.notify(text, "info");
+					}
 					const queued = job.total - job.results.length;
 					if (!queued) {
 						reportImport(job.results);
@@ -923,11 +956,14 @@ export default function piKb(pi: ExtensionAPI) {
 						ctx.ui.notify(m.evalNoQuestions(file), "warning");
 						return;
 					}
-					const st = base.indexer.status;
-					const notes: string[] = [];
-					if (!base.semanticReady()) notes.push(m.evalSemanticOff);
-					else if (st.done < st.total) notes.push(m.evalSemanticPartial(st.done, st.total));
-					const report = await runEval(base, questions, (done, total) => {
+					// Measure what the agent searches: this project's knowledge base and the global one together.
+					const library = lib();
+					const indexed = library.scopes.map(([, kb]) => kb.indexer.status);
+					const [embedded, chunks] = [indexed.reduce((n, s) => n + s.done, 0), indexed.reduce((n, s) => n + s.total, 0)];
+					const notes: string[] = project ? [m.evalScope(project.info.name)] : [];
+					if (!library.semanticReady()) notes.push(m.evalSemanticOff);
+					else if (embedded < chunks) notes.push(m.evalSemanticPartial(embedded, chunks));
+					const report = await runEval(library, questions, (done, total) => {
 						if (ctx.hasUI) ctx.ui.setStatus("kb", m.evalRunning(done, total));
 					});
 					refresh(ctx);
