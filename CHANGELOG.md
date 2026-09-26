@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.5.16 — 2026-09-26
+
+- Settings → Storage location: typing a new folder and clicking Save did nothing (only the "Move here" button applied it) and the dialog closed as if it had. Save now applies a typed location too, with the same confirmation. The button is now "Use this location", and the copy checkbox says the originals are not deleted.
+- Web page: with semantic search on and nothing imported yet, the overview says documents will be indexed automatically instead of "0 chunks", and while the first files import, the list says they will appear there instead of "The knowledge base is empty".
+
 ## v0.5.15 — 2026-09-26
 
 The terminal catches up with the web page, and Markdown can switch between note and document:
