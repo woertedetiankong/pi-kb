@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.5.9 — 2026-09-26
 
 From a simulated first session (a new user importing six English M5Stack PDFs and asking in Chinese):
 
