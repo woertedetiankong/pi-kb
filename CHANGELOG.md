@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.5.15 — 2026-09-26
 
 The terminal catches up with the web page, and Markdown can switch between note and document:
 
