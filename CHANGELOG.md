@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.5.11 — 2026-09-26
 
 - Imports survive quitting pi, `/reload`, `/new` and `/resume`: the files not imported yet are recorded in `~/.pi/kb/pending-imports/` and the next pi that starts imports them (the one being converted starts over). Web uploads are copied first, since their temporary files are deleted. Files for a project knowledge base wait until pi runs in that project; several windows stopping or starting at once neither lose nor double-import a batch, and a batch whose pi crashed is picked up again. `pi -p` runs don't take them over.
 
