@@ -1,6 +1,7 @@
 /**
  * First-run hints, through the extension itself with a fake pi: the welcome on an empty knowledge
- * base, the empty hint in /kb status, and the one-time semantic search tip.
+ * base, the empty hint in /kb status, the one-time semantic search tip, /kb help and completions,
+ * and naming what to remove by title.
  */
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -18,7 +19,10 @@ mkdirSync(cwd, { recursive: true });
 type Handler = (event: unknown, ctx: unknown) => unknown;
 const handlers = new Map<string, Handler[]>();
 const tools = new Map<string, { execute: (...args: unknown[]) => Promise<{ content: { text: string }[] }> }>();
-let kb!: { handler: (args: string, ctx: unknown) => Promise<void> };
+let kb!: {
+	handler: (args: string, ctx: unknown) => Promise<void>;
+	getArgumentCompletions: (prefix: string) => { value: string }[] | null;
+};
 
 const fakePi = {
 	registerFlag() {},
@@ -33,6 +37,9 @@ const fakePi = {
 };
 
 const notes: string[] = [];
+/** How the fake user answers a select dialog; records what it was asked. */
+let asked: { title: string; options: string[] }[] = [];
+let answer: (options: string[]) => string | undefined = () => undefined;
 let widget: string[] = [];
 const ctx = {
 	cwd,
@@ -44,7 +51,10 @@ const ctx = {
 		setStatus() {},
 		setWidget: (_key: string, lines?: string[]) => (widget = lines ?? []),
 		confirm: async () => true,
-		select: async () => undefined,
+		select: async (title: string, options: string[]) => {
+			asked.push({ title, options });
+			return answer(options);
+		},
 		input: async () => undefined,
 		editor: async () => undefined,
 	},
@@ -104,4 +114,38 @@ test("the first import mentions semantic search once, and the empty hint goes aw
 	assert.deepEqual(saved.tips, ["welcome", "semantic"]);
 	await kb.handler("status", ctx);
 	assert.doesNotMatch(notes.at(-1) ?? "", /Nothing here yet/);
+});
+
+test("/kb help lists every command, everyday ones first; completion offers only those until a letter is typed", async () => {
+	const values = (prefix: string) => kb.getArgumentCompletions(prefix)?.map((c) => c.value);
+	assert.deepEqual(values(""), ["add", "search", "web", "note", "list", "remove", "cancel", "status", "on", "off", "help"]);
+	assert.deepEqual(values("ev"), ["eval"], "the others once their first letters are typed");
+	assert.deepEqual(values("s"), ["search", "status", "semantic", "sync"]);
+
+	await kb.handler("help", ctx);
+	const text = widget.join("\n");
+	assert.match(text, /^📚 Knowledge base commands\nEveryday\n {2}\/kb add +Import/);
+	assert.ok(text.indexOf("/kb eval") > text.indexOf("More:"), "eval is under More");
+	assert.match(widget.find((l) => l.includes("/kb sync")) ?? "", /^ {2}\/kb sync {6}Re-read/, "both groups line up");
+
+	await kb.handler("status", ctx);
+	assert.match(notes.at(-1) ?? "", /\nAll commands: \/kb help$/);
+	await kb.handler("frobnicate", ctx);
+	assert.match(notes.at(-1) ?? "", /Try: add, search, web, .*\(all commands: \/kb help\)/);
+});
+
+test("/kb remove takes a title or words from it, and asks which one when several match", async () => {
+	asked = [];
+	answer = (options) => options.find((o) => o.includes("a.md"));
+	await kb.handler("remove md", ctx);
+	assert.equal(asked.length, 1);
+	assert.equal(asked[0].title, "Remove which one?");
+	assert.equal(asked[0].options.length, 2);
+	assert.equal(notes.at(-1), "Removed a.md");
+
+	await kb.handler("remove b.md", ctx);
+	assert.equal(asked.length, 1, "one match: no question");
+	assert.equal(notes.at(-1), "Removed b.md");
+	await kb.handler("remove b.md", ctx);
+	assert.equal(notes.at(-1), 'Nothing in the knowledge base matches "b.md"');
 });

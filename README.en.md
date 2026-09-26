@@ -34,26 +34,34 @@ Supported material: PDF, images (PNG / JPG etc., via OCR), Markdown and plain te
 
 ## Usage
 
+Everyday commands (typing `/kb ` in pi completes only these; `/kb help` lists them all):
+
 | Command | What it does |
 |---|---|
+| `/kb add <file or folder…> [--project\|--global]` | Import material in the background; the command returns at once and you can keep working. Dragging paths into the terminal works. In a project with its own knowledge base, choose which one it goes to |
+| `/kb add <note.md…> --note` | Add as experience notes in the wiki |
+| `/kb search <keywords>` | Search it yourself |
+| `/kb web` | Open the knowledge base page in the browser (`/kb web url` prints the full address, `/kb web stop` closes it) |
+| `/kb note [focus]` | Ask the agent to review this conversation and save what is worth keeping as wiki notes |
+| `/kb list [words]` | List documents and notes (up to 50; add words to filter by title) |
+| `/kb remove <title or id>` | Delete (a note's file is deleted too) |
+| `/kb cancel` | Stop the import in progress (files already imported are kept) |
 | `/kb` or `/kb status` | Show whether it is on and how much it holds |
 | `/kb on` / `/kb off` | Turn on / off (saved). When off, the tools and the prompt section are removed and take no context |
-| `/kb add <file or folder…> [--project\|--global]` | Import material in the background; the command returns at once and you can keep working. Dragging paths into the terminal works. In a project with its own knowledge base, choose which one it goes to |
-| `/kb cancel` | Stop the import in progress (files already imported are kept) |
-| `/kb add <note.md…> --note` | Add as experience notes in the wiki |
-| `/kb note [focus]` | Ask the agent to review this conversation and save what is worth keeping as wiki notes |
-| `/kb lint` | Check the wiki notes: likely duplicates, broken `[[links]]`, project notes linking to global ones (teammates can't open them), notes without tags |
+| `/kb help` | List all commands |
+
+More commands (project knowledge bases, search settings, upkeep; completed once you type their first letters):
+
+| Command | What it does |
+|---|---|
 | `/kb init` | Create a project knowledge base in the project (`.pi/kb`, shared with the team through git); see below |
 | `/kb move <title or id> [project\|global]` | Move a document or note to the project's or your global knowledge base (without a target: to the other one) |
-| `/kb list [words]` | List documents and notes (up to 50; add words to filter by title) |
-| `/kb search <keywords>` | Search it yourself |
-| `/kb remove <title or id>` | Delete (a note's file is deleted too) |
-| `/kb sync` | Re-read the folder now. Rarely needed: notes edited by hand and content from another computer or a teammate are picked up automatically |
 | `/kb semantic [status\|api\|local\|off\|remove]` | Semantic search: show status, use an online API, use a local model, turn off, delete the local model (frees about 1.1 GB; documents and notes stay) |
+| `/kb lint` | Check the wiki notes: likely duplicates, broken `[[links]]`, project notes linking to global ones (teammates can't open them), notes without tags |
 | `/kb eval [init\|draft\|run]` | Measure retrieval: create the question file, let the agent draft questions, run the evaluation |
 | `/kb open` | Open the knowledge base folder |
-| `/kb web` | Open the knowledge base page in the browser (`/kb web url` prints the full address, `/kb web stop` closes it) |
 | `/kb lang zh\|en\|auto` | Switch the interface language |
+| `/kb sync` | Re-read the folder now. Rarely needed: notes edited by hand and content from another computer or a teammate are picked up automatically |
 
 The flags `pi --kb off` / `--kb on` apply to this run only.
 

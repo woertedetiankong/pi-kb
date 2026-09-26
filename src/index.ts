@@ -26,7 +26,11 @@ const VIEW_LIMIT = 4;
 const KB_ADD_WAIT = 30_000;
 /** /kb list shows this many items; the web page shows everything. */
 const LIST_LIMIT = 50;
-const SUBCOMMANDS = ["on", "off", "status", "add", "cancel", "list", "search", "note", "lint", "remove", "init", "move", "semantic", "eval", "open", "web", "lang", "sync"];
+/** What most people need; shown first by /kb help and the only ones completed before a letter is typed. */
+const EVERYDAY = ["add", "search", "web", "note", "list", "remove", "cancel", "status", "on", "off", "help"];
+/** Teams, tuning and upkeep: listed under "More" in /kb help, completed once their first letters are typed. */
+const MORE = ["init", "move", "semantic", "lint", "eval", "open", "lang", "sync"];
+const SUBCOMMANDS = [...EVERYDAY, ...MORE];
 /** Model-facing text is English regardless of the interface language. */
 const MODEL = messages("en");
 
@@ -878,11 +882,11 @@ export default function piKb(pi: ExtensionAPI) {
 	};
 
 	pi.registerCommand("kb", {
-		description: "Knowledge base / 知识库: add | search | list | note | lint | init | move | web | semantic | eval | …",
+		description: "Knowledge base / 知识库: add | search | web | note | help",
 		getArgumentCompletions: (prefix) => {
 			if (prefix.includes(" ")) return null;
 			const descriptions = t().subcommands;
-			return SUBCOMMANDS.filter((name) => name.startsWith(prefix)).map((name) => ({
+			return (prefix ? SUBCOMMANDS : EVERYDAY).filter((name) => name.startsWith(prefix)).map((name) => ({
 				value: name,
 				label: name,
 				description: descriptions[name],
@@ -907,7 +911,7 @@ export default function piKb(pi: ExtensionAPI) {
 					const importing = imports.active ? m.importing(imports.status.done, imports.status.total) : "";
 					const own = project ? `\n${m.projectStatus(project.info.name, project.kb.store.stats().docs, project.kb.store.stats().wiki, project.info.dir)}` : "";
 					const empty = isEmpty() && !imports.active ? `\n${m.emptyHint}` : "";
-					ctx.ui.notify(m.status(enabled(), docs, pages, wiki, base.root) + own + importing + empty, "info");
+					ctx.ui.notify(`${m.status(enabled(), docs, pages, wiki, base.root)}${own}${importing}${empty}\n${m.helpHint}`, "info");
 					return;
 				}
 				case "init": {
@@ -1042,6 +1046,12 @@ export default function piKb(pi: ExtensionAPI) {
 					const found = sections.filter(([, lines]) => lines.length);
 					const body = found.length ? found.flatMap(([head, lines]) => [head, ...lines, ""]).join("\n").trimEnd() : m.lintClean;
 					show(ctx, m.lintTitle(report.notes), body);
+					return;
+				}
+				case "help": {
+					// One table, so both groups line up.
+					const rows = textTable(SUBCOMMANDS.map((name) => [`  /kb ${name}`, m.subcommands[name]]));
+					show(ctx, m.helpTitle, [m.helpEveryday, ...rows.slice(0, EVERYDAY.length), "", m.helpMore, ...rows.slice(EVERYDAY.length)].join("\n"));
 					return;
 				}
 				case "sync": {
@@ -1223,7 +1233,7 @@ export default function piKb(pi: ExtensionAPI) {
 					return;
 				}
 				default:
-					ctx.ui.notify(m.unknown(sub, SUBCOMMANDS.join(", ")), "warning");
+					ctx.ui.notify(m.unknown(sub, EVERYDAY.join(", ")), "warning");
 			}
 		},
 	});
