@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.5.10 — 2026-09-26
 
 - No more syncing by hand: the global knowledge base now notices changed files the way a project one does, so documents and notes from another computer (a shared iCloud or Dropbox folder) or notes edited by hand show up within seconds, at the next search or page load. The web page's "Sync with the folder" button is gone; `/kb sync` stays for forcing it.
 - `/kb remove` and `/kb move` take a title or words from it instead of an id copied from `/kb list`; when several items match, or none is given, pi asks which one. `/kb move` without `project` or `global` moves the item to the other one.

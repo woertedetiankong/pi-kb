@@ -13,7 +13,7 @@
 pi install git:github.com/woertedetiankong/pi-kb
 
 # 或锁定到某个版本，不随仓库更新而变化
-pi install git:github.com/woertedetiankong/pi-kb@v0.5.9
+pi install git:github.com/woertedetiankong/pi-kb@v0.5.10
 
 # 或不安装，只在这次运行中试用
 pi -e git:github.com/woertedetiankong/pi-kb
