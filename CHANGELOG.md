@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.5.7 — 2026-09-26
 
 Four races found with TLA+ models (`specs/tla`) and reproduced on the real code (`test/concurrency.test.ts`):
 
