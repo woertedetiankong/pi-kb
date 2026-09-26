@@ -102,3 +102,15 @@ test("hand-written notes without front matter can be appended to", () => {
 	assert.equal(note.meta.title, "手写经验");
 	assert.match(note.body, /老内容。[\s\S]*新内容。/);
 });
+
+test("appending to a hand-written note without front matter dates its creation in local time, like the update", () => {
+	const file = join(kb.wikiDir, "hand-written.md");
+	writeFileSync(file, "# Hand written\n\nNo front matter here.\n");
+	const doc = kb.indexWikiFile(file);
+	// Imported at 21:00 in California: already the next day in UTC.
+	const importedAt = "2026-09-26T04:00:00.000Z";
+	kb.store.db.prepare("UPDATE docs SET added_at = ? WHERE id = ?").run(importedAt, doc.id);
+	const prepared = kb.prepareNote({ title: "", content: "More." }, "append", doc.id);
+	assert.equal(prepared.note.meta.created, today(new Date(importedAt)));
+	kb.remove(doc.id);
+});

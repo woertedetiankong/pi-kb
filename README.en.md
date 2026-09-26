@@ -295,6 +295,8 @@ Results with gpt-6-luna (2026-09-24, 3 runs per scenario): 34/36 in the end. Bef
 
 Results with gpt-6-sol (2026-09-24, 3 runs per scenario, with the current prompt and reminder): 36/36. It saved notes after debugging and after hearing setup facts without needing the reminder, and appended only new content. Once it appended the production Flash model to the SPI divider note, which works, though a separate note would fit better.
 
+Again with gpt-6-sol after v0.5.2 (2026-09-25, 3 runs per scenario, plus a new scenario that adds a detail in English while the existing note is in Chinese): 48/48. In all 3 English runs it found the Chinese note and appended to it instead of starting an English one; every scenario searched before writing and no duplicate note was created, so the "similar notes already exist" message never came up. The production Flash model again went into the SPI divider note in 1 of 3 runs; the save dialog in the terminal shows this, so you can change it.
+
 Alongside pi-robot (2026-09-25, gpt-6-sol, `--installed`, 3 runs per scenario): pi-robot's pi-embedded-docs has its own `document_*` tools (import, search, read, view pages), scoped to the current session and folder. They did not get in each other's way: questions about the knowledge base used `kb_search` all 27 times; "save this to the knowledge base" used `kb_add`, not `document_import`; a question about a PDF in the project checked the knowledge base, then read the PDF with `document_*`, without filing it away. The one problem was the note reminder: a fix made through pi-robot's `code` tool (Python) was not recognised at first; it is now.
 
 ## License

@@ -582,7 +582,8 @@ export class KnowledgeBase {
 			...current.meta,
 			title: (mode === "replace" && title) || current.meta.title,
 			tags: normalizeTags([...current.meta.tags, ...tags]),
-			created: current.meta.created || existing.added_at.slice(0, 10),
+			// Local date, like `updated`: the UTC one is a day ahead in the evening in the US.
+			created: current.meta.created || today(new Date(existing.added_at)),
 			updated: today(),
 			project: current.meta.project ?? input.project,
 		};

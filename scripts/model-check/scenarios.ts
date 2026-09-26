@@ -169,6 +169,14 @@ export const scenarios: Scenario[] = [
 		noteMode: "append",
 	},
 	{
+		id: "append-lesson-en",
+		about: "The same kind of detail in English while the existing note is in Chinese: still append to it, not a second note in the other language",
+		prompt: "Another gotcha I just hit on the XR-100: after writing 0x03 to CTRL_REG you have to wait about 10 µs before touching the flash, or the first read is still garbage. Easy to miss.",
+		search: "any",
+		note: "required",
+		noteMode: "append",
+	},
+	{
 		id: "routine-question",
 		about: "Short factual lookup: answer and cite, no note",
 		prompt: "How do I roll back Orbit?",
