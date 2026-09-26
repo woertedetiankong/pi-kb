@@ -13,7 +13,7 @@ Requires Node.js 22.19+ and pi 0.87 or later. Used daily on macOS; the full test
 pi install git:github.com/woertedetiankong/pi-kb
 
 # Or pin a version that does not follow the repository
-pi install git:github.com/woertedetiankong/pi-kb@v0.5.4
+pi install git:github.com/woertedetiankong/pi-kb@v0.5.5
 
 # Or try it for this run only, without installing
 pi -e git:github.com/woertedetiankong/pi-kb
