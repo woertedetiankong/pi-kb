@@ -41,11 +41,14 @@ export type AddReason =
 	| "cancelled"
 	/** Already in the other knowledge base (project or global), so not imported twice. */
 	| "in_project"
-	| "in_global";
+	| "in_global"
+	/** Re-reading needs the original file, which a project knowledge base does not commit by default. */
+	| "no_original";
 
 export interface AddResult {
 	path: string;
-	status: "added" | "exists" | "skipped" | "failed";
+	/** "updated": converted again from its original (reread). */
+	status: "added" | "exists" | "skipped" | "failed" | "updated";
 	doc?: DocRecord;
 	reason?: AddReason;
 	/** English detail for the model and for unexpected errors. */
@@ -293,21 +296,9 @@ export class KnowledgeBase {
 			const existing = this.store.getDoc(id);
 			if (existing) return { path, status: "exists", doc: existing };
 
-			// The first OCR downloads Tesseract data (about 40 MB); say so while it happens instead of looking stuck.
-			const converted = await this.converter.convert(path, options.signal, (downloading) =>
-				options.onNote?.(downloading ? "ocr_download" : undefined),
-			);
-			if (options.signal?.aborted) return cancelled();
-			const text = converted.pages.map((p) => p.markdown).join("");
-			// Images come back as an empty ```text fence when OCR finds nothing.
-			if (!text.replace(/```\w*/g, "").trim()) {
-				// Not stored, so importing the same file again (e.g. once online) is a fresh attempt.
-				const missing = this.converter.missingOcrData();
-				if (missing.length) {
-					return { path, status: "failed", reason: "ocr_unavailable", message: `OCR language data could not be downloaded (${missing.join(", ")})` };
-				}
-				return { path, status: "failed", reason: "no_text", message: "no text could be extracted" };
-			}
+			const result = await this.convertFile(path, options);
+			if ("status" in result) return result;
+			const { converted, text } = result;
 
 			const name = basename(path);
 			const source = options.source ?? path;
@@ -430,6 +421,63 @@ export class KnowledgeBase {
 		this.store.putDoc(doc, chunkPages([{ page: null, markdown: tags ? `${note.body}\n\n${tags}` : note.body }]));
 		void this.indexer.kick();
 		return doc;
+	}
+
+	/**
+	 * Convert a file, or say why it gave nothing: cancelled, or no text (then nothing is stored, so
+	 * importing the same file again, e.g. once online, is a fresh attempt).
+	 */
+	private async convertFile(
+		path: string,
+		options: { signal?: AbortSignal; onNote?: (note: "ocr_download" | undefined) => void },
+	): Promise<{ converted: Awaited<ReturnType<Converter["convert"]>>; text: string } | AddResult> {
+		// The first OCR downloads Tesseract data (about 40 MB); say so while it happens instead of looking stuck.
+		const converted = await this.converter.convert(path, options.signal, (downloading) =>
+			options.onNote?.(downloading ? "ocr_download" : undefined),
+		);
+		if (options.signal?.aborted) return { path, status: "skipped", reason: "cancelled", message: "import cancelled" };
+		const text = converted.pages.map((p) => p.markdown).join("");
+		// Images come back as an empty ```text fence when OCR finds nothing.
+		if (!text.replace(/```\w*/g, "").trim()) {
+			const missing = this.converter.missingOcrData();
+			if (missing.length) {
+				return { path, status: "failed", reason: "ocr_unavailable", message: `OCR language data could not be downloaded (${missing.join(", ")})` };
+			}
+			return { path, status: "failed", reason: "no_text", message: "no text could be extracted" };
+		}
+		return { converted, text };
+	}
+
+	/**
+	 * Convert an imported document again from its original, e.g. after the OCR language or server
+	 * changed. It keeps its id, title and import date, so citations still fit; when the new
+	 * conversion gives no text, the old one stays.
+	 */
+	async reread(
+		id: string,
+		options: { signal?: AbortSignal; onNote?: (note: "ocr_download" | undefined) => void } = {},
+	): Promise<AddResult> {
+		const doc = this.store.getDoc(id);
+		if (!doc || doc.collection !== "docs") throw new Error(`No imported document with id ${id}`);
+		const file = this.originalPath(doc);
+		if (!file) return { path: doc.title, status: "failed", doc, reason: "no_original", message: "the original file is not on this computer" };
+		try {
+			if (options.signal?.aborted) return { path: file, status: "skipped", reason: "cancelled", message: "import cancelled" };
+			const result = await this.convertFile(file, options);
+			if ("status" in result) return { ...result, doc };
+			const { converted, text } = result;
+			// Removed while it was being converted: don't bring it back.
+			if (!this.store.getDoc(id)) return { path: file, status: "skipped", reason: "cancelled", message: "removed meanwhile" };
+			writeFileSync(join(this.root, doc.path), renderConverted(basename(file), converted.pages));
+			const paged = converted.pages.some((p) => p.page !== null);
+			const updated: DocRecord = { ...doc, kind: converted.kind, pages: paged ? converted.pages.length : null, chars: text.length };
+			this.store.putDoc(updated, chunkPages(converted.pages));
+			this.writeManifest(updated);
+			void this.indexer.kick();
+			return { path: file, status: "updated", doc: updated };
+		} catch (error) {
+			return { path: file, status: "failed", doc, message: error instanceof Error ? error.message : String(error) };
+		}
 	}
 
 	/**
@@ -651,10 +699,21 @@ export class KnowledgeBase {
 	originalFile(id: string): { file: string; name: string } {
 		const doc = this.store.getDoc(id);
 		if (!doc || doc.collection !== "docs") throw new Error(`No imported document with id ${id}`);
+		const file = this.originalPath(doc);
+		if (!file) throw new Error(`The original of ${doc.title} is missing`);
+		return { file, name: basename(file) };
+	}
+
+	/** Where a document's original file is kept, if it is on this computer. */
+	private originalPath(doc: DocRecord): string | undefined {
 		const dir = join(this.root, "raw", doc.id);
-		const name = readdirSync(dir)[0];
-		if (!name) throw new Error(`The original of ${doc.title} is missing`);
-		return { file: join(dir, name), name };
+		let name: string | undefined;
+		try {
+			name = readdirSync(dir)[0];
+		} catch {
+			return undefined; // a project knowledge base does not commit raw/ by default
+		}
+		return name ? join(dir, name) : undefined;
 	}
 
 	private tags = new Map<string, { hash: string; tags: string[] }>();

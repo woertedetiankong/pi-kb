@@ -54,7 +54,8 @@ const en = {
 	importTitle: "📚 Knowledge base import",
 	addSummary: (added: number, exists: number, skipped: number, failed: number) =>
 		`Added ${added}, already present ${exists}, skipped ${skipped}, failed ${failed}.`,
-	addStatus: { added: "added", exists: "already present", skipped: "skipped", failed: "failed" },
+	addStatus: { added: "added", exists: "already present", skipped: "skipped", failed: "failed", updated: "read again" },
+	rereadSummary: (n: number) => `Read ${plural(n, "document")} again from the original.`,
 	pages: (n: number) => plural(n, "page"),
 	reasons: {
 		not_found: "not found",
@@ -66,6 +67,7 @@ const en = {
 		cancelled: "cancelled",
 		in_project: "already in this project's knowledge base, which is searched too",
 		in_global: "already in your global knowledge base; to share it with the team, move it with /kb move <id> project",
+		no_original: "the original file is not on this computer (a project knowledge base does not share originals through git by default)",
 	},
 	listTitle: (n: number) => `📚 Knowledge base · ${plural(n, "item")}`,
 	listEmpty: "Empty. Add files with /kb add <path>, or put Markdown notes in the wiki folder (/kb open).",
@@ -241,7 +243,8 @@ const zh: Messages = {
 	noteSwitch: (where) => `改存到${where}`,
 	importTitle: "📚 知识库导入",
 	addSummary: (added, exists, skipped, failed) => `新增 ${added}，已存在 ${exists}，跳过 ${skipped}，失败 ${failed}。`,
-	addStatus: { added: "新增", exists: "已存在", skipped: "跳过", failed: "失败" },
+	addStatus: { added: "新增", exists: "已存在", skipped: "跳过", failed: "失败", updated: "已重新识别" },
+	rereadSummary: (n) => `已按原文件重新识别 ${n} 份资料。`,
 	pages: (n) => `${n} 页`,
 	reasons: {
 		not_found: "文件不存在",
@@ -253,6 +256,7 @@ const zh: Messages = {
 		cancelled: "已取消",
 		in_project: "已在本项目的知识库里，同样能搜到",
 		in_global: "已在你的全局知识库里；要共享给团队，用 /kb move <id> project 移过去",
+		no_original: "原文件不在这台电脑上（项目知识库默认不通过 git 共享原文件）",
 	},
 	listTitle: (n) => `📚 知识库 · 共 ${n} 项`,
 	listEmpty: "知识库是空的。用 /kb add <路径> 导入文件，或把 Markdown 笔记放进 wiki 文件夹（/kb open）。",

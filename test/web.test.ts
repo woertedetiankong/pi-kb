@@ -35,7 +35,7 @@ before(async () => {
 	process.env.PI_KB_TESSDATA ??= join(tmpdir(), "pi-kb-test-tessdata");
 	root = mkdtempSync(join(tmpdir(), "pi-kb-web-"));
 	kb = new KnowledgeBase(root);
-	const queue = new ImportQueue((item, signal) => kb.addFile(item.path, { ...item, signal }), () => {});
+	const queue = new ImportQueue((item, signal) => (item.reread ? kb.reread(item.reread, { signal }) : kb.addFile(item.path, { ...item, signal })), () => {});
 	const app = new KbWebApp(
 		{
 			kb: () => kb,
@@ -142,6 +142,26 @@ test("upload, list, search, read pages and fetch the original PDF", async () => 
 	const bad = await upload("x.xyz", "x");
 	assert.equal(bad.result.reason, "unsupported");
 	assert.equal((await call("/api/kb/import?job=999")).status, 404);
+});
+
+test("reread: a document is converted again from its original through the import queue", async () => {
+	const pdf = readFileSync(join(fixtures, "xr100-manual.pdf"));
+	const { result } = await upload("xr100-manual.pdf", pdf);
+	const id = result.doc.id;
+	const res = await (await post("/api/kb/reread", { id })).json();
+	assert.equal(typeof res.job, "number");
+	for (;;) {
+		const r = await (await call(`/api/kb/import?job=${res.job}`)).json();
+		if (r.done) {
+			assert.deepEqual([r.results[0].status, r.results[0].doc.id, r.results[0].doc.title], ["updated", id, "xr100-manual.pdf"]);
+			break;
+		}
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	}
+	rmSync(join(root, "raw", id), { recursive: true });
+	const missing = await post("/api/kb/reread", { id });
+	assert.equal(missing.status, 400);
+	assert.equal((await missing.json()).error, "no_original", "a code the page explains");
 });
 
 test("uploading a new version asks first, then replaces or keeps both", async () => {

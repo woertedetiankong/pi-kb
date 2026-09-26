@@ -177,6 +177,8 @@ textarea.editor:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(-
 
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px); background: var(--text); color: var(--bg); padding: 9px 16px; border-radius: 8px; font-size: 13px; opacity: 0; transition: .2s; pointer-events: none; max-width: calc(100vw - 32px); z-index: 30; }
 .toast.show { opacity: 1; transform: translateX(-50%); }
+.toast.show.actionable { pointer-events: auto; }
+.toast button { color: inherit; font-weight: 650; text-decoration: underline; margin-left: 10px; }
 
 dialog.dlg { width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--panel); color: var(--text); box-shadow: 0 16px 48px rgba(0,0,0,.25); }
 dialog.dlg::backdrop { background: rgba(0,0,0,.35); }
@@ -217,11 +219,11 @@ dialog.dlg::backdrop { background: rgba(0,0,0,.35); }
 .dlg .state.bad { color: var(--danger); }
 .sem-line button, .warn-line button { color: var(--accent-text); font-size: 13px; margin-left: 6px; }
 
-.drop { position: fixed; inset: 0; z-index: 20; background: color-mix(in srgb, var(--bg) 80%, transparent); backdrop-filter: blur(3px); display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 40px; }
+.drop { position: fixed; inset: 0; z-index: 20; background: color-mix(in srgb, var(--bg) 80%, transparent); backdrop-filter: blur(3px); display: grid; padding: 40px; }
 .drop div { border: 2px dashed var(--line-strong); border-radius: 16px; display: grid; place-content: center; text-align: center; gap: 6px; background: var(--panel); transition: .1s; }
 .drop div b { font-size: 18px; }
 .drop div span { color: var(--muted); font-size: 13px; max-width: 320px; }
-.drop div.over { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); }
+.drop div { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); }
 
 @media (max-width: 1080px) {
   .app { grid-template-columns: 210px minmax(0, 1fr); }
@@ -239,7 +241,6 @@ dialog.dlg::backdrop { background: rgba(0,0,0,.35); }
   aside .nav { width: auto; }
   .nav-label, .side-foot { display: none; }
   .app.detail section.preview { inset: 0; width: 100vw; }
-  .drop { grid-template-columns: 1fr; }
 }
 </style>
 </head>
@@ -267,8 +268,7 @@ dialog.dlg::backdrop { background: rgba(0,0,0,.35); }
 </div>
 
 <div class="drop" id="drop" hidden>
-  <div data-zone="docs"><b data-t="dropDocs"></b><span data-t="dropDocsHint"></span></div>
-  <div data-zone="note"><b data-t="dropNotes"></b><span data-t="dropNotesHint"></span></div>
+  <div><b data-t="dropTitle"></b><span data-t="dropHint"></span></div>
 </div>
 
 <dialog class="dlg" id="newNote">
@@ -354,8 +354,11 @@ const T = {
     empty: "知识库还是空的", emptyHint: "把 PDF、图片或 Markdown 拖到页面上即可导入",
     emptyView: "这里还没有内容", noHits: q => `没有找到“${q}”`, noHitsHint: "换几个关键词，或者试试同义词、另一种语言",
     results: n => `${n} 条结果`, items: n => `${n} 项`, pages: n => `${n} 页`,
-    dropDocs: "导入资料", dropDocsHint: "PDF、图片、文本：转换后按页检索",
-    dropNotes: "存为笔记", dropNotesHint: "Markdown 文件作为笔记，和 agent 记下的经验放在一起",
+    dropTitle: "松开即可导入", dropHint: "PDF、图片、文本作为资料，按页检索；Markdown 文件作为笔记，和 agent 记下的经验放在一起",
+    notesImported: n => `${n} 个 Markdown 文件已作为笔记导入`, asDocs: "改为资料导入",
+    reread: "重新识别", rereadTip: "用现在的 OCR 设置重新识别这份资料（比如改了识别语言或 OCR 服务之后）",
+    rereadConfirm: t => `用现在的 OCR 设置重新识别“${t}”？新识别出的文字会替换现在的；完成之前照常可以搜索。`, rereadDone: t => `已重新识别“${t}”`,
+    askFew: "结果不多？让 AI 换几种说法、用中英文再找找", askFewBtn: "✨ 用 AI 找找看",
     importing: (i, n, name) => `正在导入 ${i}/${n}：${name}`,
     importNotes: { ocr_download: "首次使用 OCR，正在下载语言包（约 40MB，只需一次）" },
     sending: (i, n, name) => `正在上传 ${i}/${n}：${name}`,
@@ -363,7 +366,7 @@ const T = {
     versionTitle: "新版本", versionReplace: "替换旧版本", versionKeep: "两份都保留", versionSkip: "跳过这个文件",
     versionBody: (name, titles) => `“${name}”是知识库里已有资料（${titles.join("、")}）的新版本。要替换旧版本，还是两份都保留？`,
     imported: (a, e, s, f) => `新增 ${a}，已存在 ${e}，跳过 ${s}，失败 ${f}`,
-    reasons: { not_found: "文件不存在", unsupported: "不支持的文件类型", no_text: "没有提取到文字", ocr_unavailable: "没有识别出文字：OCR 语言包没能从 GitHub 下载，检查网络后重新导入这个文件即可", not_markdown: "只有 Markdown 可以作为笔记", needs_libreoffice: "Office 文件需要安装 LibreOffice", cancelled: "已取消", skippedByUser: "你选择了跳过", in_project: "已在本项目的知识库里", in_global: "已在你的全局知识库里（要共享给团队，点“移到项目库”）" },
+    reasons: { not_found: "文件不存在", unsupported: "不支持的文件类型", no_text: "没有提取到文字", ocr_unavailable: "没有识别出文字：OCR 语言包没能从 GitHub 下载，检查网络后重新导入这个文件即可", not_markdown: "只有 Markdown 可以作为笔记", needs_libreoffice: "Office 文件需要安装 LibreOffice", cancelled: "已取消", skippedByUser: "你选择了跳过", in_project: "已在本项目的知识库里", in_global: "已在你的全局知识库里（要共享给团队，点“移到项目库”）", no_original: "原文件不在这台电脑上（项目知识库默认不通过 git 共享原文件）", },
     type: "类型", pageCount: "页数", source: "来源", added: "导入时间", id: "ID", tags: "标签", updated: "更新", created: "创建", project: "项目",
     openOriginal: "查看原文件", viewPage: "看原页", page: n => `第 ${n} 页`, remove: "删除", edit: "编辑", save: "保存", cancel: "取消", back: "← 返回",
     confirmRemoveDoc: t => `删除“${t}”？知识库里保存的副本也会删除。`, confirmRemoveNote: t => `删除笔记“${t}”？笔记文件会被删除。`,
@@ -372,7 +375,7 @@ const T = {
     offline: "连接不到 pi。pi 可能已经退出，在 pi 中运行 /kb web 重新打开。",
     kbOn: "知识库已开启", kbOff: "知识库已关闭", loadingDoc: "正在读取…",
     overview: "知识库概览", ovDocs: "份资料", ovPages: "页", ovNotes: "条笔记",
-    ovTips: ["把文件拖到页面上导入：左边作为资料，右边作为笔记。", "知识库开启时，pi 的 agent 会先检索这里，回答时带上 [文件名 p.页码] 引用。", "解决难题后，agent 会提议把经验记成笔记；也可以在 pi 里运行 /kb note。", "笔记是普通 Markdown 文件，可以用 Obsidian 打开 wiki 文件夹编辑。"],
+    ovTips: ["把文件拖到页面上导入：Markdown 文件作为笔记，其他文件作为资料。", "知识库开启时，pi 的 agent 会先检索这里，回答时带上 [文件名 p.页码] 引用。", "解决难题后，agent 会提议把经验记成笔记；也可以在 pi 里运行 /kb note。", "笔记是普通 Markdown 文件，可以用 Obsidian 打开 wiki 文件夹编辑。"],
     ovStatusOff: "知识库当前已关闭，agent 不会使用它。",
     scope: { project: "项目", global: "全局" }, scopeTip: { project: "项目知识库：放在项目的 .pi/kb 里，提交到 git 后团队共享", global: "你自己的全局知识库，只有你能看到" },
     viewProject: "本项目", viewGlobal: "我的全局库", target: "新资料放到", targetProject: n => `项目「${n}」`,
@@ -393,7 +396,7 @@ const T = {
     askSources: "出处", askSearched: q => `检索词：${q}`, askCheck: "AI 回答可能有误，重要数值请点开出处核对。",
     askProblems: { no_model: "pi 还没有可用的模型，或正在切换会话。在 pi 里用 /model 选一个模型后再试。", model_missing: "找不到这个模型，请在「问 AI」旁边重新选择", model_no_auth: id => `模型 ${id} 还没有配置登录或 API Key`, model_failed: d => `模型调用失败：${d}` },
     askModel: "问 AI 用的模型", followPi: m => `跟随 pi${m ? `（${m}）` : ""}`, answeredBy: m => `由 ${m} 回答。`,
-    ocrTitle: "文字识别（OCR）", ocrHint: "导入扫描版 PDF 和图片时用来识别文字。修改后对之后导入的文件生效；已导入的文件要删除后重新导入才会重新识别。",
+    ocrTitle: "文字识别（OCR）", ocrHint: "导入扫描版 PDF 和图片时用来识别文字。修改后对之后导入的文件生效；已导入的资料，在它的页面上点「重新识别」即可。",
     ocrLanguage: "识别语言", ocrServer: "OCR 服务地址（可不填）", ocrServerHint: "不填则用内置的 Tesseract。填入 PaddleOCR 等服务的地址后改用它，中文扫描件的识别效果好很多。",
     ocrLangs: { "eng+chi_sim": "简体中文 + 英文", "eng+chi_tra": "繁体中文 + 英文", "eng+chi_sim+chi_tra": "简体 + 繁体 + 英文", eng: "仅英文", "eng+chi_sim+jpn": "简体中文 + 日文 + 英文" },
     ocrOther: v => `其他：${v}`, ocrSaved: "文字识别设置已保存",
@@ -431,8 +434,11 @@ const T = {
     empty: "The knowledge base is empty", emptyHint: "Drop PDFs, images or Markdown on the page to import them",
     emptyView: "Nothing here yet", noHits: q => `No results for "${q}"`, noHitsHint: "Try other keywords, synonyms, or the other language",
     results: n => pl(n, "result"), items: n => pl(n, "item"), pages: n => pl(n, "page"),
-    dropDocs: "Import documents", dropDocsHint: "PDF, images, text: converted and searchable by page",
-    dropNotes: "Save as notes", dropNotesHint: "Markdown files become notes, next to the lessons the agent records",
+    dropTitle: "Drop to import", dropHint: "PDF, images and text become documents, searchable by page; Markdown files become notes, next to the lessons the agent records",
+    notesImported: n => `${pl(n, "Markdown file")} imported as notes`, asDocs: "Import as documents instead",
+    reread: "Read again", rereadTip: "Read this document again with the current OCR settings (e.g. after changing the OCR language or server)",
+    rereadConfirm: t => `Read "${t}" again with the current OCR settings? The new text replaces the current one; searching works as usual meanwhile.`, rereadDone: t => `Read "${t}" again`,
+    askFew: "Few results? Let AI search with other wordings, in Chinese and English", askFewBtn: "✨ Ask AI",
     importing: (i, n, name) => `Importing ${i}/${n}: ${name}`,
     importNotes: { ocr_download: "First OCR: downloading language data (about 40 MB, once)" },
     sending: (i, n, name) => `Uploading ${i}/${n}: ${name}`,
@@ -440,7 +446,7 @@ const T = {
     versionTitle: "New version", versionReplace: "Replace the old version", versionKeep: "Keep both", versionSkip: "Skip this file",
     versionBody: (name, titles) => `"${name}" is a new version of ${titles.join(", ")}, already in the knowledge base. Replace the old version, or keep both?`,
     imported: (a, e, s, f) => `Added ${a}, already present ${e}, skipped ${s}, failed ${f}`,
-    reasons: { not_found: "file not found", unsupported: "unsupported file type", no_text: "no text could be extracted", ocr_unavailable: "no text recognised: the OCR language data could not be downloaded from GitHub; check the network and import the file again", not_markdown: "only Markdown can become a note", needs_libreoffice: "Office files need LibreOffice", cancelled: "cancelled", skippedByUser: "skipped by you", in_project: "already in this project's knowledge base", in_global: "already in your global knowledge base (to share it with the team, use “Move to project”)" },
+    reasons: { not_found: "file not found", unsupported: "unsupported file type", no_text: "no text could be extracted", ocr_unavailable: "no text recognised: the OCR language data could not be downloaded from GitHub; check the network and import the file again", not_markdown: "only Markdown can become a note", needs_libreoffice: "Office files need LibreOffice", cancelled: "cancelled", skippedByUser: "skipped by you", in_project: "already in this project's knowledge base", in_global: "already in your global knowledge base (to share it with the team, use “Move to project”)", no_original: "the original file is not on this computer (a project knowledge base does not share originals through git by default)", },
     type: "Type", pageCount: "Pages", source: "Source", added: "Imported", id: "ID", tags: "Tags", updated: "Updated", created: "Created", project: "Project",
     openOriginal: "Open original", viewPage: "View page", page: n => `Page ${n}`, remove: "Delete", edit: "Edit", save: "Save", cancel: "Cancel", back: "← Back",
     confirmRemoveDoc: t => `Delete "${t}"? Its stored copy is deleted too.`, confirmRemoveNote: t => `Delete the note "${t}"? The note file is deleted.`,
@@ -449,7 +455,7 @@ const T = {
     offline: "Cannot reach pi. It may have exited; run /kb web in pi to reopen this page.",
     kbOn: "Knowledge base on", kbOff: "Knowledge base off", loadingDoc: "Loading…",
     overview: "Overview", ovDocs: "documents", ovPages: "pages", ovNotes: "notes",
-    ovTips: ["Drop files on the page to import them: left side as documents, right side as notes.", "While the knowledge base is on, pi's agent searches it first and cites answers as [file p.N].", "After solving a hard problem the agent offers to save the lesson as a note; you can also run /kb note in pi.", "Notes are plain Markdown files; open the wiki folder in Obsidian to edit them."],
+    ovTips: ["Drop files on the page to import them: Markdown files become notes, everything else documents.", "While the knowledge base is on, pi's agent searches it first and cites answers as [file p.N].", "After solving a hard problem the agent offers to save the lesson as a note; you can also run /kb note in pi.", "Notes are plain Markdown files; open the wiki folder in Obsidian to edit them."],
     ovStatusOff: "The knowledge base is off, so the agent does not use it.",
     scope: { project: "project", global: "global" }, scopeTip: { project: "Project knowledge base: in the project's .pi/kb, shared with the team through git", global: "Your own global knowledge base, only you see it" },
     viewProject: "This project", viewGlobal: "My global", target: "New material goes to", targetProject: n => `project "${n}"`,
@@ -470,7 +476,7 @@ const T = {
     askSources: "Sources", askSearched: q => `Searched: ${q}`, askCheck: "AI answers can be wrong; open the sources to check important values.",
     askProblems: { no_model: "pi has no model available, or is switching sessions. Pick one with /model in pi and try again.", model_missing: "That model no longer exists; pick another one next to Ask AI", model_no_auth: id => `Model ${id} has no login or API key configured`, model_failed: d => `The model call failed: ${d}` },
     askModel: "Model for Ask AI", followPi: m => `Follow pi${m ? ` (${m})` : ""}`, answeredBy: m => `Answered by ${m}.`,
-    ocrTitle: "Text recognition (OCR)", ocrHint: "Reads text from scanned PDFs and images when you import them. Changes apply to files imported from now on; delete and re-import a file to recognise it again.",
+    ocrTitle: "Text recognition (OCR)", ocrHint: "Reads text from scanned PDFs and images when you import them. Changes apply to files imported from now on; for a document already imported, click “Read again” on its page.",
     ocrLanguage: "Languages", ocrServer: "OCR server (optional)", ocrServerHint: "Empty uses the built-in Tesseract. Enter the address of a service such as PaddleOCR to use it instead; it reads Chinese scans much better.",
     ocrLangs: { "eng+chi_sim": "English + Simplified Chinese", "eng+chi_tra": "English + Traditional Chinese", "eng+chi_sim+chi_tra": "English + Simplified + Traditional Chinese", eng: "English only", "eng+chi_sim+jpn": "English + Simplified Chinese + Japanese" },
     ocrOther: v => `Other: ${v}`, ocrSaved: "Text recognition settings saved",
@@ -729,7 +735,9 @@ function renderList() {
       : state.answer?.question === state.q.trim() ? "" : `<div class="empty">${esc(T.noHits(state.q))}<br><small>${esc(T.noHitsHint)}</small></div>`;
     // Few hits with keywords only: say why (bilingual material needs semantic search to cross languages).
     const hint = hits.length < 3 && state.status?.semantic?.provider === "off" ? `<div class="hint-line">${esc(T.searchKeywordsOnly)}<button id="semOpenList">${esc(T.semSetup)} →</button></div>` : "";
-    $("list").innerHTML = `<div class="list-head"><h2>${esc(state.q)}</h2><span class="sub">${esc(T.results(hits.length))}</span>${progress}</div><div class="group">${answerCard()}${body}</div>${hint}`;
+    // Few hits: the AI answer searches with several wordings in both languages. Not once it has answered this question.
+    const askFew = hits.length < 3 && state.answer?.question !== state.q.trim() ? `<div class="hint-line">${esc(T.askFew)}<button id="askFew">${esc(T.askFewBtn)} →</button></div>` : "";
+    $("list").innerHTML = `<div class="list-head"><h2>${esc(state.q)}</h2><span class="sub">${esc(T.results(hits.length))}</span>${progress}</div><div class="group">${answerCard()}${body}</div>${askFew}${hint}`;
     return;
   }
   const docs = visibleDocs();
@@ -793,7 +801,7 @@ async function renderPreview() {
       <dt>${esc(T.source)}</dt><dd>${esc(doc.source.replace(/^upload:/, ""))}</dd>
       <dt>${esc(T.id)}</dt><dd class="num">${esc(doc.id)}</dd>
     </dl>
-    <div class="actions"><button class="btn" id="openOriginal" data-page="${state.focusPage ?? ""}">${esc(T.openOriginal)} ↗</button>${moveButton()}<button class="btn danger" id="removeDoc">${esc(T.remove)}</button></div>
+    <div class="actions"><button class="btn" id="openOriginal" data-page="${state.focusPage ?? ""}">${esc(T.openOriginal)} ↗</button>${["pdf", "image", "office"].includes(doc.kind) ? `<button class="btn" id="rereadDoc" title="${esc(T.rereadTip)}">${esc(T.reread)}</button>` : ""}${moveButton()}<button class="btn danger" id="removeDoc">${esc(T.remove)}</button></div>
     ${image ? `<img class="orig" id="origImg" alt="">` : ""}
     <div class="md">${markdown(text, { pdf, hitPage: state.focusPage })}</div>
   </div>`;
@@ -840,7 +848,19 @@ async function openOriginal(id, page) {
   catch (e) { tab?.close(); toast(e.message); }
 }
 
-function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 3600); }
+/** A short message; with `action` ({ label, run }) it carries a button and stays longer. */
+function toast(msg, action) {
+  const t = $("toast");
+  t.textContent = msg;
+  if (action) {
+    const b = document.createElement("button");
+    b.textContent = action.label;
+    b.addEventListener("click", () => { t.classList.remove("show"); action.run(); });
+    t.append(b);
+  }
+  t.classList.toggle("actionable", !!action);
+  t.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), action ? 10000 : 3600);
+}
 function renderAll() { renderHeader(); renderSide(); renderList(); renderPreview(); }
 
 // ---- data ----
@@ -878,24 +898,11 @@ function askVersion(name, titles) {
   return new Promise(resolve => dlg.addEventListener("close", () => resolve(dlg.returnValue || "skip"), { once: true }));
 }
 
-async function upload(files, note) {
-  const list = [...files];
-  if (!list.length) return;
-  const results = [], jobs = [];
-  for (const [i, file] of list.entries()) {
-    state.uploading = T.sending(i + 1, list.length, file.name); renderList();
-    const url = `/upload?name=${encodeURIComponent(file.name)}${note ? "&note=1" : ""}&scope=${targetScope()}`;
-    try {
-      let r = await api(url, { raw: file });
-      if (r.versions) {
-        const choice = await askVersion(file.name, r.versions);
-        if (choice === "skip") { results.push({ status: "skipped", path: file.name, reason: "skippedByUser" }); continue; }
-        r = await api(`${url}&onUpdate=${choice}`, { raw: file });
-      }
-      jobs.push(r.job);
-    } catch (e) { results.push({ status: "failed", path: file.name, message: e.message }); }
-  }
-  // Files are imported in pi's background queue, one at a time; wait for ours and show where it is.
+const isMarkdown = name => /\.(md|markdown|mdx)$/i.test(name);
+
+/** Wait for queued import jobs (pi imports one file at a time), showing where the queue is. */
+async function waitJobs(jobs) {
+  const results = [];
   while (jobs.length) {
     await new Promise(r => setTimeout(r, 800));
     try {
@@ -908,13 +915,51 @@ async function upload(files, note) {
     } catch (e) { toast(e.message); break; }
   }
   state.uploading = "";
+  return results;
+}
+
+/**
+ * Upload files for import. `note` true/false forces notes/documents; unset, Markdown files become
+ * notes and everything else documents, and the toast offers to import those notes as documents instead.
+ */
+async function upload(files, note) {
+  const list = [...files];
+  if (!list.length) return;
+  const asNote = file => note ?? isMarkdown(file.name);
+  const results = [], jobs = [];
+  for (const [i, file] of list.entries()) {
+    state.uploading = T.sending(i + 1, list.length, file.name); renderList();
+    const url = `/upload?name=${encodeURIComponent(file.name)}${asNote(file) ? "&note=1" : ""}&scope=${targetScope()}`;
+    try {
+      let r = await api(url, { raw: file });
+      if (r.versions) {
+        const choice = await askVersion(file.name, r.versions);
+        if (choice === "skip") { results.push({ status: "skipped", path: file.name, reason: "skippedByUser" }); continue; }
+        r = await api(`${url}&onUpdate=${choice}`, { raw: file });
+      }
+      jobs.push(r.job);
+    } catch (e) { results.push({ status: "failed", path: file.name, message: e.message }); }
+  }
+  results.push(...await waitJobs(jobs));
   etags = {};
   await refresh();
   const n = s => results.filter(r => r.status === s).length;
   const replaced = results.reduce((k, r) => k + (r.replaced?.length ?? 0), 0);
   // Also say where a file already in the other knowledge base is (the page then opens it, with its move button).
   const problems = results.filter(r => r.status === "failed" || r.status === "skipped" || r.reason?.startsWith("in_")).map(r => `${r.doc?.title ?? r.path}: ${T.reasons[r.reason] ?? r.message ?? ""}`);
-  toast([T.imported(n("added"), n("exists"), n("skipped"), n("failed")), ...(replaced ? [T.replacedN(replaced)] : []), ...problems.slice(0, 2)].join(" · "));
+  const summary = [T.imported(n("added"), n("exists"), n("skipped"), n("failed")), ...(replaced ? [T.replacedN(replaced)] : []), ...problems.slice(0, 2)];
+  // Markdown taken as notes without being asked: say so, and offer to import them as documents instead.
+  const notes = note === undefined ? results.filter(r => r.status === "added" && r.doc?.collection === "wiki") : [];
+  const undo = notes.length && {
+    label: T.asDocs,
+    run: async () => {
+      const names = new Set(notes.map(r => r.path));
+      try { for (const r of notes) await api("/remove", { body: { id: r.doc.id } }); }
+      catch (e) { toast(e.message); return; }
+      await upload(list.filter(f => names.has(f.name)), false);
+    },
+  };
+  toast([...summary, ...(notes.length ? [T.notesImported(notes.length)] : [])].join(" · "), undo || undefined);
   const added = results.find(r => r.doc);
   if (added && list.length === 1) select(added.doc.id);
 }
@@ -978,7 +1023,7 @@ $("askModel").addEventListener("change", e => {
   models.pick = e.target.value;
   try { const p = JSON.parse(localStorage.getItem("pi-kb-prefs") || "{}"); localStorage.setItem("pi-kb-prefs", JSON.stringify({ ...p, askModel: models.pick })); } catch {}
 });
-$("files").addEventListener("change", e => { upload(e.target.files, false); e.target.value = ""; });
+$("files").addEventListener("change", e => { upload(e.target.files); e.target.value = ""; });
 $("noteFiles").addEventListener("change", e => { $("newNote").close(); upload(e.target.files, true); e.target.value = ""; });
 
 function showView(view) { state.view = view; state.hits = null; state.q = ""; $("q").value = ""; renderSide(); renderList(); }
@@ -997,6 +1042,7 @@ $("list").addEventListener("click", e => {
   if (e.target.closest("#emptyUpload")) return $("files").click();
   if (e.target.closest("#askClose")) { askAbort?.abort(); state.answer = null; renderList(); return; }
   if (e.target.closest("#semOpenList")) return openSemantic();
+  if (e.target.closest("#askFew")) return askAi();
   const ref = e.target.closest("[data-ref]");
   if (ref && state.answer?.result) { const s = state.answer.result.sources[ref.dataset.ref - 1]; if (s) select(s.docId, s.page); return; }
   const c = e.target.closest(".card"); if (!c) return;
@@ -1023,6 +1069,21 @@ $("preview").addEventListener("click", async e => {
   if (b.id === "saveNote") {
     try { await api("/note", { body: { id, text: $("noteText").value } }); state.editing = false; state.doc = null; etags = {}; await refresh(); renderPreview(); toast(T.saved); }
     catch (err) { toast(err.message); }
+    return;
+  }
+  if (b.id === "rereadDoc" && doc) {
+    if (!confirm(T.rereadConfirm(doc.title))) return;
+    b.disabled = true;
+    try {
+      const { job } = await api("/reread", { body: { id } });
+      const [result] = await waitJobs([job]);
+      renderList();
+      if (result?.status === "updated") {
+        state.doc = null; etags = {}; await refresh();
+        if (state.selected === id) renderPreview();
+        toast(T.rereadDone(doc.title));
+      } else if (result) toast(`${doc.title}: ${T.reasons[result.reason] ?? result.message ?? ""}`);
+    } catch (err) { toast(T.reasons[err.message] ?? err.message); b.disabled = false; }
     return;
   }
   if (b.id === "removeDoc" && doc) {
@@ -1193,22 +1254,17 @@ $("locMove").addEventListener("click", () => {
 });
 $("locReset").addEventListener("click", () => moveLocation(""));
 
-// Drag files anywhere: choose "documents" or "notes" by dropping on one half.
+// Drag files anywhere: Markdown becomes notes, everything else documents.
 let dragDepth = 0;
 const hasFiles = e => [...(e.dataTransfer?.types ?? [])].includes("Files");
 document.addEventListener("dragenter", e => { if (!hasFiles(e)) return; dragDepth++; $("drop").hidden = false; });
 document.addEventListener("dragleave", e => { if (!hasFiles(e)) return; if (--dragDepth <= 0) { dragDepth = 0; $("drop").hidden = true; } });
-document.addEventListener("dragover", e => {
-  if (!hasFiles(e)) return;
-  e.preventDefault();
-  document.querySelectorAll("[data-zone]").forEach(z => z.classList.toggle("over", z.contains(e.target)));
-});
+document.addEventListener("dragover", e => { if (hasFiles(e)) e.preventDefault(); });
 document.addEventListener("drop", e => {
   if (!hasFiles(e)) return;
   e.preventDefault();
   dragDepth = 0; $("drop").hidden = true;
-  const zone = e.target.closest?.("[data-zone]")?.dataset.zone ?? "docs";
-  upload(e.dataTransfer.files, zone === "note");
+  upload(e.dataTransfer.files);
 });
 
 renderAll();

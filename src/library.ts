@@ -270,6 +270,10 @@ export class Library {
 		return this.need(id).kb.editNote(id, text);
 	}
 
+	reread(id: string, options?: Parameters<KnowledgeBase["reread"]>[1]) {
+		return this.need(id).kb.reread(id, options);
+	}
+
 	originalFile(id: string) {
 		return this.need(id).kb.originalFile(id);
 	}

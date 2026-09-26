@@ -110,6 +110,30 @@ test("collectFiles walks folders and reports unsupported files", () => {
 	assert.equal(skipped[0].status, "failed");
 });
 
+test("reread converts a document again from its original, keeping its id, title and date", async () => {
+	const { doc } = await kb.addFile(join(fixtures, "xr100-manual.pdf"));
+	assert.ok(doc);
+	// What an import with the wrong OCR settings would have left: text that is not in the file.
+	kb.store.putDoc(doc, [{ page: 1, heading: "", content: "garbled ocr text zqxj" }]);
+	// The SPI note mentions CTRL_REG too: look at this document only.
+	const pages = (q: string) => kb.search(q).filter((h) => h.docId === doc.id).map((h) => h.page);
+	assert.deepEqual(pages("zqxj"), [1]);
+	assert.deepEqual(pages("CTRL_REG"), []);
+
+	const again = await kb.reread(doc.id);
+	assert.equal(again.status, "updated", again.message);
+	assert.deepEqual([again.doc?.id, again.doc?.title, again.doc?.added_at, again.doc?.pages], [doc.id, doc.title, doc.added_at, 2]);
+	assert.deepEqual(pages("zqxj"), [], "the old text is gone");
+	assert.deepEqual(pages("CTRL_REG"), [2]);
+
+	// Without its original (a project knowledge base does not commit raw/), nothing changes.
+	rmSync(join(root, "raw", doc.id), { recursive: true });
+	const missing = await kb.reread(doc.id);
+	assert.deepEqual([missing.status, missing.reason], ["failed", "no_original"]);
+	assert.deepEqual(pages("CTRL_REG"), [2]);
+	kb.remove(doc.id);
+});
+
 test("remove deletes the document and its index entries", async () => {
 	for (const hit of kb.search("供电电压")) kb.remove(hit.docId);
 	assert.equal(kb.search("供电电压").length, 0);

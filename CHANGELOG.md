@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+Web page:
+
+- Dropping files needs no aim: Markdown files become notes and everything else documents (the two drop halves are gone), and the import button follows the same rule. When Markdown was taken as notes, the toast says so and offers "Import as documents instead", which removes those notes and imports the files as documents.
+- "Read again" on a PDF, image or Office document converts it again from its original with the current OCR settings, so changing the OCR language or server no longer means deleting and re-importing. The document keeps its id, title and import date (earlier citations still fit); when the new conversion gives no text, the old text stays. It runs in the import queue (progress, `/kb cancel`, resumed after pi stops); without the original on this computer (a project knowledge base does not commit originals by default) the page says so.
+- A search with fewer than 3 results offers "Ask AI" below them, which asks the same question with several wordings in both languages.
+
 ## v0.5.13 — 2026-09-26
 
 - One word for each thing in the interface: imported files are 资料 / documents and lessons are 笔记 / notes, in the terminal and on the web page. 文档, wiki 笔记, 经验笔记, "wiki notes" and "experience notes" are gone ("wiki" is left only where it names the `wiki/` folder). Office files show as "Office" in Chinese too. Text for the model is unchanged.

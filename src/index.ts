@@ -175,7 +175,13 @@ function formatHits(hits: (SearchHit & { scope?: Scope })[], m: Messages, scoped
 
 function summarizeAdds(results: AddResult[], m: Messages): string {
 	const count = (s: AddResult["status"]) => results.filter((r) => r.status === s).length;
-	const lines = [m.addSummary(count("added"), count("exists"), count("skipped"), count("failed"))];
+	// Documents read again (after the OCR settings changed) are no import: "added 0" would be confusing.
+	const reread = count("updated");
+	const lines = [
+		reread && !count("added") && !count("exists")
+			? [m.rereadSummary(reread), count("failed") || count("skipped") ? m.addSummary(0, 0, count("skipped"), count("failed")) : ""].filter(Boolean).join(" ")
+			: m.addSummary(count("added"), count("exists"), count("skipped"), count("failed")),
+	];
 	for (const r of results) {
 		const label = r.doc ? `${r.doc.title} (${r.doc.id}${r.doc.pages ? `, ${m.pages(r.doc.pages)}` : ""})` : r.path;
 		const why =
@@ -411,7 +417,9 @@ export default function piKb(pi: ExtensionAPI) {
 	let ticker: NodeJS.Timeout | undefined;
 	const imports = new ImportQueue(
 		(item, signal, note) =>
-			lib().addFile(item.scope ?? "global", item.path, { wiki: item.wiki, signal, source: item.source, replace: item.replace, onNote: note }),
+			item.reread
+				? lib().reread(item.reread, { signal, onNote: note })
+				: lib().addFile(item.scope ?? "global", item.path, { wiki: item.wiki, signal, source: item.source, replace: item.replace, onNote: note }),
 		() => {
 			if (imports.active && !ticker) {
 				ticker = setInterval(() => lastCtx && refresh(lastCtx), 1000);

@@ -83,13 +83,27 @@ export class KbWebApp implements WebApp {
 	readonly languages: WebLanguage[] = ["zh", "en"];
 	private readonly host: KbWebHost;
 	private readonly pageFile: string;
-	/** Upload jobs by number, so the page can poll for their results. */
+	/** Upload and reread jobs by number, so the page can poll for their results. */
 	private readonly jobs = new Map<number, { job: ImportJob; finished: boolean }>();
 	private lastJob = 0;
 
 	constructor(host: KbWebHost, pageFile: string) {
 		this.host = host;
 		this.pageFile = pageFile;
+	}
+
+	/** Number a queued job for GET /import; its results are kept a while after it ends. */
+	private track(job: ImportJob, cleanup?: () => void): number {
+		const id = ++this.lastJob;
+		const entry = { job, finished: false };
+		this.jobs.set(id, entry);
+		void job.done.then(() => {
+			entry.finished = true;
+			cleanup?.();
+			this.host.changed();
+			setTimeout(() => this.jobs.delete(id), JOB_KEEP_MS).unref();
+		});
+		return id;
 	}
 
 	async page(): Promise<string> {
@@ -167,7 +181,7 @@ export class KbWebApp implements WebApp {
 						if (!note && !previous.length) {
 							const id = contentId(body);
 							const waiting = this.host.queued().filter((item) => {
-								if (item.wiki || (item.scope ?? "global") !== scope || sourcePath(item.source ?? item.path, 1) !== name) return false;
+								if (item.wiki || item.reread || (item.scope ?? "global") !== scope || sourcePath(item.source ?? item.path, 1) !== name) return false;
 								try {
 									return contentId(readFileSync(item.path)) !== id;
 								} catch {
@@ -180,16 +194,7 @@ export class KbWebApp implements WebApp {
 						if (previous.length && onUpdate !== "replace" && onUpdate !== "keep") return { versions: previous };
 						const job = this.host.enqueue({ path: file, wiki: note, source: `upload:${name}`, replace: onUpdate === "replace", scope });
 						queued = true;
-						const id = ++this.lastJob;
-						const entry = { job, finished: false };
-						this.jobs.set(id, entry);
-						void job.done.then(() => {
-							entry.finished = true;
-							rmSync(dir, { recursive: true, force: true });
-							this.host.changed();
-							setTimeout(() => this.jobs.delete(id), JOB_KEEP_MS).unref();
-						});
-						return { job: id };
+						return { job: this.track(job, () => rmSync(dir, { recursive: true, force: true })) };
 					} finally {
 						if (!queued) rmSync(dir, { recursive: true, force: true });
 					}
@@ -323,6 +328,18 @@ export class KbWebApp implements WebApp {
 					if (!/^[A-Za-z_]+(\+[A-Za-z_]+)*$/.test(language)) throw webError(400, "OCR language must look like eng+chi_sim");
 					kb.updateConfig({ ocrLanguage: language, ocrServerUrl: optionalUrl(body.serverUrl, "OCR server") });
 					return { language: kb.config.ocrLanguage, serverUrl: kb.config.ocrServerUrl ?? "" };
+				}
+				case "POST /reread": {
+					const body = await req.json();
+					const found = lib.locate(String(body.id ?? ""));
+					if (!found || found.doc.collection !== "docs") throw webError(400, "no such document");
+					let file: string;
+					try {
+						file = lib.originalFile(found.doc.id).file;
+					} catch {
+						throw webError(400, "no_original");
+					}
+					return { job: this.track(this.host.enqueue({ path: file, wiki: false, reread: found.doc.id, scope: found.scope })) };
 				}
 				case "POST /move": {
 					const body = await req.json();

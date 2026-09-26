@@ -10,6 +10,8 @@ export interface ImportItem {
 	replace?: boolean;
 	/** Which knowledge base it goes into; global when unset. */
 	scope?: "project" | "global";
+	/** Not a new file: convert this document again from its original (`path`), e.g. after the OCR settings changed. */
+	reread?: string;
 }
 
 /** One /kb add or kb_add call: its files are imported in order, after earlier jobs. */
