@@ -51,6 +51,8 @@ async function buildSeed(dir: string): Promise<string[]> {
 	const kb = new KnowledgeBase(dir);
 	const docs = [
 		join(repo, "test/fixtures/xr100-manual.pdf"),
+		// Dimensions drawn as lines only; see xr100-outline.ts.
+		join(repo, "scripts/model-check/corpus/xr100-outline.pdf"),
 		join(repo, "scripts/model-check/corpus/orbit-runbook.md"),
 		join(repo, "scripts/model-check/corpus/yf20-faq.md"),
 		// Unrelated documents so the right answer has to be found, not just listed.
@@ -152,6 +154,9 @@ function check(s: Scenario, calls: ToolCall[], answer: string, titles: string[])
 	expect(s.note, "kb_note");
 	for (const name of s.requireTools ?? []) expect("required", name);
 	for (const name of s.forbidTools ?? []) expect("forbidden", name);
+	const viewed = calls.some((c) => c.name === "kb_read" && c.args.view === true);
+	if (s.view === "required" && !viewed) problems.push("no kb_read view");
+	if (s.view === "forbidden" && viewed) problems.push("unwanted kb_read view");
 	expect(s.nudge ?? (s.note === "forbidden" ? "forbidden" : "any"), "nudge");
 	if (s.noteMode) {
 		const notes = calls.filter((c) => c.name === "kb_note");
@@ -211,7 +216,7 @@ await pool(jobs, Number(args.jobs), async ({ scenario, run }) => {
 		result = { scenario, run, calls: [], answer: "", cost: 0, problems: [`error: ${(error as Error).message}`], seconds: (Date.now() - started) / 1000 };
 	}
 	results.push(result);
-	const tools = result.calls.map((c) => c.name.replace("kb_", "") + (c.name === "kb_note" && c.args.mode ? `:${c.args.mode}` : "")).join(",");
+	const tools = result.calls.map((c) => c.name.replace("kb_", "") + (c.name === "kb_note" && c.args.mode ? `:${c.args.mode}` : "") + (c.args.view === true ? ":view" : "")).join(",");
 	console.log(`${result.problems.length ? "✗" : "✓"} ${scenario.id} #${run} [${tools || "no tools"}] ${result.problems.join("; ")}`);
 });
 
@@ -225,7 +230,7 @@ const report = [
 	"| scenario | run | tools | problems | s |",
 	"|---|---|---|---|---|",
 	...results.map((r) => {
-		const tools = r.calls.map((c) => `${c.name}(${JSON.stringify(c.args.query ?? c.args.id ?? c.args.title ?? "")})`).join(" ");
+		const tools = r.calls.map((c) => `${c.name}(${JSON.stringify(c.args.query ?? c.args.id ?? c.args.title ?? "")}${c.args.pages ? ` p.${c.args.pages}` : ""}${c.args.view === true ? " view" : ""})`).join(" ");
 		return `| ${r.scenario.id} | ${r.run} | ${tools.replace(/\|/g, "\\|")} | ${r.problems.join("; ").replace(/\|/g, "\\|") || "ok"} | ${r.seconds.toFixed(0)} |`;
 	}),
 	"",

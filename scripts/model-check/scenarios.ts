@@ -31,6 +31,8 @@ export interface Scenario {
 	/** Tools that must be called, or must not be, beyond kb_search and kb_note. */
 	requireTools?: string[];
 	forbidTools?: string[];
+	/** Whether kb_read must be called with view: true (the answer is only in a picture of the page). */
+	view?: Expect;
 }
 
 const addJs = "export function add(a, b) {\n\tconst x = a + b;\n\treturn x;\n}\n";
@@ -151,6 +153,17 @@ export const scenarios: Scenario[] = [
 		forbidTools: ["kb_add"],
 		answer: /0x2C/i,
 		copy: { "xr200-datasheet.pdf": "scripts/model-check/corpus/xr200-datasheet.pdf" },
+	},
+	{
+		id: "figure-only",
+		about: "The answer is only in a drawing: dimensions drawn as lines, which the converted text lacks, so the page must be viewed",
+		prompt: "I'm designing a case for the XR-100 evaluation board. What are the board's outer dimensions, and how far apart are the mounting holes in each direction?",
+		search: "required",
+		note: "forbidden",
+		view: "required",
+		cites: ["[xr100-outline.pdf p.1]"],
+		// OCR picks up the horizontal labels (54, 4-M3) but not the vertical ones (38, 30).
+		answer: /^(?=[\s\S]*\b62\b)(?=[\s\S]*\b38\b)(?=[\s\S]*\b54\b)(?=[\s\S]*\b30\b)/,
 	},
 	{
 		id: "setup-fact",
