@@ -219,7 +219,15 @@ tessdata/                 OCR language data (downloaded on first OCR)
 runtime/, models/         runtime and model files for local semantic search (only after /kb semantic local; /kb semantic remove deletes them)
 ```
 
-**Moving it**: on the web page, Settings → Location takes a folder (in iCloud, Dropbox or a network drive, say) and can copy the current documents there; other pi windows follow. Point several computers at the same synced folder to share one knowledge base: each computer keeps its own index, and SQLite never sits in the synced folder, so syncing cannot corrupt it. Documents and notes added on another computer become searchable when pi starts or after "Sync with the folder" (`/kb sync`). With the `PI_KB_DIR` environment variable, content and local files both live in that folder and the page cannot change it.
+**Moving it**: your documents and notes can live in any folder. On the web page, Settings → Storage location takes a folder and can copy the current documents there; other pi windows follow. Choose a folder in iCloud or Dropbox and point several computers at it to share one knowledge base: documents and notes added on one computer become searchable on another when pi starts or after `/kb sync` ("Sync with the folder" on the page).
+
+The "this machine" part above stays behind, each for its own reason:
+
+- **Settings**: where the knowledge base lives is itself stored in `config.json`, and pi reads it at startup to find your documents, so it has to be in a fixed place. It also holds the API key, which does not belong in a cloud folder.
+- **Search index**: a cache built from your documents, not your data; each computer rebuilds its own. In a synced folder it would be at risk: two computers writing the same SQLite file while the sync tool copies it half-written can corrupt it.
+- **Models and OCR data**: large (the local model is about 1.1 GB) and can be downloaded again at any time, so not worth syncing.
+
+To keep everything in one folder, index and models included (on an external disk, say), set the `PI_KB_DIR` environment variable. The page then cannot change the location, and that folder should not be a synced one.
 
 ## Importing
 
