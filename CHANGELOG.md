@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.5.4 — 2026-09-26
 
 - `kb_read` can show pages as pictures: with `view: true` it renders up to 4 pages from the original (PDF, image, Office) at 150 dpi, so the model sees figures, schematics, pinouts and table layout that the converted text loses. The system prompt tells the agent to look when the answer may be in a figure; models that don't accept images get neither the hint nor the pictures. If a page can't be shown (no original, a text document, too many pages), the text is still returned with the reason.
 
