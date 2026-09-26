@@ -5,21 +5,31 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } 
 import { chunkPages } from "./chunk.ts";
 import { configStamp, defaultMinScore, type KbConfig, loadConfig, saveConfig } from "./config.ts";
 import { type ConvertedPage, Converter, type OcrShare, type PageImage, isMarkdown, normalizeText, sourceKind } from "./convert.ts";
-import { type Note, normalizeTags, now, parseNote, renderNote, slugify, today } from "./notes.ts";
+import { type Note, normalizeShelves, normalizeTags, now, parseNote, renderNote, slugify, today, withShelves } from "./notes.ts";
 import { fuse } from "./search.ts";
 import { type IndexerStatus, SemanticIndexer } from "./semantic/indexer.ts";
 import { createProvider, type EmbeddingProvider } from "./semantic/providers.ts";
 import { VectorIndex } from "./semantic/vectors.ts";
-import { type Collection, type DocRecord, type SearchHit, Store } from "./store.ts";
+import { type Collection, type DocRecord, type SearchHit, type ShelfFilter, Store } from "./store.ts";
 
 export interface NoteInput {
 	title: string;
 	content: string;
 	tags?: string[];
 	project?: string;
+	/** Shelves of the global knowledge base for a new note; none: every project sees it. */
+	shelves?: string[];
 }
 
 export type NoteMode = "create" | "append" | "replace";
+
+export interface SearchOptions {
+	limit?: number;
+	/** Documents or notes only. */
+	collection?: Collection;
+	/** Which shelves are seen (global knowledge base); unset: everything. */
+	shelves?: ShelfFilter;
+}
 
 /** A note ready to be written; built first so the user can review it. */
 export interface PreparedNote {
@@ -278,6 +288,8 @@ export class KnowledgeBase {
 			replace?: boolean;
 			/** Told when the import has to wait for something the user should know about. */
 			onNote?: (note: "ocr_download" | undefined) => void;
+			/** Shelves to put it on (added to the ones a document already present has). */
+			shelves?: string[];
 		} = {},
 	): Promise<AddResult> {
 		const cancelled = (): AddResult => ({ path, status: "skipped", reason: "cancelled", message: "import cancelled" });
@@ -285,7 +297,7 @@ export class KnowledgeBase {
 			if (options.signal?.aborted) return cancelled();
 			if (options.wiki) {
 				if (!isMarkdown(path)) return { path, status: "skipped", reason: "not_markdown", message: "only Markdown files can become wiki notes" };
-				return this.addWikiFile(path);
+				return this.addWikiFile(path, options.shelves);
 			}
 			if (!sourceKind(path)) {
 				return { path, status: "skipped", reason: "unsupported", message: `unsupported type ${extname(path) || "(none)"}` };
@@ -294,7 +306,11 @@ export class KnowledgeBase {
 			const hash = sha(bytes);
 			const id = contentId(bytes);
 			const existing = this.store.getDoc(id);
-			if (existing) return { path, status: "exists", doc: existing };
+			if (existing) {
+				// Already here: "add it to ESP32" still puts it on the shelf.
+				if (options.shelves?.length) this.setShelves(id, [...this.store.shelvesOf(id), ...options.shelves]);
+				return { path, status: "exists", doc: existing };
+			}
 
 			const result = await this.convertFile(path, options);
 			if ("status" in result) return result;
@@ -324,6 +340,8 @@ export class KnowledgeBase {
 				added_at: new Date().toISOString(),
 			};
 			this.store.putDoc(doc, chunkPages(converted.pages));
+			// A new version stays on the shelves of the one it replaces.
+			this.store.setShelves(id, this.canonicalShelves([...(options.shelves ?? []), ...replaced.flatMap((d) => this.store.shelvesOf(d.id))]));
 			this.writeManifest(doc);
 			for (const old of replaced) if (old.id !== id) this.remove(old.id);
 			void this.indexer.kick();
@@ -383,8 +401,9 @@ export class KnowledgeBase {
 		for (let n = 2; ; n++) if (!taken.has(`${name} (${n})`)) return `${name} (${n})`;
 	}
 
-	private addWikiFile(path: string): AddResult {
-		const content = readFileSync(path, "utf8");
+	private addWikiFile(path: string, shelves?: string[]): AddResult {
+		const raw = readFileSync(path, "utf8");
+		const content = shelves?.length ? withShelves(raw, this.canonicalShelves([...(parseNote(raw, "").meta.shelves ?? []), ...shelves])) : raw;
 		let target = join(this.wikiDir, basename(path));
 		if (existsSync(target) && readFileSync(target, "utf8") !== content) {
 			const stem = basename(path, extname(path));
@@ -402,8 +421,9 @@ export class KnowledgeBase {
 		const hash = sha(content);
 		const id = wikiId(this.root, file, this.project);
 		const existing = this.store.getDoc(id);
-		if (existing?.hash === hash) return existing;
 		const note = parseNote(content, basename(file, extname(file)));
+		this.syncShelves(id, note.meta.shelves);
+		if (existing?.hash === hash) return existing;
 		const doc: DocRecord = {
 			id,
 			title: note.meta.title,
@@ -417,6 +437,7 @@ export class KnowledgeBase {
 			added_at: existing?.added_at ?? new Date().toISOString(),
 		};
 		// Index the body and tags, not the front matter keys, so "created:" and the like never match.
+		// (Shelves are not indexed as text: they decide what is seen, not what matches.)
 		const tags = note.meta.tags.map((t) => `#${t}`).join(" ");
 		this.store.putDoc(doc, chunkPages([{ page: null, markdown: tags ? `${note.body}\n\n${tags}` : note.body }]));
 		void this.indexer.kick();
@@ -456,16 +477,18 @@ export class KnowledgeBase {
 	async convert(id: string): Promise<AddResult> {
 		const doc = this.store.getDoc(id);
 		if (!doc) throw new Error(`No knowledge base document with id ${id}`);
+		// It stays on the same shelves.
+		const shelves = this.store.shelvesOf(id);
 		if (doc.collection === "wiki") {
 			const file = join(this.root, doc.path);
 			// Titled by its file name, as the web upload it most likely came from.
-			const result = await this.addFile(file, { source: `upload:${basename(file)}` });
+			const result = await this.addFile(file, { source: `upload:${basename(file)}`, shelves });
 			if (result.status === "added" || result.status === "exists") this.remove(id);
 			return result;
 		}
 		const file = this.originalPath(doc);
 		if (!file || !isMarkdown(file)) throw new Error("Only Markdown documents can become notes");
-		const result = await this.addFile(file, { wiki: true });
+		const result = await this.addFile(file, { wiki: true, shelves });
 		if (result.status === "added") this.remove(id);
 		return result;
 	}
@@ -558,6 +581,39 @@ export class KnowledgeBase {
 		return parts.join("\n");
 	}
 
+	/** Shelf names spelled as the knowledge base already has them ("esp32" → "ESP32"); new ones as given. */
+	private canonicalShelves(names: string[] | undefined): string[] {
+		const known = new Map(this.store.shelfCounts().map((s) => [s.name.toLowerCase(), s.name]));
+		return normalizeShelves(names).map((n) => known.get(n.toLowerCase()) ?? n);
+	}
+
+	/** Match the index to the shelves a manifest or note names; true when they changed. */
+	private syncShelves(id: string, shelves: string[] | undefined): boolean {
+		const want = normalizeShelves(shelves);
+		const have = this.store.shelvesOf(id);
+		if ([...want].sort().join("\n") === [...have].sort().join("\n")) return false;
+		this.store.setShelves(id, want);
+		return true;
+	}
+
+	/**
+	 * Put a document or note on exactly these shelves (none: on no shelf), where it is kept: a
+	 * document's manifest or a note's front matter, so another computer's sync reads the same.
+	 */
+	setShelves(id: string, shelves: string[]): DocRecord {
+		const doc = this.store.getDoc(id);
+		if (!doc) throw new Error(`No knowledge base document with id ${id}`);
+		const names = this.canonicalShelves(shelves);
+		if (doc.collection === "wiki") {
+			const file = join(this.root, doc.path);
+			writeFileSync(file, withShelves(readFileSync(file, "utf8"), names));
+			return this.indexWikiFile(file);
+		}
+		this.store.setShelves(id, names);
+		this.writeManifest(doc);
+		return doc;
+	}
+
 	private manifestFile(id: string): string {
 		return join(this.root, "docs", `${id}.json`);
 	}
@@ -565,8 +621,11 @@ export class KnowledgeBase {
 	/** Each document's facts in a small file of its own, so the index can be rebuilt and folders merged without conflicts. */
 	private writeManifest(doc: DocRecord): void {
 		mkdirSync(join(this.root, "docs"), { recursive: true });
-		// Forward slashes, so a folder shared between Windows and macOS reads the same.
-		const record = { ...doc, path: doc.path.split(sep).join("/") };
+		// Forward slashes, so a folder shared between Windows and macOS reads the same. The shelves come
+		// from the index, so rewriting a manifest (a rename, a reread) keeps them.
+		const shelves = this.store.shelvesOf(doc.id);
+		const { shelves: _, ...fields } = doc as DocRecord & { shelves?: string[] };
+		const record = { ...fields, path: doc.path.split(sep).join("/"), ...(shelves.length ? { shelves } : {}) };
 		writeFileSync(this.manifestFile(doc.id), `${JSON.stringify(record, null, 2)}\n`);
 	}
 
@@ -597,7 +656,9 @@ export class KnowledgeBase {
 			const file = join(this.root, record.path);
 			if (!existsSync(file)) continue; // the text has not arrived yet (sync in progress)
 			seen.add(record.id);
-			const doc: DocRecord = { ...record, collection: "docs", path: record.path.split("/").join(sep) };
+			const { shelves, ...fields } = record as DocRecord & { shelves?: string[] };
+			const doc: DocRecord = { ...fields, collection: "docs", path: record.path.split("/").join(sep) };
+			this.syncShelves(doc.id, shelves);
 			const known = this.store.getDoc(record.id);
 			if (!known) {
 				this.store.putDoc(doc, chunkPages(pagesOf(readFileSync(file, "utf8"))));
@@ -661,7 +722,12 @@ export class KnowledgeBase {
 			let file = join(this.wikiDir, `${slug}.md`);
 			for (let n = 2; existsSync(file); n++) file = join(this.wikiDir, `${slug}-${n}.md`);
 			const date = today();
-			return { action: mode, file, note: { meta: { title, tags, created: date, updated: date, project: input.project }, body: content } };
+			const shelves = this.canonicalShelves(input.shelves);
+			return {
+				action: mode,
+				file,
+				note: { meta: { title, tags, created: date, updated: date, project: input.project, ...(shelves.length ? { shelves } : {}) }, body: content },
+			};
 		}
 		const existing = id ? this.store.getDoc(id) : undefined;
 		if (!existing || existing.collection !== "wiki") throw new Error(`Mode "${mode}" needs the id of an existing wiki note (w-…)`);
@@ -675,6 +741,8 @@ export class KnowledgeBase {
 			created: current.meta.created || today(new Date(existing.added_at)),
 			updated: today(),
 			project: current.meta.project ?? input.project,
+			// An existing note keeps its shelves; one on none may get some.
+			shelves: current.meta.shelves ?? (normalizeShelves(input.shelves).length ? this.canonicalShelves(input.shelves) : undefined),
 		};
 		const body = mode === "append" ? `${current.body}\n\n${appendSection(content, today())}` : content;
 		return { action: mode, file, note: { meta, body }, existing };
@@ -696,6 +764,7 @@ export class KnowledgeBase {
 					created: meta.created || note.meta.created,
 					updated: meta.updated || note.meta.updated,
 					project: meta.project ?? note.meta.project,
+					shelves: meta.shelves ?? note.meta.shelves,
 				},
 				body,
 			};
@@ -767,7 +836,7 @@ export class KnowledgeBase {
 	}
 
 	/** Keyword search only (synchronous). */
-	search(query: string, options: { limit?: number; collection?: Collection } = {}): SearchHit[] {
+	search(query: string, options: SearchOptions = {}): SearchHit[] {
 		return this.store.search(query, options);
 	}
 
@@ -775,10 +844,10 @@ export class KnowledgeBase {
 	 * Hybrid search: keyword and semantic results fused by rank. Falls back to keywords
 	 * when semantic search is off, not indexed yet, or the query cannot be embedded.
 	 */
-	async find(query: string, options: { limit?: number; collection?: Collection } = {}): Promise<SearchHit[]> {
+	async find(query: string, options: SearchOptions = {}): Promise<SearchHit[]> {
 		const limit = options.limit ?? 8;
-		const keyword = this.store.search(query, { limit: 40, collection: options.collection });
-		const semantic = await this.semanticChunks(query, options.collection);
+		const keyword = this.store.search(query, { limit: 40, collection: options.collection, shelves: options.shelves });
+		const semantic = await this.semanticChunks(query, options.collection, options.shelves);
 		if (!semantic) return keyword.slice(0, limit).map((h) => ({ ...h, match: "keyword" as const }));
 		let semanticOnly = keyword.length ? SEMANTIC_ONLY_WITH_KEYWORDS : SEMANTIC_ONLY_ALONE;
 		const fused = fuse(
@@ -796,8 +865,8 @@ export class KnowledgeBase {
 	}
 
 	/** Semantic search alone (for evaluation): the chunks above the similarity floor, best first. */
-	async findSemantic(query: string, options: { limit?: number; collection?: Collection } = {}): Promise<SearchHit[]> {
-		const semantic = (await this.semanticChunks(query, options.collection)) ?? [];
+	async findSemantic(query: string, options: SearchOptions = {}): Promise<SearchHit[]> {
+		const semantic = (await this.semanticChunks(query, options.collection, options.shelves)) ?? [];
 		const top = semantic.slice(0, options.limit ?? 8);
 		const hits = this.store.chunks(top.map((h) => h.rowid));
 		return top.flatMap((h) => {
@@ -824,7 +893,7 @@ export class KnowledgeBase {
 	 * Chunks close in meaning, filtered by the model's similarity floor. Undefined when semantic
 	 * search is off, not indexed yet, or the query cannot be embedded (offline, no key).
 	 */
-	private async semanticChunks(query: string, collection?: Collection) {
+	private async semanticChunks(query: string, collection?: Collection, shelves?: ShelfFilter) {
 		const provider = this.provider;
 		if (!provider || !query.trim() || !this.semanticReady()) return undefined;
 		let vector: Float32Array;
@@ -835,7 +904,8 @@ export class KnowledgeBase {
 		}
 		const cfg = this.config.semantic;
 		const minScore = cfg.minScore ?? defaultMinScore(cfg.provider === "api" ? cfg.api.model : cfg.local.model);
-		return this.vectors.search(provider.key, vector, 40, collection).filter((h) => minScore === undefined || h.score >= minScore);
+		const allow = shelves ? this.store.visibleIds(shelves) : undefined;
+		return this.vectors.search(provider.key, vector, 40, collection, allow).filter((h) => minScore === undefined || h.score >= minScore);
 	}
 
 	/** Start embedding whatever is new (no-op when semantic search is off). */
@@ -895,16 +965,23 @@ export class KnowledgeBase {
 	}
 
 	/** A compact catalog for the system prompt: counts plus wiki note titles. */
-	catalog(maxNotes = 40): string {
-		const { docs, wiki, pages } = this.store.stats();
+	/** `shelves`: only what they let through, with a word about the rest. */
+	catalog(maxNotes = 40, shelves?: ShelfFilter): string {
+		const seen = shelves ? this.store.visibleIds(shelves) : undefined;
+		const all = this.store.listDocs().filter((d) => !seen || seen.has(d.id));
+		const docs = all.filter((d) => d.collection === "docs").length;
+		const wiki = all.length - docs;
+		const pages = all.reduce((n, d) => n + (d.pages ?? 0), 0);
 		const lines = [`${docs} document(s)${pages ? `, ${pages} page(s)` : ""}; ${wiki} wiki note(s).`];
-		const notes = this.store.listDocs("wiki");
+		const hidden = seen ? this.store.stats().docs + this.store.stats().wiki - all.length : 0;
+		if (hidden) lines.push(`${hidden} more on shelves this project does not use; kb_search with shelf searches one of them.`);
+		const notes = all.filter((d) => d.collection === "wiki");
 		if (notes.length) {
 			lines.push("Wiki notes:");
 			for (const note of notes.slice(0, maxNotes)) lines.push(`- ${note.title} (${note.id})`);
 			if (notes.length > maxNotes) lines.push(`- …and ${notes.length - maxNotes} more; use kb_search to find them.`);
 		}
-		const recent = this.store.listDocs("docs").slice(0, 15);
+		const recent = all.filter((d) => d.collection === "docs").slice(0, 15);
 		if (recent.length) {
 			lines.push("Recent documents:");
 			for (const doc of recent) lines.push(`- ${doc.title}${doc.pages ? `, ${doc.pages} pages` : ""} (${doc.id})`);

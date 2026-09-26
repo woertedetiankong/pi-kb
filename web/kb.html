@@ -121,6 +121,12 @@ main { overflow-y: auto; border-right: 1px solid var(--line); }
 button.tag:hover, .wikilink:hover { text-decoration: underline; }
 .wikilink { color: var(--accent-text); font: inherit; }
 .wikilink.broken { color: var(--faint); text-decoration: line-through dotted; cursor: help; }
+.nav.dim .name, .nav.dim .ico { opacity: .55; }
+.side-use { padding: 4px 10px 2px; font-size: 12px; color: var(--faint); overflow-wrap: anywhere; }
+.side-use button, .shelf-edit { color: var(--accent-text); font-size: 12px; margin-left: 4px; }
+.shelf { font-size: 11px; border-radius: 4px; padding: 0 6px; background: var(--user); color: var(--muted); }
+.target select { width: 100%; margin-top: 6px; font: inherit; font-size: 12.5px; padding: 3px 6px; border: 1px solid var(--line-strong); border-radius: 7px; background: var(--panel); color: var(--text); }
+.use-list { display: grid; gap: 6px; margin: 8px 0 4px 22px; }
 .side-tags { display: flex; flex-wrap: wrap; gap: 4px 8px; padding: 2px 10px 4px; font-size: 12.5px; }
 .side-tags button { color: var(--muted); }
 .side-tags button.on { color: var(--accent-text); font-weight: 600; }
@@ -283,6 +289,17 @@ dialog.dlg::backdrop { background: rgba(0,0,0,.35); }
   </form>
 </dialog>
 
+<dialog class="dlg" id="useDlg">
+  <div class="dlg-head"><h2 id="useTitle"></h2><button data-close aria-label="close">✕</button></div>
+  <form>
+    <label class="check"><input type="radio" name="useMode" value="all"> <span data-t="useAllOpt"></span></label>
+    <label class="check"><input type="radio" name="useMode" value="some"> <span data-t="useSomeOpt"></span></label>
+    <div class="use-list" id="useList"></div>
+    <p class="fine" data-t="useHint"></p>
+    <div class="row"><button type="button" class="btn" data-close data-t="cancel"></button><button class="btn primary" data-t="save"></button></div>
+  </form>
+</dialog>
+
 <dialog class="dlg" id="versionDlg">
   <div class="dlg-head"><h2 data-t="versionTitle"></h2></div>
   <form method="dialog">
@@ -358,6 +375,15 @@ const T = {
     dropTitle: "松开即可导入", dropHint: "PDF、图片、文本作为资料，按页检索；Markdown 文件作为笔记，和 agent 记下的经验放在一起",
     notesImported: n => `${n} 个 Markdown 文件已作为笔记导入`, asDocs: "改为资料导入",
     docsTip: "资料：导入的 PDF、图片、手册等，别人写的参考材料。只读，引用时带页码",
+    shelvesLabel: "资料集", shelfNone: "未分组",
+    shelvesStart: "给全局库按主题分组，每个项目只看自己用的资料集。在全局库资料的页面点「资料集 · 修改」；或者把「新资料放到」设为全局，再选「放进资料集」。", shelfNoneTip: "不属于任何资料集：所有项目都能看到",
+    shelfUnusedTip: "本项目没有使用这个资料集：在这里 agent 默认不会搜它，除非你让它去查",
+    shelfUsing: names => names === null ? "本项目使用：全部资料集" : names.length ? `本项目使用：${names.join("、")}` : "本项目只用未分组的内容",
+    shelfEdit: "修改", shelfFact: "资料集", shelfFactNone: "未分组（所有项目都能看到）",
+    shelfPrompt: "资料集名称，多个用逗号分隔；留空表示不分组", shelfSaved: "资料集已更新",
+    useTitle: t => `项目「${t}」使用哪些资料集`, useAllOpt: "全部资料集（默认）", useSomeOpt: "只用勾选的：",
+    useHint: "未分组的内容所有项目都能看到。", useSaved: "已更新本项目使用的资料集",
+    uploadShelf: "放进资料集", uploadShelfNone: "不分组", uploadShelfNew: "新建…", uploadShelfNewPrompt: "新资料集的名称",
     notesTip: "笔记：你或 agent 记下的经验、踩坑和偏好。可以编辑、追加",
     toDocs: "改为资料", toNote: "改为笔记",
     toDocsTip: "这其实是参考文档（比如 README）？改为只读的资料", toNoteTip: "这是你自己的经验记录？改为可以编辑、追加的笔记",
@@ -446,6 +472,15 @@ const T = {
     dropTitle: "Drop to import", dropHint: "PDF, images and text become documents, searchable by page; Markdown files become notes, next to the lessons the agent records",
     notesImported: n => `${pl(n, "Markdown file")} imported as notes`, asDocs: "Import as documents instead",
     docsTip: "Documents: imported PDFs, images, manuals and other reference material. Read-only, cited by page",
+    shelvesLabel: "Collections", shelfNone: "No collection",
+    shelvesStart: "Group your global knowledge base by topic, so each project sees only its own collections. Use \u201cChange\u201d in a global document\u2019s Collections row, or set \u201cNew material goes to\u201d to global and pick a Collection.", shelfNoneTip: "In no collection: every project sees these",
+    shelfUnusedTip: "This project does not use this collection: the agent here does not search it unless you ask",
+    shelfUsing: names => names === null ? "This project uses: all collections" : names.length ? `This project uses: ${names.join(", ")}` : "This project uses only what is in no collection",
+    shelfEdit: "Change", shelfFact: "Collections", shelfFactNone: "none (every project sees it)",
+    shelfPrompt: "Collection names, separated by commas; empty for none", shelfSaved: "Collections updated",
+    useTitle: t => `Collections the project "${t}" uses`, useAllOpt: "All collections (default)", useSomeOpt: "Only the ones ticked:",
+    useHint: "Everything in no collection is seen by every project.", useSaved: "Updated the collections this project uses",
+    uploadShelf: "Collection", uploadShelfNone: "None", uploadShelfNew: "New…", uploadShelfNewPrompt: "Name of the new collection",
     notesTip: "Notes: lessons, gotchas and preferences you or the agent wrote down. Editable",
     toDocs: "Make it a document", toNote: "Make it a note",
     toDocsTip: "Reference material (a README, say) rather than your own lesson? Make it a read-only document", toNoteTip: "Your own lesson? Make it an editable note",
@@ -682,12 +717,39 @@ function renderSide() {
     ${kinds.map(k => nav("kind:" + k, "", T.kinds[k], count(k), true)).join("")}
     ${nav("wiki", "✎", T.notes, count("note"), false, T.notesTip)}
     ${hasProject() ? `${nav("scope:project", "📁", `${T.viewProject} · ${state.status.project.name}`, docs.filter(d => d.scope === "project").length)}${nav("scope:global", "👤", T.viewGlobal, docs.filter(d => d.scope === "global").length)}` : ""}
+    ${sideShelves()}
     ${sideTags()}
     <div class="nav-label">${esc(T.actions)}</div>
     <button class="nav" id="newNoteBtn"><span class="ico">＋</span><span class="name">${esc(T.newNote)}</span></button>
     <button class="nav" id="semBtn"><span class="ico">⚙</span><span class="name">${esc(T.settings)}</span></button>
     ${hasProject() ? `<div class="target">${esc(T.target)}<div class="seg" id="targetSeg"><button data-target="project" class="${target === "project" ? "on" : ""}" title="${esc(T.targetProject(state.status.project.name))} · ${esc(state.status.project.dir)}">${esc(T.scope.project)}</button><button data-target="global" class="${target === "global" ? "on" : ""}" title="${esc(T.scopeTip.global)}">${esc(T.scope.global)}</button></div></div>` : ""}
+    ${uploadShelfPicker()}
     <div class="side-foot">${esc(T.folder)}<br>${esc(state.status?.root ?? "")}</div>`;
+}
+
+const shelfInfo = () => state.status?.shelves ?? { list: [], using: null, here: null };
+/** The global knowledge base's collections, what is in none, and which ones this project uses. */
+function sideShelves() {
+  const { list, using, here } = shelfInfo();
+  // Shown before there are any, so the page says how to start.
+  const nav = (view, name, cnt, tip, dim) => `<button class="nav${dim ? " dim" : ""}${state.view === view && !state.hits ? " on" : ""}" data-view="${esc(view)}" title="${esc(tip)}"><span class="ico">▣</span><span class="name">${esc(name)}</span><span class="cnt">${cnt}</span></button>`;
+  const none = state.docs.filter(d => d.scope === "global" && !d.shelves?.length).length;
+  return `<div class="nav-label">${esc(T.shelvesLabel)}</div>
+    ${list.map(s => nav("shelf:" + s.name, s.name, s.docs + s.notes, s.used ? s.name : T.shelfUnusedTip, !s.used)).join("")}
+    ${nav("shelf:", T.shelfNone, none, T.shelfNoneTip)}
+    ${!list.length ? `<div class="side-use">${esc(T.shelvesStart)}</div>` : here ? `<div class="side-use">${esc(T.shelfUsing(using))}<button id="useEdit">${esc(T.shelfEdit)}</button></div>` : ""}`;
+}
+/** Where new global documents go: a collection, none, or a new one. */
+let uploadShelf = "";
+function uploadShelfPicker() {
+  const { list } = shelfInfo();
+  // Its "New…" is how the first collection is made on the page.
+  if (targetScope() !== "global") return "";
+  const names = [...new Set([...list.map(s => s.name), ...(uploadShelf ? [uploadShelf] : [])])];
+  return `<div class="target">${esc(T.uploadShelf)}<select id="uploadShelf">
+    <option value="">${esc(T.uploadShelfNone)}</option>
+    ${names.map(n => `<option value="${esc(n)}"${n === uploadShelf ? " selected" : ""}>${esc(n)}</option>`).join("")}
+    <option value="\u0000new">${esc(T.uploadShelfNew)}</option></select></div>`;
 }
 
 /** The notes' tags, most used first (at most 16), to browse by. */
@@ -702,13 +764,15 @@ function sideTags() {
 function visibleDocs() {
   const v = state.view;
   if (v.startsWith("tag:")) return state.docs.filter(d => d.tags?.includes(v.slice(4)));
+  if (v === "shelf:") return state.docs.filter(d => d.scope === "global" && !d.shelves?.length);
+  if (v.startsWith("shelf:")) return state.docs.filter(d => d.shelves?.includes(v.slice(6)));
   return state.docs.filter(d => v === "all" || (v === "docs" && d.collection === "docs") || (v === "wiki" && d.collection === "wiki") || (v.startsWith("kind:") && kindOf(d) === v.slice(5)) || (v.startsWith("scope:") && d.scope === v.slice(6)));
 }
 
 function card(d, extra = "") {
   const k = kindOf(d);
   return `<button class="card${state.selected === d.id ? " on" : ""}" data-id="${esc(d.id)}">
-    <div class="row1">${scopeTag(d.scope)}<span class="kind${k === "note" ? " note" : ""}">${esc(T.kinds[k] ?? k)}</span><span class="title">${esc(d.title)}</span><span class="time num">${esc(fmtDate(d.added_at))}</span></div>
+    <div class="row1">${scopeTag(d.scope)}<span class="kind${k === "note" ? " note" : ""}">${esc(T.kinds[k] ?? k)}</span><span class="title">${esc(d.title)}</span>${(d.shelves || []).map(n => `<span class="shelf">${esc(n)}</span>`).join("")}<span class="time num">${esc(fmtDate(d.added_at))}</span></div>
     ${extra}
     <div class="meta">${d.pages ? `<span>${esc(T.pages(d.pages))}</span>` : ""}<span class="num">${esc(d.id)}</span></div>
   </button>`;
@@ -759,13 +823,21 @@ function renderList() {
   const docs = visibleDocs();
   const title = state.view === "all" ? T.all : state.view === "docs" ? T.docs : state.view === "wiki" ? T.notes
     : state.view === "scope:project" ? `${T.viewProject} · ${state.status?.project?.name ?? ""}` : state.view === "scope:global" ? T.viewGlobal
-    : state.view.startsWith("tag:") ? T.tagView(state.view.slice(4)) : T.kinds[state.view.slice(5)];
+    : state.view.startsWith("tag:") ? T.tagView(state.view.slice(4))
+    : state.view === "shelf:" ? T.shelfNone : state.view.startsWith("shelf:") ? state.view.slice(6) : T.kinds[state.view.slice(5)];
   // While the first files are importing, "empty" would contradict the progress line above.
   const empty = state.docs.length
     ? `<div class="empty">${esc(T.emptyView)}</div>`
     : busy ? `<div class="empty">${esc(T.emptyImporting)}</div>`
     : `<div class="empty"><b>${esc(T.empty)}</b><br>${esc(T.emptyHint)}<br><button class="btn primary" id="emptyUpload">${esc(T.upload)}</button></div>`;
   $("list").innerHTML = `<div class="list-head"><h2>${esc(title)}</h2><span class="sub">${esc(T.items(docs.length))}</span>${progress}</div><div class="group">${answerCard()}${docs.length ? docs.map(d => card(d)).join("") : empty}</div>`;
+}
+
+/** The open item's collections with a button to change them; global items only (a project's own have none). */
+function shelfFact() {
+  if (state.doc?.scope !== "global") return null;
+  const names = state.doc.shelves || [];
+  return [T.shelfFact, `${names.length ? names.map(n => `<span class="shelf">${esc(n)}</span>`).join(" ") : esc(T.shelfFactNone)}<button class="shelf-edit" id="shelfEdit">${esc(T.shelfEdit)}</button>`];
 }
 
 /** "Move to project/global" for the open document, when there is a project to move to. */
@@ -797,6 +869,7 @@ async function renderPreview() {
       fields.updated && [T.updated, esc(fields.updated)],
       fields.created && [T.created, esc(fields.created)],
       fields.project && [T.project, esc(fields.project)],
+      shelfFact(),
       [T.id, `<span class="num">${esc(doc.id)}</span>`],
     ].filter(Boolean);
     pv.innerHTML = `<div class="pv">${back}
@@ -818,6 +891,7 @@ async function renderPreview() {
       <dt>${esc(T.added)}</dt><dd>${esc(fmtDate(doc.added_at))}</dd>
       <dt>${esc(T.source)}</dt><dd>${esc(doc.source.replace(/^upload:/, ""))}</dd>
       <dt>${esc(T.id)}</dt><dd class="num">${esc(doc.id)}</dd>
+      ${(f => f ? `<dt>${esc(f[0])}</dt><dd>${f[1]}</dd>` : "")(shelfFact())}
     </dl>
     <div class="actions"><button class="btn" id="openOriginal" data-page="${state.focusPage ?? ""}">${esc(T.openOriginal)} ↗</button>${["pdf", "image", "office"].includes(doc.kind) ? `<button class="btn" id="rereadDoc" title="${esc(T.rereadTip)}">${esc(T.reread)}</button>` : ""}${doc.kind === "text" && isMarkdown(doc.source) ? `<button class="btn" id="convertDoc" title="${esc(T.toNoteTip)}">${esc(T.toNote)}</button>` : ""}${moveButton()}<button class="btn danger" id="removeDoc">${esc(T.remove)}</button></div>
     ${image ? `<img class="orig" id="origImg" alt="">` : ""}
@@ -948,7 +1022,8 @@ async function upload(files, note) {
   const results = [], jobs = [];
   for (const [i, file] of list.entries()) {
     state.uploading = T.sending(i + 1, list.length, file.name); renderList();
-    const url = `/upload?name=${encodeURIComponent(file.name)}${asNote(file) ? "&note=1" : ""}&scope=${targetScope()}`;
+    const shelf = targetScope() === "global" && uploadShelf ? `&shelf=${encodeURIComponent(uploadShelf)}` : "";
+    const url = `/upload?name=${encodeURIComponent(file.name)}${asNote(file) ? "&note=1" : ""}&scope=${targetScope()}${shelf}`;
     try {
       let r = await api(url, { raw: file });
       if (r.versions) {
@@ -1055,12 +1130,43 @@ $("side").addEventListener("click", async e => {
   if (b.dataset.view) return showView(b.dataset.view);
   if (b.id === "newNoteBtn") { $("newNoteErr").hidden = true; $("newNote").showModal(); return; }
   if (b.id === "semBtn") return openSemantic();
+  if (b.id === "useEdit") return openUse();
   if (b.dataset.target) {
     target = b.dataset.target;
     try { const p = JSON.parse(localStorage.getItem("pi-kb-prefs") || "{}"); localStorage.setItem("pi-kb-prefs", JSON.stringify({ ...p, target })); } catch {}
     renderSide(); return;
   }
 });
+$("side").addEventListener("change", e => {
+  if (e.target.id !== "uploadShelf") return;
+  let v = e.target.value;
+  if (v === "\u0000new") v = (prompt(T.uploadShelfNewPrompt) || "").trim();
+  uploadShelf = v;
+  renderSide();
+});
+
+// ---- collections ----
+function openUse() {
+  const { list, using, here } = shelfInfo();
+  $("useTitle").textContent = T.useTitle(here);
+  const f = $("useDlg").querySelector("form");
+  f.useMode.value = using === null ? "all" : "some";
+  $("useList").innerHTML = list.map(s => `<label class="check"><input type="checkbox" value="${esc(s.name)}"${using === null || using.includes(s.name) ? " checked" : ""}> ${esc(s.name)} <span class="fine">${s.docs + s.notes}</span></label>`).join("");
+  $("useDlg").showModal();
+}
+$("useDlg").addEventListener("click", e => { if (e.target.closest("[data-close]")) $("useDlg").close(); });
+$("useDlg").addEventListener("change", e => {
+  // Ticking a box means choosing some.
+  if (e.target.type === "checkbox") $("useDlg").querySelector("form").useMode.value = "some";
+});
+$("useDlg").querySelector("form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const f = e.target;
+  const shelves = f.useMode.value === "all" ? null : [...$("useList").querySelectorAll("input:checked")].map(i => i.value);
+  try { await api("/shelves/use", { body: { shelves } }); $("useDlg").close(); etags.status = ""; await refresh(); toast(T.useSaved); }
+  catch (err) { toast(err.message); }
+});
+
 $("list").addEventListener("click", e => {
   if (e.target.closest("#emptyUpload")) return $("files").click();
   if (e.target.closest("#askClose")) { askAbort?.abort(); state.answer = null; renderList(); return; }
@@ -1092,6 +1198,17 @@ $("preview").addEventListener("click", async e => {
   if (b.id === "saveNote") {
     try { await api("/note", { body: { id, text: $("noteText").value } }); state.editing = false; state.doc = null; etags = {}; await refresh(); renderPreview(); toast(T.saved); }
     catch (err) { toast(err.message); }
+    return;
+  }
+  if (b.id === "shelfEdit" && doc) {
+    const input = prompt(T.shelfPrompt, (state.doc.shelves || []).join(", "));
+    if (input === null) return;
+    const shelves = input.split(/[,，、]/).map(x => x.trim()).filter(Boolean);
+    try {
+      await api("/shelves/set", { body: { id, shelves } });
+      // A note's front matter changed too: read it again.
+      state.doc = null; etags = {}; await refresh(); renderPreview(); toast(T.shelfSaved);
+    } catch (err) { toast(err.message); }
     return;
   }
   if (b.id === "convertDoc" && doc) {

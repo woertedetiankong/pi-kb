@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { type AddResult, contentId, type KnowledgeBase, pathsOutside } from "./kb.ts";
 import { parseNote, titleSimilarity, wikiLinks } from "./notes.ts";
 import type { ProjectKb } from "./project.ts";
-import type { Collection, DocRecord, SearchHit } from "./store.ts";
+import type { Collection, DocRecord, SearchHit, ShelfFilter } from "./store.ts";
 
 /**
  * The knowledge bases in reach: the user's global one and, inside a project that has one, the
@@ -13,8 +13,10 @@ import type { Collection, DocRecord, SearchHit } from "./store.ts";
 
 export type Scope = "project" | "global";
 export type ScopedHit = SearchHit & { scope: Scope };
-export type ScopedDoc = DocRecord & { scope: Scope };
-type SearchOptions = { limit?: number; collection?: Collection };
+/** `shelves`: the global knowledge base's shelves it is on (project documents have none). */
+export type ScopedDoc = DocRecord & { scope: Scope; shelves?: string[] };
+/** `shelf`: search only that shelf of the global knowledge base, whatever the project uses. */
+type SearchOptions = { limit?: number; collection?: Collection; shelf?: string };
 
 /** A note that may already cover a new one: its title is alike, or a search for the new title finds it. */
 export type SimilarNote = ScopedDoc & { why: "title" | "search"; match?: SearchHit["match"] };
@@ -51,10 +53,22 @@ const SIMILAR_TITLE = 0.7;
 export class Library {
 	readonly global: KnowledgeBase;
 	readonly project?: { kb: KnowledgeBase; info: ProjectKb };
+	/**
+	 * The shelves of the global knowledge base this project uses, besides everything on no shelf;
+	 * undefined: all of them (the default).
+	 */
+	readonly shelves?: string[];
 
-	constructor(global: KnowledgeBase, project?: { kb: KnowledgeBase; info: ProjectKb }) {
+	constructor(global: KnowledgeBase, project?: { kb: KnowledgeBase; info: ProjectKb }, shelves?: string[]) {
 		this.global = global;
 		this.project = project;
+		this.shelves = shelves;
+	}
+
+	/** What the global knowledge base shows here: the project's shelves, or one shelf asked for. */
+	private globalFilter(shelf?: string): ShelfFilter | undefined {
+		if (shelf !== undefined) return { only: shelf };
+		return this.shelves ? { any: this.shelves } : undefined;
 	}
 
 	/** Project first: on equal footing its documents win. */
@@ -108,17 +122,17 @@ export class Library {
 
 	/** Both knowledge bases searched, merged by rank (their scores are not comparable), project first on ties. */
 	find(query: string, options: SearchOptions = {}): Promise<ScopedHit[]> {
-		return this.merge(options, (kb, limit) => kb.find(query, { ...options, limit }));
+		return this.merge(options, (kb, limit, shelves) => kb.find(query, { ...options, limit, shelves }));
 	}
 
 	/** Keyword search only, merged the same way (for evaluation). */
 	search(query: string, options: SearchOptions = {}): Promise<ScopedHit[]> {
-		return this.merge(options, (kb, limit) => kb.search(query, { ...options, limit }));
+		return this.merge(options, (kb, limit, shelves) => kb.search(query, { ...options, limit, shelves }));
 	}
 
 	/** Semantic search only, merged the same way (for evaluation). */
 	findSemantic(query: string, options: SearchOptions = {}): Promise<ScopedHit[]> {
-		return this.merge(options, (kb, limit) => kb.findSemantic(query, { ...options, limit }));
+		return this.merge(options, (kb, limit, shelves) => kb.findSemantic(query, { ...options, limit, shelves }));
 	}
 
 	/** Whether semantic search can answer in either knowledge base. */
@@ -126,12 +140,17 @@ export class Library {
 		return this.scopes.some(([, kb]) => kb.semanticReady());
 	}
 
-	private async merge(options: SearchOptions, each: (kb: KnowledgeBase, limit: number) => SearchHit[] | Promise<SearchHit[]>): Promise<ScopedHit[]> {
+	private async merge(
+		options: SearchOptions,
+		each: (kb: KnowledgeBase, limit: number, shelves: ShelfFilter | undefined) => SearchHit[] | Promise<SearchHit[]>,
+	): Promise<ScopedHit[]> {
 		const limit = options.limit ?? 8;
-		if (!this.project) return (await each(this.global, limit)).map((h) => ({ ...h, scope: "global" }));
+		const shelves = this.globalFilter(options.shelf);
+		// One shelf asked for: that is in the global knowledge base only.
+		if (!this.project || options.shelf !== undefined) return (await each(this.global, limit, shelves)).map((h) => ({ ...h, scope: "global" }));
 		const merged: { hit: ScopedHit; score: number }[] = [];
 		for (const [scope, kb] of this.scopes) {
-			const hits = await each(kb, limit);
+			const hits = await each(kb, limit, scope === "global" ? shelves : undefined);
 			hits.forEach((hit, rank) => merged.push({ hit: { ...hit, scope }, score: 1 / (RRF_K + rank) + (scope === "project" ? 1e-9 : 0) }));
 		}
 		return merged
@@ -238,8 +257,46 @@ export class Library {
 		return out;
 	}
 
+	/** Everything in both knowledge bases, whatever the project's shelves (for browsing and management). */
 	listDocs(collection?: Collection): ScopedDoc[] {
-		return this.scopes.flatMap(([scope, kb]) => kb.store.listDocs(collection).map((d) => ({ ...d, scope })));
+		const shelves = this.global.store.shelfMap();
+		return this.scopes.flatMap(([scope, kb]) =>
+			kb.store.listDocs(collection).map((d) => (scope === "global" && shelves.has(d.id) ? { ...d, scope, shelves: shelves.get(d.id) } : { ...d, scope })),
+		);
+	}
+
+	/** The global knowledge base's shelves with their sizes, and whether this project uses each. */
+	shelfList(): { name: string; docs: number; notes: number; used: boolean }[] {
+		return this.global.store.shelfCounts().map((s) => ({ ...s, used: !this.shelves || this.shelves.some((u) => u.toLowerCase() === s.name.toLowerCase()) }));
+	}
+
+	/** The spelling of an existing shelf that matches `name` ignoring case, else `name` itself (a new shelf). */
+	shelfName(name: string): string {
+		return this.global.store.shelfCounts().find((s) => s.name.toLowerCase() === name.trim().toLowerCase())?.name ?? name.trim();
+	}
+
+	/**
+	 * Rename a shelf (`to`), or remove it (`to` unset: what was on it stays, on no shelf). Returns how
+	 * many documents and notes changed; 0 when no shelf has that name.
+	 */
+	renameShelf(from: string, to?: string): number {
+		const old = from.trim().toLowerCase();
+		const target = to === undefined ? undefined : this.shelfName(to);
+		let changed = 0;
+		for (const [id, shelves] of this.global.store.shelfMap()) {
+			if (!shelves.some((s) => s.toLowerCase() === old)) continue;
+			this.global.setShelves(id, [...shelves.filter((s) => s.toLowerCase() !== old), ...(target ? [target] : [])]);
+			changed++;
+		}
+		return changed;
+	}
+
+	/** Put a global document or note on exactly these shelves; project ones have none (the project is their shelf). */
+	setShelves(id: string, shelves: string[]): ScopedDoc {
+		const { kb, scope } = this.need(id);
+		if (scope === "project") throw new Error("Shelves group the global knowledge base; this is in the project's own");
+		const doc = kb.setShelves(id, shelves.map((s) => this.shelfName(s)));
+		return { ...doc, scope, shelves: kb.store.shelvesOf(doc.id) };
 	}
 
 	stats(): { docs: number; wiki: number; pages: number; project?: { docs: number; wiki: number; pages: number } } {
@@ -312,6 +369,8 @@ export class Library {
 			if (!arrived) throw new Error(`could not move ${doc.title}`);
 			moved = arrived;
 		}
+		// Shelves group the global knowledge base only: in the project, the project is the shelf.
+		if (to === "project" && target.store.shelvesOf(moved.id).length) moved = target.setShelves(moved.id, []);
 		from.remove(id);
 		return { ...moved, scope: to };
 	}
@@ -330,7 +389,8 @@ export class Library {
 
 	/** What the model sees in its prompt: each knowledge base's notes and recent documents. */
 	catalog(): string {
-		if (!this.project) return this.global.catalog();
-		return [`Project knowledge base "${this.project.info.name}" (shared with the team through git):`, this.project.kb.catalog(), "", "Global (personal) knowledge base:", this.global.catalog()].join("\n");
+		const global = this.global.catalog(40, this.globalFilter());
+		if (!this.project) return global;
+		return [`Project knowledge base "${this.project.info.name}" (shared with the team through git):`, this.project.kb.catalog(), "", "Global (personal) knowledge base:", global].join("\n");
 	}
 }

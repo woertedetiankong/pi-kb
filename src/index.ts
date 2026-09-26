@@ -1,12 +1,12 @@
 import { type ExtensionAPI, type ExtensionContext, formatDimensionNote, getAgentDir, resizeImage } from "@earendil-works/pi-coding-agent";
-import { unwatchFile, watchFile } from "node:fs";
-import { basename, extname, join, resolve } from "node:path";
+import { statSync, unwatchFile, watchFile } from "node:fs";
+import { basename, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 import { checkWritable, copyContent, expandDir, kbLocation, LocationError } from "./config.ts";
 import { type LanguageSetting, type Messages, messages, resolveLanguage } from "./i18n.ts";
 import { isMarkdown } from "./convert.ts";
-import { type AddResult, formatCitation, KnowledgeBase, type NoteMode, type PageOcr, pathsOutside } from "./kb.ts";
+import { type AddResult, expandHome, formatCitation, KnowledgeBase, type NoteMode, type PageOcr, pathsOutside } from "./kb.ts";
 import { renderNote } from "./notes.ts";
 import { sharedHub } from "./hub.ts";
 import type { SearchHit } from "./store.ts";
@@ -30,7 +30,7 @@ const LIST_LIMIT = 50;
 /** What most people need; shown first by /kb help and the only ones completed before a letter is typed. */
 const EVERYDAY = ["add", "search", "web", "note", "list", "remove", "cancel", "status", "on", "off", "help"];
 /** Teams, tuning and upkeep: listed under "More" in /kb help, completed once their first letters are typed. */
-const MORE = ["init", "move", "semantic", "reread", "lint", "eval", "open", "lang", "sync"];
+const MORE = ["init", "move", "use", "group", "semantic", "reread", "lint", "eval", "open", "lang", "sync"];
 /** Kinds whose text may come from OCR, so reading them again with other OCR settings can change it. */
 const REREAD_KINDS = ["pdf", "image", "office"];
 const SUBCOMMANDS = [...EVERYDAY, ...MORE];
@@ -159,6 +159,29 @@ export function matchDocs<T extends { id: string; title: string }>(docs: T[], qu
 	return docs.filter((d) => words.every((w) => `${d.title} ${d.id}`.toLowerCase().includes(w)));
 }
 
+/**
+ * Shelves suggested by folder for an import: a file inside a subfolder of a folder the user added
+ * goes on a shelf named after that subfolder (~/资料/ESP32/x.pdf → ESP32). Files directly in the
+ * added folder get none, so adding ~/Downloads does not make a "Downloads" shelf.
+ */
+export function folderShelves(inputs: string[], cwd: string, files: string[]): Map<string, string> {
+	const out = new Map<string, string>();
+	for (const input of inputs) {
+		const dir = resolve(cwd, expandHome(input));
+		try {
+			if (!statSync(dir).isDirectory()) continue;
+		} catch {
+			continue;
+		}
+		for (const file of files) {
+			const rel = relative(dir, file);
+			if (rel.startsWith("..") || !rel.includes(sep)) continue;
+			if (!out.has(file)) out.set(file, rel.split(sep)[0]);
+		}
+	}
+	return out;
+}
+
 /** A plain-text table whose columns line up in a terminal, Chinese included. */
 export function textTable(rows: string[][]): string[] {
 	const widths = rows[0].map((_, i) => Math.max(...rows.map((r) => displayWidth(r[i] ?? ""))) + 2);
@@ -244,6 +267,7 @@ export default function piKb(pi: ExtensionAPI) {
 	};
 	/** Find (or drop) the project knowledge base for `cwd`; opened with this machine's config and its own index. */
 	const attachProject = (cwd: string | undefined) => {
+		projectRoot = cwd ? projectRootFor(cwd) : undefined;
 		const global = open();
 		const info = cwd ? findProjectKb(cwd, [global.root, global.localDir]) : undefined;
 		if (project && info && resolve(project.info.dir) === resolve(info.dir)) return;
@@ -255,13 +279,37 @@ export default function piKb(pi: ExtensionAPI) {
 		kb.sync();
 		void kb.indexSemantic();
 	};
+	/** The folder pi works in, as a project (its git root): the key of its shelf choice in config.json. */
+	let projectRoot: string | undefined;
+	/** The global knowledge base's shelves this project uses; undefined: all of them. */
+	const projectShelves = () => (projectRoot ? open().config.projects?.[projectRoot]?.shelves : undefined);
+	/** Use these shelves in this project (undefined: all, the default). */
+	const useShelves = (shelves: string[] | undefined) => {
+		if (!projectRoot) return;
+		const projects = { ...open().config.projects };
+		if (shelves) projects[projectRoot] = { shelves };
+		else delete projects[projectRoot];
+		open().updateConfig({ projects: Object.keys(projects).length ? projects : undefined });
+	};
+	/** What the model needs to know about collections, if the global knowledge base has any. */
+	const shelfGuide = (): string[] => {
+		const library = lib();
+		const shelves = library.shelfList();
+		if (!shelves.length) return [];
+		const used = shelves.filter((s) => s.used).map((s) => s.name);
+		const other = shelves.filter((s) => !s.used).map((s) => s.name);
+		return [
+			`- The global knowledge base is grouped into collections. ${library.shelves ? `This project uses ${used.length ? used.join(", ") : "none of them"}` : `This project uses all of them: ${used.join(", ")}`}, plus everything in no collection; kb_search covers exactly that.${other.length ? ` Other collections: ${other.join(", ")}. Search one with kb_search shelf only when the user asks for it or the question is clearly about its topic.` : ""}`,
+			"- When saving a new global note about one of this project's collections' topics, pass it as kb_note shelf; leave shelf out for user preferences and general lessons, so every project sees them.",
+		];
+	};
 	/** Everything in reach: the project's knowledge base (if any) and the user's global one. */
 	const lib = () => {
 		// Changes made elsewhere need no /kb sync: teammates' notes arriving with git pull, documents
 		// and notes from another computer through a synced folder, notes edited by hand.
 		const changed = [project?.kb.syncIfChanged(), open().syncIfChanged()].some((r) => r && (r.updated || r.removed));
 		if (changed) repaint();
-		return new Library(open(), project);
+		return new Library(open(), project, projectShelves());
 	};
 	const close = () => {
 		if (configWatch) unwatchFile(configWatch.file, configWatch.listener);
@@ -347,6 +395,8 @@ export default function piKb(pi: ExtensionAPI) {
 		{
 			kb: () => open(),
 			library: () => lib(),
+			here: () => (projectRoot ? basename(projectRoot) : undefined),
+			useShelves: (shelves) => useShelves(shelves),
 			enabled: () => enabled(),
 			setEnabled: (on) => {
 				override = undefined;
@@ -422,7 +472,15 @@ export default function piKb(pi: ExtensionAPI) {
 		(item, signal, note) =>
 			item.reread
 				? lib().reread(item.reread, { signal, onNote: note })
-				: lib().addFile(item.scope ?? "global", item.path, { wiki: item.wiki, signal, source: item.source, replace: item.replace, onNote: note }),
+				: lib().addFile(item.scope ?? "global", item.path, {
+						wiki: item.wiki,
+						signal,
+						source: item.source,
+						replace: item.replace,
+						onNote: note,
+						// Shelves group the global knowledge base only.
+						shelves: (item.scope ?? "global") === "global" ? item.shelves : undefined,
+					}),
 		() => {
 			if (imports.active && !ticker) {
 				ticker = setInterval(() => lastCtx && refresh(lastCtx), 1000);
@@ -447,6 +505,8 @@ export default function piKb(pi: ExtensionAPI) {
 		note: boolean,
 		ctx: ExtensionContext,
 		scope?: Scope,
+		/** shelf: put everything on it; byFolder: offer shelves named after subfolders (/kb add). */
+		shelving: { shelf?: string; byFolder?: boolean } = {},
 	): Promise<{ job: ImportJob; placed: Record<Scope, number> } | undefined> => {
 		const library = lib();
 		const { files, skipped } = library.global.collectFiles(paths, cwd);
@@ -461,9 +521,29 @@ export default function piKb(pi: ExtensionAPI) {
 			if (choice !== replace && choice !== keep) return undefined;
 			if (choice === keep) versions.clear();
 		} else versions.clear();
+		// Shelves group the global knowledge base: only files going there get one.
+		const shelved = new Map<string, string>();
+		const toGlobal = files.filter((f) => where.get(f) === "global");
+		if (shelving.shelf) for (const f of toGlobal) shelved.set(f, library.shelfName(shelving.shelf));
+		else if (shelving.byFolder && ctx.hasUI) {
+			const suggested = folderShelves(paths, cwd, toGlobal);
+			if (suggested.size) {
+				const m = t();
+				const counts = new Map<string, number>();
+				for (const name of suggested.values()) counts.set(library.shelfName(name), (counts.get(library.shelfName(name)) ?? 0) + 1);
+				const rest = toGlobal.length - suggested.size;
+				const lines = [...counts].map(([name, n]) => m.folderGroupLine(name, n));
+				if (rest) lines.push(m.folderGroupRest(rest));
+				const [yes] = m.folderGroupChoices;
+				if ((await ctx.ui.select(m.folderGroupAsk(lines.join("\n")), [...m.folderGroupChoices])) === yes) {
+					for (const [file, name] of suggested) shelved.set(file, library.shelfName(name));
+				}
+			}
+		}
 		const placed = { project: 0, global: 0 };
 		for (const s of where.values()) placed[s]++;
-		return { job: imports.enqueue(files.map((path) => ({ path, wiki: note, replace: versions.has(path), scope: where.get(path) })), skipped), placed };
+		const items = files.map((path) => ({ path, wiki: note, replace: versions.has(path), scope: where.get(path), ...(shelved.has(path) ? { shelves: [shelved.get(path)!] } : {}) }));
+		return { job: imports.enqueue(items, skipped), placed };
 	};
 
 	/** True the first time a hint is asked for, false ever after (remembered in config.json). */
@@ -591,6 +671,7 @@ export default function piKb(pi: ExtensionAPI) {
 						"- kb_note and kb_add take a scope: project for what only concerns this project (its build and flashing steps, wiring, conventions, this board's quirks): teammates will see it; global for reusable knowledge (a chip, a tool, a general technique) and the user's personal preferences. Never put secrets (keys, passwords, tokens) in project notes.",
 					]
 				: []),
+			...shelfGuide(),
 			"",
 			lib().catalog(),
 		].join("\n");
@@ -625,10 +706,23 @@ export default function piKb(pi: ExtensionAPI) {
 				}),
 			),
 			limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20, description: "Maximum results (default 8)" })),
+			shelf: Type.Optional(
+				Type.String({
+					description:
+						"Search only this collection of the user's global knowledge base (names are in the system prompt), e.g. when the user asks to look in their STM32 documents. Leave it out otherwise: the search already covers what this project uses",
+				}),
+			),
 		}),
 		async execute(_id, params) {
 			const scope = params.scope && params.scope !== "all" ? params.scope : undefined;
-			const hits = await lib().find(params.query, { limit: params.limit, collection: scope });
+			const library = lib();
+			const known = library.shelfList();
+			const shelf = params.shelf?.trim() ? known.find((s) => s.name.toLowerCase() === params.shelf!.trim().toLowerCase())?.name : undefined;
+			if (params.shelf?.trim() && !shelf) {
+				const text = `No collection named "${params.shelf}". ${known.length ? `The collections are: ${known.map((s) => s.name).join(", ")}.` : "The knowledge base has no collections."} Search again with one of them, or without shelf.`;
+				return { content: [{ type: "text", text }], details: { hits: [], pending: [] } };
+			}
+			const hits = await library.find(params.query, { limit: params.limit, collection: scope, shelf });
 			let text = hits.length
 				? formatHits(hits, MODEL, !!project)
 				: "No matches. Try fewer or different keywords, synonyms, or the other language." +
@@ -716,6 +810,7 @@ export default function piKb(pi: ExtensionAPI) {
 						"project: this project's shared knowledge base; global: the user's personal one. Leave it out to put files inside this project into the project's and files from elsewhere into the global one",
 				}),
 			),
+			shelf: Type.Optional(Type.String({ description: "Put them in this collection of the global knowledge base (implies scope global); only when the user names one" })),
 		}),
 		executionMode: "sequential",
 		async execute(_id, params, _signal, _onUpdate, ctx) {
@@ -731,7 +826,8 @@ export default function piKb(pi: ExtensionAPI) {
 					return { content: [{ type: "text", text }], details: undefined };
 				}
 			}
-			const started = await startImport(params.paths, ctx.cwd, params.as_note ?? false, ctx, project ? params.scope : "global");
+			const shelf = params.shelf?.trim() || undefined;
+			const started = await startImport(params.paths, ctx.cwd, params.as_note ?? false, ctx, project && !shelf ? params.scope : "global", { shelf });
 			if (!started) {
 				const text = "The user cancelled this import; nothing was imported. Do not retry on your own, but if the user asks for it again, call kb_add again.";
 				return { content: [{ type: "text", text }], details: undefined };
@@ -786,6 +882,12 @@ export default function piKb(pi: ExtensionAPI) {
 						"Only when this project has its own knowledge base. project: only concerns this project, shared with the team; global: reusable or personal. Ignored for append and replace (the note stays where it is)",
 				}),
 			),
+			shelf: Type.Optional(
+				Type.String({
+					description:
+						"For a new note in the global knowledge base: one of the collections this project uses (see the system prompt) when the lesson is about its topic, so projects on other topics are not cluttered with it. Leave it out for user preferences and general lessons, which every project should see",
+				}),
+			),
 		}),
 		executionMode: "sequential",
 		async execute(_id, params, _signal, _onUpdate, ctx) {
@@ -795,7 +897,10 @@ export default function piKb(pi: ExtensionAPI) {
 			// An existing note stays in its knowledge base; a new one goes where the model said (or the project's).
 			let scope: Scope = mode !== "create" && noteId ? (library.locate(noteId)?.scope ?? "global") : project ? (params.scope ?? "project") : "global";
 			// The project's name, not the subfolder pi happens to run in.
-			let input = { ...params, project: basename(project?.info.root ?? projectRootFor(ctx.cwd)) || undefined };
+			// A collection named by the model: an existing one's spelling; any other name starts a new one.
+			let shelf = params.shelf?.trim() ? library.shelfName(params.shelf) : undefined;
+			const shelvesFor = (where: Scope) => (where === "global" && shelf ? [shelf] : undefined);
+			let input = { ...params, project: basename(project?.info.root ?? projectRootFor(ctx.cwd)) || undefined, shelves: shelvesFor(scope) };
 			let base = library.kb(scope);
 			let prepared = base.prepareNote(input, mode, noteId);
 			// Notes that may already say this (in either language, with semantic search): adding to one keeps the wiki from splitting.
@@ -809,7 +914,9 @@ export default function piKb(pi: ExtensionAPI) {
 						const preview = renderNote(prepared.note);
 						const title = prepared.existing?.title ?? "";
 						const verb = mode === "create" ? m.noteNew : mode === "append" ? m.noteAppend(title) : m.noteReplace(title);
-						const whereNow = project ? ` → ${m.scopeLabel(scope, name)}` : "";
+						// A new global note shows its collection: it decides which projects see it.
+						const shelfNow = mode === "create" && scope === "global" && (shelf || library.shelfList().length) ? ` · ${m.noteShelf(shelf)}` : "";
+						const whereNow = `${project ? ` → ${m.scopeLabel(scope, name)}` : ""}${shelfNow}`;
 						const alike = mode === "create" && similar.length ? [m.noteSimilar, ...similar.map((d) => `  • ${d.title}${project ? ` ${m.scopeTag[d.scope]}` : ""}`), ""] : [];
 						ctx.ui.setWidget("kb", [`📚 ${verb}${whereNow}`, ...alike, ...preview.split("\n").slice(0, 40)]);
 						const [save, edit, skip] = m.noteChoices;
@@ -817,8 +924,20 @@ export default function piKb(pi: ExtensionAPI) {
 						// A new note can go to the other knowledge base instead: the user decides what the team sees.
 						const other: Scope = scope === "project" ? "global" : "project";
 						const switchTo = project && mode === "create" ? m.noteSwitch(m.scopeLabel(other, name)) : undefined;
-						const choices = [save, ...appendTo.map((a) => a.label), edit, ...(switchTo ? [switchTo] : []), skip];
+						const shelfChange = shelfNow ? m.noteShelfChange : undefined;
+						const choices = [save, ...appendTo.map((a) => a.label), edit, ...(switchTo ? [switchTo] : []), ...(shelfChange ? [shelfChange] : []), skip];
 						const choice = await ctx.ui.select(m.noteAsk(prepared.note.meta.title) + whereNow, choices);
+						if (shelfChange && choice === shelfChange) {
+							// The project's collections first (all of them when it uses all), then none.
+							const names = library.shelfList().filter((s) => s.used).map((s) => s.name);
+							const picked = await ctx.ui.select(m.noteShelfPick, [m.noteShelfNone, ...names]);
+							if (picked !== undefined) {
+								shelf = picked === m.noteShelfNone ? undefined : picked;
+								input = { ...input, shelves: shelvesFor(scope) };
+								prepared = base.prepareNote(input, mode, noteId);
+							}
+							continue;
+						}
 						const into = appendTo.find((a) => a.label === choice)?.d;
 						if (into) {
 							// Added to that note as a section under the new title, then shown again for review.
@@ -834,6 +953,7 @@ export default function piKb(pi: ExtensionAPI) {
 						if (switchTo && choice === switchTo) {
 							scope = other;
 							base = library.kb(scope);
+							input = { ...input, shelves: shelvesFor(scope) };
 							prepared = base.prepareNote(input, mode, noteId);
 						} else if (choice === edit) edited = await ctx.ui.editor(m.noteEditor, preview);
 						if (!(choice === save || choice === switchTo || (choice === edit && edited !== undefined))) {
@@ -850,7 +970,8 @@ export default function piKb(pi: ExtensionAPI) {
 			}
 			const doc = base.writeNote(prepared, edited);
 			refresh(ctx);
-			const where = project ? ` in the ${scope === "project" ? `project knowledge base "${project.info.name}" (shared with the team once committed)` : "user's global knowledge base"}` : "";
+			const onShelf = scope === "global" && doc.collection === "wiki" ? base.store.shelvesOf(doc.id) : [];
+			const where = `${project ? ` in the ${scope === "project" ? `project knowledge base "${project.info.name}" (shared with the team once committed)` : "user's global knowledge base"}` : ""}${onShelf.length ? `, collection ${onShelf.join(", ")}` : ""}`;
 			const redirected = (params.mode ?? "create") === "create" && mode === "append";
 			const text = [
 				redirected
@@ -869,10 +990,14 @@ export default function piKb(pi: ExtensionAPI) {
 	 * The document or note the user named for /kb remove or /kb move: by id, title or words from
 	 * the title; asks when several match (or none was named), undefined when there is nothing to act on.
 	 */
-	const choose = async (args: string[], action: "remove" | "move" | "reread", ctx: ExtensionContext) => {
+	const choose = async (args: string[], action: "remove" | "move" | "reread" | "group", ctx: ExtensionContext) => {
 		const m = t();
 		const query = args.join(" ").trim();
-		const all = lib().listDocs().filter((d) => action !== "reread" || (d.collection === "docs" && REREAD_KINDS.includes(d.kind)));
+		const all = lib()
+			.listDocs()
+			.filter((d) => action !== "reread" || (d.collection === "docs" && REREAD_KINDS.includes(d.kind)))
+			// Collections group the global knowledge base only.
+			.filter((d) => action !== "group" || d.scope === "global");
 		const matches = matchDocs(all, query);
 		if (matches.length === 1) return matches[0];
 		if (!matches.length) {
@@ -880,7 +1005,7 @@ export default function piKb(pi: ExtensionAPI) {
 			return undefined;
 		}
 		if (!ctx.hasUI) {
-			ctx.ui.notify(query ? m.pickMany(query, matches.length) : { remove: m.usageRemove, move: m.usageMove, reread: m.usageReread }[action], "warning");
+			ctx.ui.notify(query ? m.pickMany(query, matches.length) : { remove: m.usageRemove, move: m.usageMove, reread: m.usageReread, group: m.usageGroup }[action], "warning");
 			return undefined;
 		}
 		const shown = matches.slice(0, LIST_LIMIT);
@@ -958,18 +1083,25 @@ export default function piKb(pi: ExtensionAPI) {
 				case "add": {
 					const note = rest.includes("--note");
 					const wantProject = rest.includes("--project");
-					const paths = rest.filter((a) => a !== "--note" && a !== "--project" && a !== "--global");
+					const to = rest.indexOf("--to");
+					const shelf = to >= 0 ? rest[to + 1] : undefined;
+					if (to >= 0 && (!shelf || shelf.startsWith("--") || wantProject)) {
+						ctx.ui.notify(m.usageAdd, "warning");
+						return;
+					}
+					const paths = rest.filter((a, i) => a !== "--note" && a !== "--project" && a !== "--global" && (to < 0 || (i !== to && i !== to + 1)));
 					if (wantProject && !project) {
 						ctx.ui.notify(m.noProject, "warning");
 						return;
 					}
-					// Unset: files inside the project go to it, files from elsewhere to the global one.
-					const scope: Scope | undefined = !project || rest.includes("--global") ? "global" : wantProject ? "project" : undefined;
+					// Unset: files inside the project go to it, files from elsewhere to the global one. A collection
+					// is part of the global knowledge base, so --to puts them there.
+					const scope: Scope | undefined = !project || shelf || rest.includes("--global") ? "global" : wantProject ? "project" : undefined;
 					if (!paths.length) {
 						ctx.ui.notify(m.usageAdd, "warning");
 						return;
 					}
-					const started = await startImport(paths, ctx.cwd, note, ctx, scope);
+					const started = await startImport(paths, ctx.cwd, note, ctx, scope, { shelf, byFolder: true });
 					if (!started) {
 						ctx.ui.notify(m.importCancelled, "info");
 						return;
@@ -1006,7 +1138,8 @@ export default function piKb(pi: ExtensionAPI) {
 					const lines = shown.map((d) => {
 						const kind = m.kinds[d.collection === "wiki" ? "note" : d.kind] ?? d.kind;
 						const tag = project ? `${m.scopeTag[d.scope]} ` : "";
-						return `${tag}${padDisplay(kind, 7)}${d.id}  ${d.title}${d.pages ? ` · ${m.pages(d.pages)}` : ""}`;
+						const shelves = d.shelves?.length ? ` [${d.shelves.join(", ")}]` : "";
+						return `${tag}${padDisplay(kind, 7)}${d.id}  ${d.title}${d.pages ? ` · ${m.pages(d.pages)}` : ""}${shelves}`;
 					});
 					if (docs.length > shown.length) lines.push(m.listMore(shown.length, docs.length));
 					const body = lines.length ? lines.join("\n") : filter ? m.listNone(filter) : m.listEmpty;
@@ -1047,6 +1180,77 @@ export default function piKb(pi: ExtensionAPI) {
 					const job = imports.enqueue([{ path: file, wiki: false, reread: doc.id, scope: doc.scope }]);
 					ctx.ui.notify(m.rereadStarted(doc.title), "info");
 					void job.done.then(reportImport);
+					return;
+				}
+				case "use": {
+					const library = lib();
+					const shelves = library.shelfList();
+					const name = basename(projectRoot ?? ctx.cwd);
+					if (!rest.length) {
+						const using = library.shelves;
+						const status = !using ? m.useAll : using.length ? m.useSome(using.join(", ")) : m.useNone;
+						const lines = shelves.map((s) => m.useLine(s.name, s.docs, s.notes, s.used));
+						show(ctx, m.useTitle(name), [status, "", ...(lines.length ? lines : [m.useEmpty]), "", m.useHint].join("\n"));
+						return;
+					}
+					if (rest.length === 1 && rest[0] === "all") {
+						useShelves(undefined);
+						ctx.ui.notify(m.useSetAll, "info");
+					} else if (rest.length === 1 && rest[0] === "none") {
+						useShelves([]);
+						ctx.ui.notify(m.useSetNone, "info");
+					} else {
+						const known = new Map(shelves.map((s) => [s.name.toLowerCase(), s.name]));
+						const unknown = rest.filter((r) => !known.has(r.toLowerCase()));
+						if (unknown.length) {
+							ctx.ui.notify(m.useUnknown(unknown.join(", ")), "warning");
+							return;
+						}
+						const chosen = [...new Set(rest.map((r) => known.get(r.toLowerCase())!))];
+						useShelves(chosen);
+						ctx.ui.notify(m.useSet(chosen.join(", ")), "info");
+					}
+					refresh(ctx);
+					return;
+				}
+				case "group": {
+					const library = lib();
+					if (rest[0] === "--rename" || rest[0] === "--delete") {
+						const [flag, from, to] = rest;
+						if (!from || (flag === "--rename" ? !to || rest.length > 3 : rest.length > 2)) {
+							ctx.ui.notify(m.usageGroup, "warning");
+							return;
+						}
+						const oldName = library.shelfName(from);
+						const newName = flag === "--rename" ? library.shelfName(to) : undefined;
+						const changed = library.renameShelf(from, newName);
+						if (!changed) {
+							ctx.ui.notify(m.shelfMissing(from), "warning");
+							return;
+						}
+						// Projects that used it follow the new name (or drop it).
+						const projects = open().config.projects;
+						if (projects) {
+							const same = (s: string) => s.toLowerCase() === oldName.toLowerCase();
+							const next = Object.fromEntries(
+								Object.entries(projects).map(([root, p]) => [root, p.shelves?.some(same) ? { ...p, shelves: [...new Set(p.shelves.flatMap((s) => (same(s) ? (newName ? [newName] : []) : [s])))] } : p]),
+							);
+							open().updateConfig({ projects: next });
+						}
+						ctx.ui.notify(newName ? m.shelfRenamed(oldName, newName, changed) : m.shelfDeleted(oldName, changed), "info");
+						refresh(ctx);
+						return;
+					}
+					if (rest.length < 2) {
+						ctx.ui.notify(m.usageGroup, "warning");
+						return;
+					}
+					const shelf = rest.at(-1)!;
+					const doc = await choose(rest.slice(0, -1), "group", ctx);
+					if (!doc) return;
+					const updated = library.setShelves(doc.id, shelf === "-" ? [] : [...(doc.shelves ?? []), shelf]);
+					ctx.ui.notify(m.grouped(updated.title, (updated.shelves ?? []).join(", ")), "info");
+					refresh(ctx);
 					return;
 				}
 				case "note": {

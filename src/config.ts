@@ -22,6 +22,11 @@ export interface KbConfig {
 	dataDir?: string;
 	/** One-time hints already shown, e.g. "welcome" and "semantic", so they are not repeated. */
 	tips?: string[];
+	/**
+	 * Per project (by its root folder on this machine): the global knowledge base's shelves it uses,
+	 * besides everything on no shelf. A project not listed uses all of them.
+	 */
+	projects?: Record<string, { shelves?: string[] }>;
 }
 
 export interface SemanticConfig {

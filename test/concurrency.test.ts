@@ -51,6 +51,8 @@ beforeEach(async () => {
 		{
 			kb: () => kb,
 			library: () => new Library(kb),
+			here: () => undefined,
+			useShelves: () => {},
 			enabled: () => true,
 			setEnabled: () => {},
 			changed: () => {},

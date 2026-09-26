@@ -40,6 +40,17 @@ export interface DocRecord {
 	added_at: string;
 }
 
+/**
+ * Which documents a search may see by shelf (the global knowledge base's named groups). A shelf
+ * narrows what a project sees: documents on no shelf are seen everywhere.
+ */
+export interface ShelfFilter {
+	/** Documents on no shelf, plus those on any of these (a project's choice). */
+	any?: string[];
+	/** Only the documents on this shelf ("look in the STM32 documents"). */
+	only?: string;
+}
+
 export interface SearchHit {
 	/** Chunk rowid, used to merge keyword and semantic results. */
 	chunk: number;
@@ -66,6 +77,11 @@ CREATE TABLE IF NOT EXISTS docs (
   chars INTEGER NOT NULL,
   hash TEXT NOT NULL,
   added_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS shelves (
+  doc_id TEXT NOT NULL,
+  shelf TEXT NOT NULL COLLATE NOCASE,
+  PRIMARY KEY (doc_id, shelf)
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks USING fts5(
   doc_id UNINDEXED, page UNINDEXED, title, heading, content,
@@ -110,6 +126,60 @@ export class Store {
 		return { docs: row.docs ?? 0, wiki: row.wiki ?? 0, pages: row.pages ?? 0 };
 	}
 
+	/** The shelves a document or note is on, sorted. */
+	shelvesOf(id: string): string[] {
+		return (this.db.prepare("SELECT shelf FROM shelves WHERE doc_id = ? ORDER BY shelf").all(id) as { shelf: string }[]).map((r) => r.shelf);
+	}
+
+	/** Put a document or note on exactly these shelves (none: on no shelf). */
+	setShelves(id: string, shelves: string[]): void {
+		this.db.exec("BEGIN");
+		try {
+			this.db.prepare("DELETE FROM shelves WHERE doc_id = ?").run(id);
+			const insert = this.db.prepare("INSERT OR IGNORE INTO shelves (doc_id, shelf) VALUES (?, ?)");
+			for (const shelf of shelves) insert.run(id, shelf);
+			this.db.exec("COMMIT");
+		} catch (error) {
+			this.db.exec("ROLLBACK");
+			throw error;
+		}
+	}
+
+	/** Every document's and note's shelves, for listings. */
+	shelfMap(): Map<string, string[]> {
+		const out = new Map<string, string[]>();
+		for (const r of this.db.prepare("SELECT doc_id, shelf FROM shelves ORDER BY shelf").all() as { doc_id: string; shelf: string }[]) {
+			out.set(r.doc_id, [...(out.get(r.doc_id) ?? []), r.shelf]);
+		}
+		return out;
+	}
+
+	/** The shelves in use, with how many documents and notes each holds. */
+	shelfCounts(): { name: string; docs: number; notes: number }[] {
+		return this.db
+			.prepare(
+				`SELECT s.shelf AS name, SUM(d.collection = 'docs') AS docs, SUM(d.collection = 'wiki') AS notes
+         FROM shelves s JOIN docs d ON d.id = s.doc_id GROUP BY s.shelf ORDER BY s.shelf`,
+			)
+			.all() as { name: string; docs: number; notes: number }[];
+	}
+
+	/** SQL condition on documents aliased `d` (with its parameters) for a shelf filter; empty for none. */
+	private shelfSql(filter?: ShelfFilter): { sql: string; params: string[] } {
+		if (filter?.only !== undefined) return { sql: "AND EXISTS (SELECT 1 FROM shelves s WHERE s.doc_id = d.id AND s.shelf = ?)", params: [filter.only] };
+		if (!filter?.any) return { sql: "", params: [] };
+		const onNone = "NOT EXISTS (SELECT 1 FROM shelves s WHERE s.doc_id = d.id)";
+		if (!filter.any.length) return { sql: `AND ${onNone}`, params: [] };
+		const marks = filter.any.map(() => "?").join(", ");
+		return { sql: `AND (${onNone} OR EXISTS (SELECT 1 FROM shelves s WHERE s.doc_id = d.id AND s.shelf IN (${marks})))`, params: filter.any };
+	}
+
+	/** Ids of the documents and notes a shelf filter lets through (for semantic search). */
+	visibleIds(filter: ShelfFilter): Set<string> {
+		const { sql, params } = this.shelfSql(filter);
+		return new Set((this.db.prepare(`SELECT id FROM docs d WHERE 1 ${sql}`).all(...params) as { id: string }[]).map((r) => r.id));
+	}
+
 	/** Change a document's title; its chunks carry the title too, and their vectors are rebuilt. */
 	renameDoc(id: string, title: string): void {
 		this.db.exec("BEGIN");
@@ -152,6 +222,7 @@ export class Store {
 			this.db.prepare("DELETE FROM chunks WHERE doc_id = ?").run(id);
 			this.db.prepare("DELETE FROM vectors WHERE doc_id = ?").run(id);
 			this.db.prepare("DELETE FROM docs WHERE id = ?").run(id);
+			this.db.prepare("DELETE FROM shelves WHERE doc_id = ?").run(id);
 			this.db.exec("COMMIT");
 		} catch (error) {
 			this.db.exec("ROLLBACK");
@@ -195,12 +266,13 @@ export class Store {
 		return out;
 	}
 
-	search(query: string, options: { limit?: number; collection?: Collection } = {}): SearchHit[] {
+	search(query: string, options: { limit?: number; collection?: Collection; shelves?: ShelfFilter } = {}): SearchHit[] {
 		const plan = planQuery(query);
 		if (!plan.terms.length) return [];
 		const limit = options.limit ?? 8;
-		const filter = options.collection ? "AND d.collection = ?" : "";
-		const extra = options.collection ? [options.collection] : [];
+		const shelves = this.shelfSql(options.shelves);
+		const filter = `${options.collection ? "AND d.collection = ?" : ""} ${shelves.sql}`;
+		const extra = [...(options.collection ? [options.collection] : []), ...shelves.params];
 		type Row = Candidate & { doc_id: string; page: number | null; collection: Collection; rowid: number };
 		const rows = new Map<number, Row>();
 		const select = "c.rowid, c.doc_id, c.page, c.title, c.heading, c.content, d.collection";
@@ -220,7 +292,7 @@ export class Store {
 			const matched = this.db
 				.prepare(
 					`SELECT ${select}, 0 AS bm25 FROM chunks c JOIN docs d ON d.id = c.doc_id
-           WHERE (c.content LIKE ?1 ESCAPE '\\' OR c.heading LIKE ?1 ESCAPE '\\' OR c.title LIKE ?1 ESCAPE '\\') ${filter.replace("?", "?2")}
+           WHERE (c.content LIKE ?1 ESCAPE '\\' OR c.heading LIKE ?1 ESCAPE '\\' OR c.title LIKE ?1 ESCAPE '\\') ${filter}
            LIMIT 200`,
 				)
 				.all(like, ...extra) as unknown as Row[];

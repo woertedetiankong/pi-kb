@@ -32,7 +32,7 @@ const passage = (title: string, heading: string, content: string) => [title, hea
  */
 export class VectorIndex {
 	private readonly db: Database;
-	private cache?: { model: string; signature: string; rowids: Int32Array; collections: Collection[]; dim: number; data: Float32Array };
+	private cache?: { model: string; signature: string; rowids: Int32Array; collections: Collection[]; docIds: string[]; dim: number; data: Float32Array };
 
 	constructor(db: Database) {
 		this.db = db;
@@ -83,12 +83,14 @@ export class VectorIndex {
 		return Number(this.db.prepare("DELETE FROM vectors WHERE model != ?").run(model).changes);
 	}
 
-	search(model: string, query: Float32Array, k: number, collection?: Collection): VectorHit[] {
+	/** The `k` closest chunks, optionally only from one collection and from the documents in `allow`. */
+	search(model: string, query: Float32Array, k: number, collection?: Collection, allow?: Set<string>): VectorHit[] {
 		const m = this.matrix(model);
 		if (!m || m.dim !== query.length) return [];
 		const scores: VectorHit[] = [];
 		for (let i = 0; i < m.rowids.length; i++) {
 			if (collection && m.collections[i] !== collection) continue;
+			if (allow && !allow.has(m.docIds[i])) continue;
 			let dot = 0;
 			const base = i * m.dim;
 			for (let j = 0; j < m.dim; j++) dot += m.data[base + j] * query[j];
@@ -106,18 +108,20 @@ export class VectorIndex {
 		if (this.cache?.model === model && this.cache.signature === signature) return this.cache;
 		if (!sig.n) return undefined;
 		const rows = this.db
-			.prepare("SELECT v.chunk_rowid AS rowid, v.vec AS vec, d.collection AS collection FROM vectors v JOIN docs d ON d.id = v.doc_id WHERE v.model = ?")
-			.all(model) as unknown as { rowid: number; vec: Uint8Array; collection: Collection }[];
+			.prepare("SELECT v.chunk_rowid AS rowid, v.doc_id AS docId, v.vec AS vec, d.collection AS collection FROM vectors v JOIN docs d ON d.id = v.doc_id WHERE v.model = ?")
+			.all(model) as unknown as { rowid: number; docId: string; vec: Uint8Array; collection: Collection }[];
 		const dim = rows.length ? rows[0].vec.byteLength / 4 : 0;
 		const data = new Float32Array(rows.length * dim);
 		const rowids = new Int32Array(rows.length);
 		const collections: Collection[] = [];
+		const docIds: string[] = [];
 		rows.forEach((row, i) => {
 			rowids[i] = row.rowid;
 			collections.push(row.collection);
+			docIds.push(row.docId);
 			data.set(new Float32Array(row.vec.buffer.slice(row.vec.byteOffset, row.vec.byteOffset + row.vec.byteLength)), i * dim);
 		});
-		this.cache = { model, signature, rowids, collections, dim, data };
+		this.cache = { model, signature, rowids, collections, docIds, dim, data };
 		return this.cache;
 	}
 }

@@ -21,6 +21,8 @@ let enabled = true;
 let changes = 0;
 let localCalls = 0;
 let installError: string | undefined;
+let here: string | undefined = "firmware";
+let using: string[] | undefined;
 
 const fakeSessions: WebApp = {
 	id: "sessions",
@@ -39,7 +41,7 @@ before(async () => {
 	const app = new KbWebApp(
 		{
 			kb: () => kb,
-			library: () => new Library(kb),
+			library: () => new Library(kb, undefined, using),
 			enabled: () => enabled,
 			setEnabled: (on) => { enabled = on; },
 			changed: () => { changes++; },
@@ -58,6 +60,10 @@ before(async () => {
 			location: () => ({ localDir: root, dir: root, source: "default" }),
 			relocate: () => {
 				throw new LocationError("location_env");
+			},
+			here: () => here,
+			useShelves: (shelves) => {
+				using = shelves;
 			},
 		},
 		join(import.meta.dirname, "..", "web", "kb.html"),
@@ -174,6 +180,32 @@ test("convert: a Markdown upload taken as a note becomes a document, and back", 
 	const titles = (await (await call("/api/kb/docs")).json()).docs.map((d: { title: string }) => d.title);
 	assert.ok(titles.includes("Guide") && !titles.includes("GUIDE.md"), "one copy, as a note");
 	await post("/api/kb/remove", { id: back.doc.id });
+});
+
+test("collections: upload into one, change an item's, choose what the project uses", async () => {
+	const esp = (await upload("esp-notes.md", "# ESP\n\nzzshelf alpha", "&shelf=ESP32")).result.doc;
+	const stm = (await upload("stm-notes.md", "# STM\n\nzzshelf beta")).result.doc;
+	assert.deepEqual((await (await call(`/api/kb/doc?id=${esp.id}`)).json()).shelves, ["ESP32"]);
+	const set = await (await post("/api/kb/shelves/set", { id: stm.id, shelves: ["STM32"] })).json();
+	assert.deepEqual(set.doc.shelves, ["STM32"]);
+	assert.equal((await post("/api/kb/shelves/set", { id: stm.id, shelves: "STM32" })).status, 400);
+
+	let status = await (await call("/api/kb/status")).json();
+	assert.deepEqual(status.shelves, { list: [{ name: "ESP32", docs: 1, notes: 0, used: true }, { name: "STM32", docs: 1, notes: 0, used: true }], using: null, here: "firmware" });
+	assert.deepEqual((await (await post("/api/kb/shelves/use", { shelves: ["ESP32"] })).json()).using, ["ESP32"]);
+	const { hits } = await (await call("/api/kb/search?q=zzshelf")).json();
+	assert.deepEqual(hits.map((h: { title: string }) => h.title), ["esp-notes.md"], "STM32 is not used now");
+	status = await (await call("/api/kb/status")).json();
+	assert.equal(status.shelves.list.find((s: { name: string }) => s.name === "STM32").used, false);
+	const docs = (await (await call("/api/kb/docs")).json()).docs;
+	assert.deepEqual(docs.find((d: { id: string }) => d.id === stm.id).shelves, ["STM32"], "the list still shows everything, with its collections");
+
+	await post("/api/kb/shelves/use", { shelves: null });
+	assert.equal(using, undefined, "null: all again");
+	here = undefined;
+	assert.equal((await post("/api/kb/shelves/use", { shelves: [] })).status, 400, "no project to choose for");
+	here = "firmware";
+	for (const d of [esp, stm]) await post("/api/kb/remove", { id: d.id });
 });
 
 test("uploading a new version asks first, then replaces or keeps both", async () => {

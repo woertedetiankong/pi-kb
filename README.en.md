@@ -56,6 +56,8 @@ More commands (project knowledge bases, search settings, upkeep; completed once 
 |---|---|
 | `/kb init` | Create a project knowledge base in the project (`.pi/kb`, shared with the team through git); see below |
 | `/kb move <title or id> [project\|global]` | Move a document or note to the project's or your global knowledge base (without a target: to the other one) |
+| `/kb use [name… \| all \| none]` | Which collections of your global knowledge base this project uses (see Collections below); without arguments, lists them |
+| `/kb group <title or id> <collection>` | Put a document or note in a collection (`-` for none); `/kb group --rename <old> <new>` and `/kb group --delete <name>` rename or remove one |
 | `/kb semantic [status\|api\|local\|off\|remove]` | Semantic search: show status, use an online API, use a local model, turn off, delete the local model (frees about 1.1 GB; documents and notes stay) |
 | `/kb reread <title or id>` | Read a PDF, image or Office document again from its original with the current OCR settings (after changing the OCR language or server). Keeps its id, title and import date; runs in the background |
 | `/kb lint` | Check the notes: likely duplicates, broken `[[links]]`, project notes linking to global ones (teammates can't open them), notes without tags |
@@ -158,6 +160,23 @@ git add .pi/kb && git commit -m "Project knowledge base"
 - **Committed**: notes, converted text (2-7% of the PDFs' size) and document descriptions. **Not committed**: originals and the local change log (see the generated `.pi/kb/.gitignore`; delete its `raw/` line to share originals too).
 - Teammates who pull the code get an index built when pi starts, and can search, ask AI and read the text with page numbers; "Open original" needs the original file. Later pulls show up by themselves: pi notices changed files in `.pi/kb` (within a few seconds) and indexes them before the next search.
 - The project knowledge base is committed: keep secrets out of it, and check the copyright before putting vendor documents' full text in a public repository.
+
+## Collections
+
+Your global knowledge base can be grouped into **collections** by topic, say "ESP32", "STM32" and "Company rules", and each project chooses the ones it uses. Working on an ESP32 project, the agent then is not distracted by STM32 documents and is less likely to quote the wrong part.
+
+```
+What the agent sees in a project = the project's knowledge base (if any)
+                                 + what is in no collection in the global one   ← preferences, general lessons: seen everywhere
+                                 + what is in the collections this project uses
+```
+
+- **Everything is seen by default**: without collections, or while a project has not chosen, nothing changes.
+- **Putting things in collections**: `/kb add ~/docs` offers one collection per subfolder (`~/docs/ESP32/…` → "ESP32") and asks first; files directly in the folder you added get none. Or `/kb add <path> --to ESP32`, or `/kb group <title> ESP32` for something already imported. On the web page, "Change" in a document's "Collections" row, and "Collection" on the left when importing.
+- **A document can be in several collections**; names ignore case (`esp32` is "ESP32").
+- **A project's choice**: `/kb use ESP32 "Company rules"`, or "Change" next to "This project uses" in the sidebar. `/kb use all` goes back to all, `/kb use none` keeps only what is in no collection. The choice is kept in this computer's `config.json` (by project root), so another computer needs its own.
+- **The agent** searches only what the project sees; when you ask it to "look in the STM32 documents", it passes `shelf` to `kb_search` for just that collection. A lesson about one of the project's collections' topics goes into that collection (you can change it in the save dialog); preferences and general lessons go in none, so every project sees them.
+- **Where it is kept**: a document's collections in `docs/<id>.json`, a note's in its front matter as `shelves: [ESP32]`, so they travel with a synced folder. Collections group the global knowledge base only: a project's own knowledge base already belongs to the project, and moving a document there drops its collections.
 
 ## Web page
 

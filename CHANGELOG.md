@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+Collections: group your global knowledge base by topic, and choose per project what it sees.
+
+- A document or note can be in one or more collections ("ESP32", "STM32", …). A project sees what is in no collection plus the collections it uses; by default it uses all of them, so nothing changes until you choose. Choose with `/kb use <name…> | all | none` or in the web sidebar; the choice is kept in this computer's `config.json` by project root.
+- Putting things in collections: `/kb add <folder>` offers one per subfolder and asks first (files directly in the folder get none); `/kb add <path> --to <name>`; `/kb group <title or id> <name>` (`-` for none), `--rename` and `--delete`; on the web page, a document's "Collections" row and a "Collection" picker for imports. Names ignore case.
+- The agent's `kb_search` covers what the project sees and takes `shelf` for one collection ("look in the STM32 documents"); `kb_add` and `kb_note` take `shelf` too, and the note dialog shows the collection and can change it. The system prompt names the project's collections and the others; its catalog lists only what the project sees.
+- Measured on 582 documents and 100 notes (300 look-alike generated datasheets in six families, six Espressif datasheets and the ESP32-S3 manual; 78 questions): with each question asked in a project that uses only its topic's collection, hybrid search got the right datasheet first for 46 of 60 part questions instead of 43, and quoted another part 4 times instead of 6 (semantic search alone: 3 instead of 14). Collections do not help within one topic: ESP32-C3 and ESP32-C6, both in "ESP32", still get mixed up 2 times in 12.
+- Kept where the content is: `shelves` in `docs/<id>.json` and in a note's front matter, rebuilt into the index on sync, so they follow a synced folder to another computer. They follow new versions, rereads and note ⇄ document conversion; moving into a project's knowledge base drops them. Semantic search filters by collection too.
+
 ## v0.5.16 — 2026-09-26
 
 - Settings → Storage location: typing a new folder and clicking Save did nothing (only the "Move here" button applied it) and the dialog closed as if it had. Save now applies a typed location too, with the same confirmation. The button is now "Use this location", and the copy checkbox says the originals are not deleted.

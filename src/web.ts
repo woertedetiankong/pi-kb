@@ -50,6 +50,16 @@ export interface KbWebHost {
 	location(): KbLocation;
 	/** Move the content to `dir` (undefined: the default folder), copying it there unless `copy` is false. */
 	relocate(dir: string | undefined, copy: boolean): void;
+	/** The project pi works in (its folder name), whose collections the page shows and sets. */
+	here(): string | undefined;
+	/** Use these collections of the global knowledge base in this project (undefined: all). */
+	useShelves(shelves: string[] | undefined): void;
+}
+
+/** A list of collection names from a request body; anything else is the caller's mistake. */
+function shelfNames(value: unknown): string[] {
+	if (!Array.isArray(value) || value.some((v) => typeof v !== "string")) throw webError(400, "shelves must be a list of names");
+	return value as string[];
 }
 
 /** The knowledge base a new document or note goes to: as asked, else the project's when there is one. */
@@ -124,7 +134,9 @@ export class KbWebApp implements WebApp {
 					const semantic = { provider: kb.config.semantic.provider, state, done, total, download: download?.progress, problem, ...this.host.localSetup() };
 					const imports = this.host.importStatus();
 					const current = imports.current ? basename(imports.current) : undefined;
-					return { enabled: this.host.enabled(), root: kb.root, ...stats, project, semantic, imports: { ...imports, current } };
+					// The global knowledge base's collections, and which ones the project pi works in uses (null: all).
+					const shelves = { list: lib.shelfList(), using: lib.shelves ?? null, here: this.host.here() ?? null };
+					return { enabled: this.host.enabled(), root: kb.root, ...stats, project, semantic, imports: { ...imports, current }, shelves };
 				}
 				case "GET /docs":
 					// Notes carry their tags, so the page can browse by tag.
@@ -137,7 +149,8 @@ export class KbWebApp implements WebApp {
 				}
 				case "GET /doc": {
 					const { doc, text, scope } = lib.read(id);
-					if (doc.collection !== "wiki") return { doc, text, scope };
+					const shelves = scope === "global" ? lib.global.store.shelvesOf(id) : [];
+					if (doc.collection !== "wiki") return { doc, text, scope, shelves };
 					// Other apps (pi-learn) read `text` as material, so a note's front matter goes separately;
 					// `raw` is the whole file, for editing.
 					const raw = lib.noteText(id);
@@ -149,7 +162,7 @@ export class KbWebApp implements WebApp {
 							return [target, to ? { id: to.id, title: to.title, scope: to.scope } : null];
 						}),
 					);
-					return { doc, text: body, note: meta, raw, scope, links };
+					return { doc, text: body, note: meta, raw, scope, links, shelves };
 				}
 				case "GET /file": {
 					const { file, name } = lib.originalFile(id);
@@ -168,6 +181,8 @@ export class KbWebApp implements WebApp {
 					const note = req.query.get("note") === "1";
 					const onUpdate = req.query.get("onUpdate");
 					const scope = pickScope(req.query.get("scope"), lib);
+					// A collection groups the global knowledge base only.
+					const shelf = scope === "global" ? req.query.get("shelf")?.trim() || undefined : undefined;
 					const body = await req.raw(UPLOAD_LIMIT);
 					// Keep the original name: it becomes the document title. The file stays until the queue is done with it.
 					const dir = mkdtempSync(join(tmpdir(), "pi-kb-upload-"));
@@ -192,7 +207,14 @@ export class KbWebApp implements WebApp {
 						}
 						// A new version of an imported document: let the page ask whether to replace it.
 						if (previous.length && onUpdate !== "replace" && onUpdate !== "keep") return { versions: previous };
-						const job = this.host.enqueue({ path: file, wiki: note, source: `upload:${name}`, replace: onUpdate === "replace", scope });
+						const job = this.host.enqueue({
+							path: file,
+							wiki: note,
+							source: `upload:${name}`,
+							replace: onUpdate === "replace",
+							scope,
+							...(shelf ? { shelves: [lib.shelfName(shelf)] } : {}),
+						});
 						queued = true;
 						return { job: this.track(job, () => rmSync(dir, { recursive: true, force: true })) };
 					} finally {
@@ -328,6 +350,19 @@ export class KbWebApp implements WebApp {
 					if (!/^[A-Za-z_]+(\+[A-Za-z_]+)*$/.test(language)) throw webError(400, "OCR language must look like eng+chi_sim");
 					kb.updateConfig({ ocrLanguage: language, ocrServerUrl: optionalUrl(body.serverUrl, "OCR server") });
 					return { language: kb.config.ocrLanguage, serverUrl: kb.config.ocrServerUrl ?? "" };
+				}
+				case "POST /shelves/use": {
+					const body = await req.json();
+					if (!this.host.here()) throw webError(400, "no_project");
+					this.host.useShelves(body.shelves === null ? undefined : shelfNames(body.shelves));
+					this.host.changed();
+					return { using: this.host.library().shelves ?? null };
+				}
+				case "POST /shelves/set": {
+					const body = await req.json();
+					const doc = lib.setShelves(String(body.id ?? ""), shelfNames(body.shelves));
+					this.host.changed();
+					return { doc };
 				}
 				case "POST /convert": {
 					const body = await req.json();

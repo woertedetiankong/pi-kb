@@ -7,6 +7,8 @@ export interface NoteMeta {
 	updated: string;
 	/** Project (working directory name) the lesson came from. */
 	project?: string;
+	/** Shelves of the global knowledge base the note is on; none: every project sees it. */
+	shelves?: string[];
 }
 
 export interface Note {
@@ -41,11 +43,14 @@ export function parseNote(raw: string, fallbackTitle: string): Note {
 	}
 	const body = match ? text.slice(match[0].length) : text;
 	const heading = /^#\s+(.+)$/m.exec(body);
-	const tags = (fields.tags ?? "")
-		.replace(/^\[|\]$/g, "")
-		.split(",")
-		.map((t) => t.trim().replace(/^["']|["']$/g, ""))
-		.filter(Boolean);
+	const list = (value: string | undefined) =>
+		(value ?? "")
+			.replace(/^\[|\]$/g, "")
+			.split(",")
+			.map((t) => t.trim().replace(/^["']|["']$/g, ""))
+			.filter(Boolean);
+	const tags = list(fields.tags);
+	const shelves = normalizeShelves(list(fields.shelves));
 	return {
 		meta: {
 			title: unquote(fields.title) || heading?.[1].trim() || fallbackTitle,
@@ -53,6 +58,7 @@ export function parseNote(raw: string, fallbackTitle: string): Note {
 			created: fields.created ?? "",
 			updated: fields.updated ?? "",
 			project: unquote(fields.project) || undefined,
+			...(shelves.length ? { shelves } : {}),
 		},
 		body: body.trim(),
 	};
@@ -69,9 +75,24 @@ export function renderNote({ meta, body }: Note): string {
 	if (meta.tags.length) lines.push(`tags: [${meta.tags.join(", ")}]`);
 	lines.push(`created: ${meta.created}`, `updated: ${meta.updated}`);
 	if (meta.project) lines.push(`project: ${quote(meta.project)}`);
+	if (meta.shelves?.length) lines.push(`shelves: [${meta.shelves.join(", ")}]`);
 	lines.push("---", "");
 	const heading = /^#\s+/m.test(body.split("\n", 1)[0]) ? "" : `# ${meta.title}\n\n`;
 	return `${lines.join("\n")}\n${heading}${body.trim()}\n`;
+}
+
+/**
+ * A note's text with its `shelves:` line set to `shelves` (removed when empty), leaving the rest of
+ * the front matter and the body as they are; a note without front matter gets one.
+ */
+export function withShelves(raw: string, shelves: string[]): string {
+	const text = raw.replace(/\r\n?/g, "\n");
+	const line = shelves.length ? `shelves: [${shelves.join(", ")}]` : "";
+	const match = FRONT_MATTER.exec(text);
+	if (!match) return line ? `---\n${line}\n---\n\n${text}` : text;
+	const fields = match[1].split("\n").filter((l) => !/^shelves:/.test(l));
+	if (line) fields.push(line);
+	return `---\n${fields.join("\n")}\n---\n${text.slice(match[0].length)}`;
 }
 
 /** File name for a note title; keeps Chinese and other letters, collapses everything else. */
@@ -88,6 +109,19 @@ export function slugify(title: string): string {
 
 export function normalizeTags(tags: string[] | undefined): string[] {
 	return [...new Set((tags ?? []).map((t) => t.trim().toLowerCase().replace(/[\s,[\]]+/g, "-")).filter(Boolean))];
+}
+
+/**
+ * Shelf names as stored: trimmed, inner spaces collapsed, without the characters a front matter
+ * list or a command line would split on; duplicates (ignoring case) dropped, first spelling kept.
+ */
+export function normalizeShelves(names: string[] | undefined): string[] {
+	const out = new Map<string, string>();
+	for (const raw of names ?? []) {
+		const name = raw.replace(/[,[\]"]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 40);
+		if (name && name !== "-" && !out.has(name.toLowerCase())) out.set(name.toLowerCase(), name);
+	}
+	return [...out.values()];
 }
 
 /** Letters and digits only, lowercased: "XR-100 SPI 分频" → "xr100spi分频". */
