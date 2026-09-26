@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.5.14 — 2026-09-26
 
 Web page:
 
