@@ -245,7 +245,7 @@ runtime/, models/        本机语义模型的运行时和模型文件（只在 
 - 参考速度（Apple 芯片 Mac）：162 页的 datasheet 约 1.5 分钟，1530 页的技术参考手册约 14 分钟。
 - agent 用 `kb_add` 导入时最多等 30 秒；没导完就告诉你"正在后台导入"，完成后同样会通知。
 - **同名文件**：不同文件夹里的同名文件（比如好几个 `README.md`），标题会带上足以区分的上级文件夹，例如 `[project-3/README.md]` 和 `[project-17/README.md]`，引用就能分清。文件名不重复时，标题仍然只是文件名。网页上传的文件没有文件夹信息，重名时编号为 `README.md (2)`。
-- **新版本**：再次导入同一路径的文件（网页上传则是同名文件），如果内容变了，会先问你：**替换旧版本 / 两份都保留 / 取消导入**。替换时新版沿用旧版的标题，以前的引用仍然对得上，旧版的原件和索引会被删除。内容没变的文件直接显示"已存在"，不会询问。
+- **新版本**：再次导入同一路径的文件（网页上传则是同名文件），如果内容变了，会先问你：**替换旧版本 / 两份都保留 / 取消导入**。替换时新版沿用旧版的标题，以前的引用仍然对得上，旧版的原件和索引会被删除。内容没变的文件直接显示"已存在"，不会询问。还在导入队列里等待的同名上传也算作旧版本；替换哪些旧版本在真正导入时才决定，所以连续上传几个版本并都选"替换"，最后只会留下最新的一份。
 
 ## 解析与检索
 
@@ -269,6 +269,14 @@ runtime/, models/        本机语义模型的运行时和模型文件（只在 
 npm install
 npm run typecheck
 npm test
+```
+
+### 模型检查
+
+`specs/tla` 里有两份 TLA+ 模型：导入队列与版本替换（`ImportVersions.tla`）、后台向量索引（`SemanticIndexer.tla`），各有修复前和修复后的配置（见更新日志里的竞态修复）。`test/concurrency.test.ts` 在真实代码上重放模型找到的反例。运行模型需要 Java 和 [tla2tools.jar](https://github.com/tlaplus/tlaplus/releases)：
+
+```bash
+JAVA=java TLA2TOOLS=/path/to/tla2tools.jar specs/tla/run.sh ImportVersions ImportVersions_FixBase
 ```
 
 ### 用真实模型检查

@@ -6,8 +6,8 @@ export interface ImportItem {
 	wiki: boolean;
 	/** Recorded origin when it is not the path, e.g. "upload:manual.pdf" for web uploads. */
 	source?: string;
-	/** Older versions this file replaces once it is imported. */
-	replace?: string[];
+	/** Replace the earlier versions of this file when it is imported (decided then, not now). */
+	replace?: boolean;
 	/** Which knowledge base it goes into; global when unset. */
 	scope?: "project" | "global";
 }
@@ -57,7 +57,7 @@ export class ImportQueue {
 	private running = false;
 	private done = 0;
 	private total = 0;
-	private current?: { path: string; startedAt: number; controller: AbortController; note?: ImportNote };
+	private current?: { item: ImportItem; path: string; startedAt: number; controller: AbortController; note?: ImportNote };
 
 	constructor(importFn: ImportFn, onChange: () => void) {
 		this.importFn = importFn;
@@ -75,6 +75,11 @@ export class ImportQueue {
 	/** Files not imported yet: the one being converted first, then the queue. */
 	pending(): string[] {
 		return [...(this.current ? [this.current.path] : []), ...this.jobs.flatMap((job) => job.items.map((item) => item.path))];
+	}
+
+	/** Items not imported yet, the one being converted first: nothing of them is in the knowledge base. */
+	items(): ImportItem[] {
+		return [...(this.current ? [this.current.item] : []), ...this.jobs.flatMap((job) => job.items)];
 	}
 
 	enqueue(items: ImportItem[], skipped: AddResult[] = []): ImportJob {
@@ -123,7 +128,7 @@ export class ImportQueue {
 				continue;
 			}
 			const controller = new AbortController();
-			const current: NonNullable<typeof this.current> = { path: item.path, startedAt: Date.now(), controller };
+			const current: NonNullable<typeof this.current> = { item, path: item.path, startedAt: Date.now(), controller };
 			this.current = current;
 			this.onChange();
 			let result: AddResult;

@@ -245,7 +245,7 @@ To keep everything in one folder, index and models included (on an external disk
 - Rough speed (Apple silicon Mac): a 162-page datasheet takes about 1.5 minutes, a 1530-page technical reference manual about 14 minutes.
 - When the agent imports with `kb_add`, it waits up to 30 seconds; if the import is not done by then it tells you it is importing in the background, and you are notified when it finishes.
 - **Same file names**: files with the same name in different folders (say, several `README.md`) get titles with enough of the folder path to tell them apart, such as `[project-3/README.md]` and `[project-17/README.md]`, so citations are unambiguous. A unique file name stays as it is. Uploads from the web page have no folder, so a repeated name is numbered: `README.md (2)`.
-- **New versions**: importing a file from the same path again (for web uploads, the same file name) with changed content asks first: **Replace the old version / Keep both / Cancel import**. A replacement keeps the old title, so earlier citations still fit, and the old original and index are deleted. Unchanged files simply show as already present, without asking.
+- **New versions**: importing a file from the same path again (for web uploads, the same file name) with changed content asks first: **Replace the old version / Keep both / Cancel import**. A replacement keeps the old title, so earlier citations still fit, and the old original and index are deleted. Unchanged files simply show as already present, without asking. An upload with the same name still waiting in the import queue counts as an earlier version too, and which versions a replacement removes is decided when it is imported, so uploading several versions in a row ends with just the newest when you choose Replace.
 
 ## Parsing and search
 
@@ -269,6 +269,14 @@ To keep everything in one folder, index and models included (on an external disk
 npm install
 npm run typecheck
 npm test
+```
+
+### Model checking
+
+`specs/tla` has TLA+ models of the import queue with version replacement (`ImportVersions.tla`) and of background embedding (`SemanticIndexer.tla`), with configs for the code before and after the race fixes in the changelog. `test/concurrency.test.ts` replays the counterexamples on the real code. To run a model you need Java and [tla2tools.jar](https://github.com/tlaplus/tlaplus/releases):
+
+```bash
+JAVA=java TLA2TOOLS=/path/to/tla2tools.jar specs/tla/run.sh ImportVersions ImportVersions_FixBase
 ```
 
 ### Checking with a real model

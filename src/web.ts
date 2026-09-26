@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 import { type WebApp, type WebBinary, type WebLanguage, type WebRequest, webError } from "./hub.ts";
-import type { AddResult, KnowledgeBase } from "./kb.ts";
+import { type AddResult, contentId, type KnowledgeBase, sourcePath } from "./kb.ts";
 import type { ImportItem, ImportJob, ImportStatus } from "./queue.ts";
 import { ask, AskError, listModels, type ModelContext } from "./ask.ts";
 import { type KbLocation, LocationError, type SemanticConfig } from "./config.ts";
@@ -35,6 +35,8 @@ export interface KbWebHost {
 	changed(): void;
 	/** Import in the background, on the same queue as /kb add. */
 	enqueue(item: ImportItem): ImportJob;
+	/** Files queued or being converted, not in the knowledge base yet. */
+	queued(): ImportItem[];
 	importStatus(): ImportStatus & { active: boolean };
 	/** Switch to the local model, installing its runtime first when needed (same as /kb semantic local). */
 	useLocal(): Promise<boolean>;
@@ -159,11 +161,24 @@ export class KbWebApp implements WebApp {
 					try {
 						const file = join(dir, name);
 						writeFileSync(file, body);
-						const previous = note ? [] : lib.kb(scope).previousVersions(file, { name });
+						// Earlier versions: imported documents, and uploads of the same name still waiting in the
+						// queue (they are not in the knowledge base yet, but will be before this one).
+						const previous = note ? [] : lib.kb(scope).previousVersions(file, { name }).map((d) => d.title);
+						if (!note && !previous.length) {
+							const id = contentId(body);
+							const waiting = this.host.queued().filter((item) => {
+								if (item.wiki || (item.scope ?? "global") !== scope || sourcePath(item.source ?? item.path, 1) !== name) return false;
+								try {
+									return contentId(readFileSync(item.path)) !== id;
+								} catch {
+									return false; // gone already: imported or cancelled
+								}
+							});
+							if (waiting.length) previous.push(name);
+						}
 						// A new version of an imported document: let the page ask whether to replace it.
-						if (previous.length && onUpdate !== "replace" && onUpdate !== "keep") return { versions: previous.map((d) => d.title) };
-						const replace = onUpdate === "replace" ? previous.map((d) => d.id) : undefined;
-						const job = this.host.enqueue({ path: file, wiki: note, source: `upload:${name}`, replace, scope });
+						if (previous.length && onUpdate !== "replace" && onUpdate !== "keep") return { versions: previous };
+						const job = this.host.enqueue({ path: file, wiki: note, source: `upload:${name}`, replace: onUpdate === "replace", scope });
 						queued = true;
 						const id = ++this.lastJob;
 						const entry = { job, finished: false };

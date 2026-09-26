@@ -44,6 +44,7 @@ before(async () => {
 			setEnabled: (on) => { enabled = on; },
 			changed: () => { changes++; },
 			enqueue: (item) => queue.enqueue([item]),
+			queued: () => queue.items(),
 			importStatus: () => ({ ...queue.status, active: queue.active }),
 			useLocal: async () => {
 				localCalls++;

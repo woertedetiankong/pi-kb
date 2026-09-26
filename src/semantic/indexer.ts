@@ -51,13 +51,22 @@ export class SemanticIndexer {
 			this.again = true;
 			return this.running;
 		}
-		this.running = this.loop().finally(() => {
-			this.running = undefined;
-		});
+		this.running = (async () => {
+			try {
+				// A loop stopped early (another provider was chosen meanwhile) does not look at `again`;
+				// start over for the current provider rather than drop that kick.
+				do await this.loop();
+				while (this.again && this.provider);
+			} finally {
+				this.running = undefined;
+			}
+		})();
 		return this.running;
 	}
 
+	/** Stop the running loop. Kicks made before are dropped; kick again to start over. */
 	stop(): void {
+		this.again = false;
 		this.aborter?.abort();
 		this.aborter = undefined;
 	}
@@ -86,7 +95,7 @@ export class SemanticIndexer {
 					if (aborter.signal.aborted || this.provider !== provider) return;
 					this.vectors.put(
 						provider.key,
-						pending.map((p, i) => ({ rowid: p.rowid, docId: p.docId, vector: vectors[i] })),
+						pending.map((p, i) => ({ rowid: p.rowid, docId: p.docId, text: p.text, vector: vectors[i] })),
 					);
 					this.update({ download: undefined, ...this.vectors.progress(provider.key) });
 					await new Promise((resolve) => setImmediate(resolve));

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+Four races found with TLA+ models (`specs/tla`) and reproduced on the real code (`test/concurrency.test.ts`):
+
+- Uploading a changed file on the web page while an earlier upload of the same name was still waiting in the import queue did not ask first; both were kept, the second as "name (2)". Queued uploads now count as earlier versions.
+- Choosing "Replace" for two new versions in a row kept both: each was set to replace the version imported when it was queued, which the first had already replaced. Which versions to replace is now decided when the import runs (`replace` is a yes/no choice, not a list of ids).
+- Switching the embedding model while a batch was being embedded left the new model with no vectors until the next import or restart, while the status said idle. The loop now starts over for the current model.
+- Editing a note while its old text was being embedded kept the vector of the old text for good: the new chunk got the same rowid back, so the old vector passed the "chunk still there" check. Vectors are now stored only when the chunk's text is unchanged.
+
 ## v0.5.6 — 2026-09-26
 
 - `kb_read` says when text came from OCR: at the top of its output it names the pages whose text was mostly read from an image (scans, photos) and those with some text read from pictures on the page (figures, diagrams), and suggests viewing them before relying on exact values (or treating them with care, for models without images). Stray OCR characters such as logos are ignored. The share is recorded on import as a `<!-- kb:ocr n/total -->` line after each page marker, a separate line so older versions still read the pages; it is hidden from search, the web page and read results. Images imported earlier are treated as OCR; PDFs imported earlier have no record, so they get no hint until removed (`/kb remove <id>`) and added again.

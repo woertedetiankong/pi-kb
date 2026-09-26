@@ -57,14 +57,18 @@ export class VectorIndex {
 		return { done, total };
 	}
 
-	put(model: string, items: { rowid: number; docId: string; vector: Float32Array }[]): void {
+	/** Store vectors for chunks embedded from `text` (a PendingChunk's). */
+	put(model: string, items: { rowid: number; docId: string; text: string; vector: Float32Array }[]): void {
 		const insert = this.db.prepare("INSERT OR REPLACE INTO vectors (chunk_rowid, doc_id, model, vec) VALUES (?, ?, ?, ?)");
 		this.db.exec("BEGIN");
 		try {
-			// A chunk may have been deleted while it was being embedded; only keep vectors for live chunks.
-			const alive = this.db.prepare("SELECT 1 FROM chunks WHERE rowid = ? AND doc_id = ?");
+			// A chunk may have been deleted or rewritten while it was being embedded. A rewritten chunk
+			// can get the same rowid back (FTS5 reuses the highest ones), so compare the text too: a
+			// vector of old text is dropped, the chunk stays pending and is embedded again.
+			const live = this.db.prepare("SELECT title, heading, content FROM chunks WHERE rowid = ? AND doc_id = ?");
 			for (const item of items) {
-				if (!alive.get(item.rowid, item.docId)) continue;
+				const row = live.get(item.rowid, item.docId) as { title: string; heading: string; content: string } | undefined;
+				if (!row || passage(row.title, row.heading, row.content) !== item.text) continue;
 				insert.run(item.rowid, item.docId, model, new Uint8Array(item.vector.buffer, item.vector.byteOffset, item.vector.byteLength));
 			}
 			this.db.exec("COMMIT");

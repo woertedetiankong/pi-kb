@@ -328,6 +328,7 @@ export default function piKb(pi: ExtensionAPI) {
 				if (lastCtx) refresh(lastCtx);
 			},
 			enqueue: (item) => imports.enqueue([item]),
+			queued: () => imports.items(),
 			importStatus: () => ({ ...imports.status, active: imports.active }),
 			useLocal,
 			localSetup: () => (install ? { installing: install.line } : installError ? { installError } : {}),
@@ -419,7 +420,7 @@ export default function piKb(pi: ExtensionAPI) {
 		const { files, skipped } = library.global.collectFiles(paths, cwd);
 		const where = new Map(files.map((path) => [path, scope ?? importScope(path, project?.info.root)] as const));
 		const versions = new Map(
-			note ? [] : files.map((path) => [path, library.kb(where.get(path)!).previousVersions(path).map((d) => d.id)] as const).filter(([, ids]) => ids.length),
+			note ? [] : files.map((path) => [path, library.kb(where.get(path)!).previousVersions(path).length] as const).filter(([, n]) => n),
 		);
 		if (versions.size && ctx.hasUI) {
 			const m = t();
@@ -430,7 +431,7 @@ export default function piKb(pi: ExtensionAPI) {
 		} else versions.clear();
 		const placed = { project: 0, global: 0 };
 		for (const s of where.values()) placed[s]++;
-		return { job: imports.enqueue(files.map((path) => ({ path, wiki: note, replace: versions.get(path), scope: where.get(path) })), skipped), placed };
+		return { job: imports.enqueue(files.map((path) => ({ path, wiki: note, replace: versions.has(path), scope: where.get(path) })), skipped), placed };
 	};
 
 	/** Tell the user how a background import went. */

@@ -60,7 +60,7 @@ test("a changed file is recognised as a new version, and replacing keeps the tit
 	assert.deepEqual(kb.previousVersions(file("other/xr100.md", "x"), undefined), [], "another path is another document");
 	assert.deepEqual(kb.previousVersions(path, { name: "xr100.md" }).map((d) => d.id), [v1.doc!.id], "an upload matches by file name");
 
-	const v2 = await kb.addFile(path, { replace: [v1.doc!.id] });
+	const v2 = await kb.addFile(path, { replace: true });
 	assert.equal(v2.status, "added");
 	assert.deepEqual(v2.replaced, [v1.doc!.id]);
 	assert.equal(v2.doc?.title, "xr100.md");

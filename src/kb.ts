@@ -267,7 +267,12 @@ export class KnowledgeBase {
 			wiki?: boolean;
 			source?: string;
 			signal?: AbortSignal;
-			replace?: string[];
+			/**
+			 * Replace the earlier versions of this file (see previousVersions). Which ones is decided
+			 * here, when the import runs, not when it was queued: a version queued before this one
+			 * may have replaced the old ones meanwhile, and is then the version to replace.
+			 */
+			replace?: boolean;
 			/** Told when the import has to wait for something the user should know about. */
 			onNote?: (note: "ocr_download") => void;
 		} = {},
@@ -306,10 +311,7 @@ export class KnowledgeBase {
 			const name = basename(path);
 			const source = options.source ?? path;
 			// A new version takes the title of the first version it replaces, so earlier citations still fit.
-			const replaced = (options.replace ?? [])
-				.map((old) => this.store.getDoc(old))
-				.filter((d): d is DocRecord => d?.collection === "docs")
-				.sort((a, b) => a.added_at.localeCompare(b.added_at));
+			const replaced = (options.replace ? this.versionsOf(source, id) : []).sort((a, b) => a.added_at.localeCompare(b.added_at));
 			const title = replaced[0]?.title ?? this.titleFor(source);
 			mkdirSync(join(this.root, "raw", id), { recursive: true });
 			copyFileSync(path, join(this.root, "raw", id, name));
@@ -347,11 +349,18 @@ export class KnowledgeBase {
 	 * is already in the knowledge base, which addFile reports as "already present".
 	 */
 	previousVersions(path: string, upload?: { name: string }): DocRecord[] {
-		if (this.store.getDoc(contentId(readFileSync(path)))) return [];
-		const name = upload?.name ?? basename(path);
+		const id = contentId(readFileSync(path));
+		if (this.store.getDoc(id)) return [];
+		return this.versionsOf(upload ? `upload:${upload.name}` : path, id);
+	}
+
+	/** Documents other than `id` imported from the same file (for an upload, with the same file name). */
+	private versionsOf(source: string, id: string): DocRecord[] {
+		const upload = source.startsWith("upload:");
+		const name = upload ? sourcePath(source, 1) : basename(source);
 		return this.store
 			.listDocs("docs")
-			.filter((d) => (upload ? sourcePath(d.source, 1) === name : d.source === path || d.source === `upload:${name}`));
+			.filter((d) => d.id !== id && (upload ? sourcePath(d.source, 1) === name : d.source === source || d.source === `upload:${name}`));
 	}
 
 	/**
