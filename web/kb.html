@@ -351,6 +351,7 @@ const T = {
     views: "浏览", all: "全部", docs: "资料", notes: "笔记",
     kinds: { pdf: "PDF", office: "Office", image: "图片", text: "文本", note: "笔记" },
     actions: "操作", newNote: "新建笔记", folder: "位置",
+    emptyImporting: "正在导入，导完的资料会陆续出现在这里",
     empty: "知识库还是空的", emptyHint: "把 PDF、图片或 Markdown 拖到页面上即可导入",
     emptyView: "这里还没有内容", noHits: q => `没有找到“${q}”`, noHitsHint: "换几个关键词，或者试试同义词、另一种语言",
     results: n => `${n} 条结果`, items: n => `${n} 项`, pages: n => `${n} 页`,
@@ -391,6 +392,7 @@ const T = {
     ovNoProject: "在项目目录里运行 /kb init，可以为项目建一个随 git 共享的知识库，团队成员拉取代码就能用上。",
     semanticHit: "语义相近", semanticHitTip: "意思相关，但不一定包含你搜索的词",
     semOff: "语义检索未开启：只按关键词搜索。开启后可以用自然语言提问，中英文也能互相搜到。",
+    semWaiting: "语义检索已开启，导入资料后会自动建立索引",
     semIndexing: (d, t) => `语义检索：正在建立索引 ${d}/${t}`, semReady: t => `语义检索已开启：${t} 个片段`, semDownload: p => `语义检索：正在下载模型 ${p}%`,
     semError: "语义检索出错，暂时只按关键词搜索。打开设置查看原因。",
     semInstalling: "语义检索：正在安装本机模型运行时…", semInstallFailed: "本机模型运行时安装失败，打开设置查看原因。",
@@ -408,9 +410,9 @@ const T = {
     ocrOther: v => `其他：${v}`, ocrSaved: "文字识别设置已保存",
     locTitle: "存放位置", locHint: "你的资料和笔记存在这个文件夹。可以换成任何文件夹，包括 iCloud、坚果云、Dropbox 里的，这样几台电脑能共用同一个知识库。",
     locSource: { default: "默认", config: "自选", env: "环境变量 PI_KB_DIR" }, locNew: "新位置（完整路径，例如 ~/Dropbox/pi-kb 或 D:\\pi-kb）",
-    locCopy: "把现有资料和笔记复制过去（原位置的文件保留）", locMove: "移到这里", locReset: "恢复默认位置",
+    locCopy: "先把现在的资料和笔记复制过去（原来的不删除）", locMove: "改用这个位置", locReset: "恢复默认位置",
     locEnv: "位置由环境变量 PI_KB_DIR 指定，要在网页上修改，请先去掉这个环境变量。",
-    locConfirmCopy: (dir, d, n) => `把知识库移到 ${dir}？现有 ${d} 份资料和 ${n} 条笔记会复制过去，原位置的文件保留。`,
+    locConfirmCopy: (dir, d, n) => `改用 ${dir} 存放知识库？现有 ${d} 份资料和 ${n} 条笔记会先复制过去，原来的文件不删除。`,
     locConfirmUse: dir => `改用 ${dir} 里的知识库？当前位置的资料不会带过去（文件仍在原处）。`,
     locMoved: (dir, d, n) => `已切换到 ${dir}：${d} 份资料、${n} 条笔记`,
     locProblems: { location_env: "位置由环境变量 PI_KB_DIR 指定，网页上不能修改", location_busy: "正在导入文件，等导入完成后再移动", location_relative: "请填写完整路径，例如 ~/Dropbox/pi-kb 或 D:\\pi-kb", location_not_writable: d => `这个文件夹不能写入（${d}）` },
@@ -437,6 +439,7 @@ const T = {
     views: "Browse", all: "All", docs: "Documents", notes: "Notes",
     kinds: { pdf: "PDF", office: "Office", image: "Image", text: "Text", note: "Note" },
     actions: "Actions", newNote: "New note", folder: "Location",
+    emptyImporting: "Importing: documents appear here as each one is done",
     empty: "The knowledge base is empty", emptyHint: "Drop PDFs, images or Markdown on the page to import them",
     emptyView: "Nothing here yet", noHits: q => `No results for "${q}"`, noHitsHint: "Try other keywords, synonyms, or the other language",
     results: n => pl(n, "result"), items: n => pl(n, "item"), pages: n => pl(n, "page"),
@@ -477,6 +480,7 @@ const T = {
     ovNoProject: "Run /kb init in a project folder to give the project a knowledge base shared through git: teammates get it with the code.",
     semanticHit: "semantic", semanticHitTip: "Related in meaning; may not contain your words",
     semOff: "Semantic search is off, so only keywords match. Turn it on to ask in natural language and search across Chinese and English.",
+    semWaiting: "Semantic search is on; documents are indexed automatically once imported",
     semIndexing: (d, t) => `Semantic search: indexing ${d}/${t}`, semReady: t => `Semantic search on: ${t} chunks`, semDownload: p => `Semantic search: downloading the model ${p}%`,
     semError: "Semantic search failed, so only keywords match for now. Open the settings to see why.",
     semInstalling: "Semantic search: installing the local model runtime…", semInstallFailed: "Installing the local model runtime failed. Open the settings to see why.",
@@ -494,10 +498,10 @@ const T = {
     ocrOther: v => `Other: ${v}`, ocrSaved: "Text recognition settings saved",
     locTitle: "Storage location", locHint: "Your documents and notes are kept in this folder. You can choose any folder, including one in iCloud or Dropbox, so several computers share one knowledge base.",
     locSource: { default: "default", config: "chosen", env: "PI_KB_DIR" }, locNew: "New location (full path, e.g. ~/Dropbox/pi-kb or D:\\pi-kb)",
-    locCopy: "Copy the current documents and notes there (the originals stay)", locMove: "Move here", locReset: "Back to the default",
+    locCopy: "Copy the current documents and notes there first (the originals are not deleted)", locMove: "Use this location", locReset: "Back to the default",
     locEnv: "The PI_KB_DIR environment variable sets the location; unset it to change it here.",
-    locConfirmCopy: (dir, d, n) => `Move the knowledge base to ${dir}? The ${pl(d, "document")} and ${pl(n, "note")} are copied there; the originals stay.`,
-    locConfirmUse: dir => `Use the knowledge base in ${dir}? The current documents are not taken along (they stay where they are).`,
+    locConfirmCopy: (dir, d, n) => `Keep the knowledge base in ${dir}? The ${pl(d, "document")} and ${pl(n, "note")} are copied there first; the originals are not deleted.`,
+    locConfirmUse: dir => `Use the knowledge base in ${dir}? The current documents and notes are not taken along (they stay where they are).`,
     locMoved: (dir, d, n) => `Now at ${dir}: ${pl(d, "document")}, ${pl(n, "note")}`,
     locProblems: { location_env: "PI_KB_DIR sets the location, so it cannot be changed here", location_busy: "Files are being imported; move after the import finishes", location_relative: "Enter a full path, e.g. ~/Dropbox/pi-kb or D:\\pi-kb", location_not_writable: d => `This folder cannot be written (${d})` },
     semTitle: "Semantic search", semModeOff: "Off", semModeLocal: "Local model", semModeApi: "Online API",
@@ -756,8 +760,10 @@ function renderList() {
   const title = state.view === "all" ? T.all : state.view === "docs" ? T.docs : state.view === "wiki" ? T.notes
     : state.view === "scope:project" ? `${T.viewProject} · ${state.status?.project?.name ?? ""}` : state.view === "scope:global" ? T.viewGlobal
     : state.view.startsWith("tag:") ? T.tagView(state.view.slice(4)) : T.kinds[state.view.slice(5)];
+  // While the first files are importing, "empty" would contradict the progress line above.
   const empty = state.docs.length
     ? `<div class="empty">${esc(T.emptyView)}</div>`
+    : busy ? `<div class="empty">${esc(T.emptyImporting)}</div>`
     : `<div class="empty"><b>${esc(T.empty)}</b><br>${esc(T.emptyHint)}<br><button class="btn primary" id="emptyUpload">${esc(T.upload)}</button></div>`;
   $("list").innerHTML = `<div class="list-head"><h2>${esc(title)}</h2><span class="sub">${esc(T.items(docs.length))}</span>${progress}</div><div class="group">${answerCard()}${docs.length ? docs.map(d => card(d)).join("") : empty}</div>`;
 }
@@ -828,7 +834,8 @@ function semanticLine(sem) {
   if (sem.state === "error") return T.semError;
   if (sem.download != null) return T.semDownload(Math.round(sem.download));
   if (sem.done < sem.total) return T.semIndexing(sem.done, sem.total);
-  return T.semReady(sem.total);
+  // Nothing to index yet: "0 chunks" reads like something went wrong.
+  return sem.total ? T.semReady(sem.total) : T.semWaiting;
 }
 function overview() {
   const st = state.status;
@@ -1216,6 +1223,14 @@ $("semDlg").addEventListener("click", async e => {
 $("semDlg").querySelector("form").addEventListener("submit", async e => {
   e.preventDefault();
   const f = e.target, info = sem.info, mode = sem.mode;
+  // A new location typed in but not applied with its own button: Save applies it too, rather than dropping it silently.
+  const done = [];
+  const dir = f.locDir.value.trim();
+  if (dir) {
+    const moved = await moveLocation(dir, true);
+    if (!moved) return;
+    done.push(moved);
+  }
   const ocr = { language: f.ocrLanguage.value, serverUrl: f.ocrServer.value.trim() };
   const ocrChanged = ocr.language !== sem.ocr.language || ocr.serverUrl !== sem.ocr.serverUrl;
   const body = {
@@ -1234,7 +1249,6 @@ $("semDlg").querySelector("form").addEventListener("submit", async e => {
   }
   if (semChanged && mode === "local" && info.provider !== "local" && !info.local.installed && !confirm(T.semLocalConfirm)) return;
   try {
-    const done = [];
     if (ocrChanged) { sem.ocr = await api("/ocr", { body: ocr }); done.push(T.ocrSaved); }
     if (semChanged) {
       const r = await api("/semantic", { body });
@@ -1257,7 +1271,8 @@ function renderLocation(loc) {
   $("locEnv").hidden = loc.source !== "env";
   $("locReset").hidden = loc.source !== "config";
 }
-async function moveLocation(dir) {
+/** Switch to `dir` ("" = the default), after asking. Returns what to tell the user, or undefined when cancelled or refused. */
+async function moveLocation(dir, quiet = false) {
   const f = $("semDlg").querySelector("form"), copy = f.locCopy.checked;
   const shown = dir || where.localDir;
   if (!confirm(copy ? T.locConfirmCopy(shown, where.docs, where.notes) : T.locConfirmUse(shown))) return;
@@ -1266,7 +1281,9 @@ async function moveLocation(dir) {
     const loc = await api("/location", { body: { dir, copy } });
     renderLocation(loc); f.locDir.value = "";
     etags = {}; await refresh();
-    toast(T.locMoved(loc.dir, loc.docs, loc.notes));
+    const said = T.locMoved(loc.dir, loc.docs, loc.notes);
+    if (!quiet) toast(said);
+    return said;
   } catch (err) {
     const [problem, ...detail] = err.message.split(": ");
     const say = T.locProblems[problem];
