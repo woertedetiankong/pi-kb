@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.5.6 — 2026-09-26
 
 - `kb_read` says when text came from OCR: at the top of its output it names the pages whose text was mostly read from an image (scans, photos) and those with some text read from pictures on the page (figures, diagrams), and suggests viewing them before relying on exact values (or treating them with care, for models without images). Stray OCR characters such as logos are ignored. The share is recorded on import as a `<!-- kb:ocr n/total -->` line after each page marker, a separate line so older versions still read the pages; it is hidden from search, the web page and read results. Images imported earlier are treated as OCR; PDFs imported earlier have no record, so they get no hint until removed (`/kb remove <id>`) and added again.
 - With gpt-6-sol on a scanned PDF (an OCR error in the title, a flattened table), a register lookup read the text, saw the hint and viewed the page before answering.

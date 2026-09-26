@@ -1,6 +1,6 @@
 {
   "name": "pi-kb",
-  "version": "0.5.5",
+  "version": "0.5.6",
   "description": "Knowledge base for pi: import PDFs, images and Markdown notes, search them with page citations, and keep a wiki of experience",
   "type": "module",
   "license": "MIT",
