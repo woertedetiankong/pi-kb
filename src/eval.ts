@@ -56,13 +56,13 @@ export function questionsFile(root: string): string {
 
 export const TEMPLATE = `# pi-kb 评测问题 / pi-kb evaluation questions
 #
-# 每行一个问题：问题 | 正确答案所在的文档
-#   - 文档写文件名或笔记标题的一部分即可，可以加页码：manual.pdf p.12
+# 每行一个问题：问题 | 正确答案所在的资料或笔记
+#   - 写文件名或笔记标题的一部分即可，可以加页码：manual.pdf p.12
 #   - 有多个可接受的答案时用 ; 分隔
 #   - 知识库里没有答案的问题，答案写 -
 # 以 # 开头的行是注释。/kb eval 运行评测，/kb eval draft 让 agent 帮你起草问题。
 #
-# One question per line: question | document that answers it
+# One question per line: question | document or note that answers it
 #   - part of the file name or note title, optionally with a page: manual.pdf p.12
 #   - separate acceptable answers with ;
 #   - for questions the knowledge base cannot answer, write -

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- One word for each thing in the interface: imported files are 资料 / documents and lessons are 笔记 / notes, in the terminal and on the web page. 文档, wiki 笔记, 经验笔记, "wiki notes" and "experience notes" are gone ("wiki" is left only where it names the `wiki/` folder). Office files show as "Office" in Chinese too. Text for the model is unchanged.
+
 ## v0.5.12 — 2026-09-26
 
 - Fewer commands to wade through: typing `/kb ` completes only the everyday ones (add, search, web, note, list, remove, cancel, status, on, off, help); the rest (init, move, semantic, lint, eval, open, lang, sync) appear once their first letters are typed. New `/kb help` lists everything in two groups, and `/kb status` and unknown subcommands point to it.

@@ -33,7 +33,7 @@ test("both languages cover every subcommand and keep choices aligned", () => {
 	const zh = messages("zh");
 	assert.deepEqual(Object.keys(zh.subcommands).sort(), Object.keys(en.subcommands).sort());
 	assert.equal(zh.noteChoices.length, en.noteChoices.length);
-	assert.equal(zh.statusOn(3, 1), "📚 知识库 · 3 份文档 · 1 条笔记");
+	assert.equal(zh.statusOn(3, 1), "📚 知识库 · 3 份资料 · 1 条笔记");
 	assert.equal(en.statusOn(3, 1), "📚 KB · 3 docs · 1 note");
 	assert.equal(en.statusOn(1, 0), "📚 KB · 1 doc · 0 notes");
 });

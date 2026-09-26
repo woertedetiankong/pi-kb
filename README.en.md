@@ -39,10 +39,10 @@ Everyday commands (typing `/kb ` in pi completes only these; `/kb help` lists th
 | Command | What it does |
 |---|---|
 | `/kb add <file or folder…> [--project\|--global]` | Import material in the background; the command returns at once and you can keep working. Dragging paths into the terminal works. In a project with its own knowledge base, choose which one it goes to |
-| `/kb add <note.md…> --note` | Add as experience notes in the wiki |
+| `/kb add <note.md…> --note` | Import as notes |
 | `/kb search <keywords>` | Search it yourself |
 | `/kb web` | Open the knowledge base page in the browser (`/kb web url` prints the full address, `/kb web stop` closes it) |
-| `/kb note [focus]` | Ask the agent to review this conversation and save what is worth keeping as wiki notes |
+| `/kb note [focus]` | Ask the agent to review this conversation and save what is worth keeping as notes |
 | `/kb list [words]` | List documents and notes (up to 50; add words to filter by title) |
 | `/kb remove <title or id>` | Delete (a note's file is deleted too) |
 | `/kb cancel` | Stop the import in progress (files already imported are kept) |
@@ -57,7 +57,7 @@ More commands (project knowledge bases, search settings, upkeep; completed once 
 | `/kb init` | Create a project knowledge base in the project (`.pi/kb`, shared with the team through git); see below |
 | `/kb move <title or id> [project\|global]` | Move a document or note to the project's or your global knowledge base (without a target: to the other one) |
 | `/kb semantic [status\|api\|local\|off\|remove]` | Semantic search: show status, use an online API, use a local model, turn off, delete the local model (frees about 1.1 GB; documents and notes stay) |
-| `/kb lint` | Check the wiki notes: likely duplicates, broken `[[links]]`, project notes linking to global ones (teammates can't open them), notes without tags |
+| `/kb lint` | Check the notes: likely duplicates, broken `[[links]]`, project notes linking to global ones (teammates can't open them), notes without tags |
 | `/kb eval [init\|draft\|run]` | Measure retrieval: create the question file, let the agent draft questions, run the evaluation |
 | `/kb open` | Open the knowledge base folder |
 | `/kb lang zh\|en\|auto` | Switch the interface language |
@@ -162,7 +162,7 @@ git add .pi/kb && git commit -m "Project knowledge base"
 
 `/kb web` opens a local page (listening on `127.0.0.1` only, access token required):
 
-- Drop files on the page to import them: the left half as documents, the right half (Markdown) as experience notes. They go through the same background queue as `/kb add`, with progress on the page; imports started in the terminal show their progress there too
+- Drop files on the page to import them: the left half as documents, the right half (Markdown) as notes. They go through the same background queue as `/kb add`, with progress on the page; imports started in the terminal show their progress there too
 - Search results show pages and open right at that page; for PDFs, "View page" opens the original at that page in the browser
 - "✨ Ask AI" answers the question in the search box from the knowledge base, with pi's current model or one picked next to the button (remembered in the browser; a cheap, fast model is usually enough): the model first turns it into a few searches (including the other language and the wording a manual would use), then answers only from the passages found, citing each fact as [1]; a citation opens the original at that page. When the documents do not cover the question, it says so instead of guessing. Each question makes two model calls (about 1-2 thousand tokens)
 - Browse the converted text (tables and headings rendered as Markdown), create and edit notes, delete, and turn the knowledge base on or off
@@ -187,11 +187,11 @@ When on, the agent has four tools:
 - `kb_search`: keyword search, returning citations like `[manual.pdf p.12]` and document ids
 - `kb_read`: read the original text by id and pages (e.g. `pages: "12-14"`). With `view: true` it also returns pictures of up to 4 pages, rendered from the original PDF, image or Office file, so the model can see diagrams, schematics, pinouts and table layout that the text loses. Only for models that accept images, and only where the original is present (project knowledge bases leave originals out of git by default). When a page's text came from OCR (a scan or photo, or text read from a figure), `kb_read` says so at the top and suggests viewing the page before relying on exact values
 - `kb_add`: import files when the user asks to "put this in the knowledge base". Files outside the current project folder (including through symlinks) need your confirmation first; without a UI they are refused, so use `/kb add` yourself. This keeps instructions hidden in a document or web page from making the agent file away something like `~/.ssh`, or send it to an online embeddings service
-- `kb_note`: write experience as a wiki note. The agent calls it on its own after solving a non-obvious problem (a root cause found by debugging, a gotcha, a workaround) or learning something lasting about your setup; every note is previewed first and you choose **Save / Edit, then save / Don't save**. A note with the same title is not duplicated but extended (`append`) or rewritten (`replace`)
+- `kb_note`: write experience as a note. The agent calls it on its own after solving a non-obvious problem (a root cause found by debugging, a gotcha, a workaround) or learning something lasting about your setup; every note is previewed first and you choose **Save / Edit, then save / Don't save**. A note with the same title is not duplicated but extended (`append`) or rewritten (`replace`)
 
   Some models rarely take notes on their own (gpt-6-luna in our checks stops as soon as a bug is fixed). So before a run ends, the extension checks for two cases: a command failed and a file was then changed (a bug was fixed), or you said something like "from now on…" or "remember…". If the model did not call `kb_note`, the extension adds a hidden reminder asking whether to save a note. It asks at most once per run; routine edits and questions do not trigger it. Small fixes, such as a typo that fails a test, do trigger it; in 3 runs each with gpt-6-sol and gpt-6-luna the model judged them not worth a note and ended without another message, at the cost of one short extra model call (about $0.001).
 
-## Experience note format
+## Note format
 
 ```markdown
 ---
@@ -215,7 +215,7 @@ Notes link to each other with `[[file name]]`, `[[subfolder/file name]]` or `[[n
 
 Hand-written notes (front matter optional) placed in `wiki/` are indexed too. Each write appends a line to `wiki/log.md`. The index holds the body and `#tags`, not front matter field names.
 
-A small catalog (counts, wiki note titles, recent documents) is added to the system prompt so the agent knows what the knowledge base holds.
+A small catalog (counts, note titles, recent documents) is added to the system prompt so the agent knows what the knowledge base holds.
 
 ## Storage
 
@@ -226,7 +226,7 @@ A small catalog (counts, wiki note titles, recent documents) is added to the sys
 raw/<id>/<original file>  copy of the original
 converted/<id>.md         converted Markdown with <!-- kb:page N --> page markers (and <!-- kb:ocr n/total --> where text came from OCR)
 docs/<id>.json            each document's description (title, source, pages); the index is rebuilt from it
-wiki/**/*.md              experience notes; edit them with Obsidian or any editor
+wiki/**/*.md              notes; edit them with Obsidian or any editor
 
 # This machine: always stays in ~/.pi/kb
 kb.db                     search index (SQLite FTS5, trigram tokenizer, Chinese and English) and semantic vectors;

@@ -17,11 +17,11 @@ const README = `# Project knowledge base (pi-kb)
 Documents and experience notes for this project, shared through git.
 Install [pi-kb](https://github.com/woertedetiankong/pi-kb) and pi searches them next to your own knowledge base.
 
-- \`wiki/\`: experience notes (Markdown; edit freely)
+- \`wiki/\`: notes (Markdown; edit freely)
 - \`converted/\`, \`docs/\`: searchable text and descriptions of imported documents
 - \`raw/\`: original files, not committed by default (see .gitignore)
 
-项目知识库：本项目的资料和经验笔记，通过 git 共享。安装 pi-kb 后，pi 会同时检索这里和你自己的知识库。
+项目知识库：本项目的资料和笔记，通过 git 共享。安装 pi-kb 后，pi 会同时检索这里和你自己的知识库。
 `;
 
 export interface ProjectKb {
