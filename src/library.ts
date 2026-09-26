@@ -1,7 +1,7 @@
 import { cpSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type AddResult, contentId, type KnowledgeBase, pathsOutside } from "./kb.ts";
-import { parseNote } from "./notes.ts";
+import { parseNote, titleSimilarity, wikiLinks } from "./notes.ts";
 import type { ProjectKb } from "./project.ts";
 import type { Collection, DocRecord, SearchHit } from "./store.ts";
 
@@ -16,6 +16,21 @@ export type ScopedHit = SearchHit & { scope: Scope };
 export type ScopedDoc = DocRecord & { scope: Scope };
 type SearchOptions = { limit?: number; collection?: Collection };
 
+/** A note that may already cover a new one: its title is alike, or a search for the new title finds it. */
+export type SimilarNote = ScopedDoc & { why: "title" | "search"; match?: SearchHit["match"] };
+
+/** What /kb lint reports about the wiki notes. */
+export interface WikiReport {
+	notes: number;
+	/** Pairs of notes that probably say the same thing. */
+	duplicates: [ScopedDoc, ScopedDoc][];
+	/** [[links]] to notes that do not exist. */
+	broken: { note: ScopedDoc; target: string }[];
+	/** Project notes linking to a note in the global knowledge base, which teammates do not have. */
+	private: { note: ScopedDoc; target: ScopedDoc }[];
+	untagged: ScopedDoc[];
+}
+
 /**
  * Where an import goes when nobody chose: files inside the project to its knowledge base, files
  * from anywhere else to the global one, so a personal or vendor file is not committed for the team.
@@ -26,6 +41,12 @@ export function importScope(path: string, projectRoot: string | undefined): Scop
 
 /** Reciprocal-rank constant, as in hybrid search: merges two ranked lists without comparing their scores. */
 const RRF_K = 60;
+/**
+ * Titles at least this alike count as the same topic: "XR100 SPI clock divider" and "XR-100 SPI
+ * divider" score 0.81, "SPI 时钟分频踩坑" and "SPI 时钟分频的坑" 0.75, while titles sharing only a
+ * word ("Board wiring", "UART wiring") stay near 0.6.
+ */
+const SIMILAR_TITLE = 0.7;
 
 export class Library {
 	readonly global: KnowledgeBase;
@@ -117,6 +138,90 @@ export class Library {
 			.sort((a, b) => b.score - a.score)
 			.slice(0, limit)
 			.map((m) => m.hit);
+	}
+
+	/**
+	 * Notes that may already cover what a new note titled `title` is about, best first: alike titles,
+	 * then notes a search for the title finds (semantic too when it is on and the model has a similarity
+	 * floor, so a Chinese note turns up for an English title).
+	 */
+	async similarNotes(title: string, options: { limit?: number; exclude?: string } = {}): Promise<SimilarNote[]> {
+		const limit = options.limit ?? 3;
+		const notes = this.listDocs("wiki").filter((d) => d.id !== options.exclude);
+		const found = new Map<string, SimilarNote>();
+		notes
+			.map((d) => ({ d, score: titleSimilarity(title, d.title) }))
+			.filter((x) => x.score >= SIMILAR_TITLE)
+			.sort((a, b) => b.score - a.score)
+			.forEach(({ d }) => found.set(d.id, { ...d, why: "title" }));
+		if (title.trim()) {
+			const byId = new Map(notes.map((d) => [d.id, d]));
+			for (const hit of await this.find(title, { collection: "wiki", limit: limit + 1 })) {
+				// Found by meaning alone: only trusted where a similarity floor keeps unrelated notes out.
+				if (hit.match === "semantic" && !this.kb(hit.scope).semanticFloor()) continue;
+				const d = byId.get(hit.docId);
+				if (d && !found.has(d.id)) found.set(d.id, { ...d, why: "search", match: hit.match });
+			}
+		}
+		return [...found.values()].slice(0, limit);
+	}
+
+	/**
+	 * The note a [[link]] points to: a path inside wiki/ or a file name (without .md), else a title,
+	 * ignoring case and any #heading. Notes in `prefer` (the linking note's knowledge base) win.
+	 */
+	resolveLink(target: string, prefer: Scope = "project"): ScopedDoc | undefined {
+		const name = target.split("#")[0].trim().replace(/\.md$/i, "").toLowerCase();
+		if (!name) return undefined;
+		const scopes = this.scopes.sort(([a], [b]) => (a === prefer ? -1 : b === prefer ? 1 : 0));
+		const inWiki = (d: DocRecord) => d.path.split(/[\\/]/).slice(1).join("/").replace(/\.md$/i, "").toLowerCase();
+		const tests = [(d: DocRecord) => inWiki(d) === name || inWiki(d).split("/").pop() === name, (d: DocRecord) => d.title.toLowerCase() === name];
+		for (const test of tests) {
+			for (const [scope, kb] of scopes) {
+				const doc = kb.store.listDocs("wiki").find(test);
+				if (doc) return { ...doc, scope };
+			}
+		}
+		return undefined;
+	}
+
+	/** A note's tags, for browsing by tag. */
+	noteTags(doc: ScopedDoc): string[] {
+		return this.kb(doc.scope).noteTags(doc);
+	}
+
+	/**
+	 * Look over the wiki for what needs a person: likely duplicates (alike titles, or two notes that
+	 * semantic search finds first for each other's title), broken [[links]], project notes linking
+	 * to global ones, and notes without tags.
+	 */
+	async checkWiki(): Promise<WikiReport> {
+		const notes = this.listDocs("wiki");
+		const report: WikiReport = { notes: notes.length, duplicates: [], broken: [], private: [], untagged: [] };
+		const pairs = new Map<string, [ScopedDoc, ScopedDoc]>();
+		const pair = (a: ScopedDoc, b: ScopedDoc) => {
+			const key = [a.id, b.id].sort().join(" ");
+			if (!pairs.has(key)) pairs.set(key, a.id < b.id ? [a, b] : [b, a]);
+		};
+		/** Note id → the note a search for its title finds first, when semantic search had a say. */
+		const first = new Map<string, ScopedDoc>();
+		for (const note of notes) {
+			const similar = await this.similarNotes(note.title, { exclude: note.id });
+			for (const s of similar) if (s.why === "title") pair(note, s);
+			const top = similar.find((s) => s.why === "search");
+			// Keyword matches alone are too loose here: related notes share words without repeating each other.
+			if (top && top.match !== "keyword") first.set(note.id, top);
+			const { meta, body } = parseNote(this.noteText(note.id), note.title);
+			if (!meta.tags.length) report.untagged.push(note);
+			for (const target of wikiLinks(body)) {
+				const to = this.resolveLink(target, note.scope);
+				if (!to) report.broken.push({ note, target });
+				else if (note.scope === "project" && to.scope === "global") report.private.push({ note, target: to });
+			}
+		}
+		for (const [id, other] of first) if (first.get(other.id)?.id === id) pair(first.get(other.id)!, other);
+		report.duplicates = [...pairs.values()];
+		return report;
 	}
 
 	/** Full text of hits' chunks (chunk numbers are per knowledge base). */

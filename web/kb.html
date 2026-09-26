@@ -118,6 +118,17 @@ main { overflow-y: auto; border-right: 1px solid var(--line); }
 .answer .none { color: var(--muted); margin: 0; }
 .answer .bad { color: var(--danger); margin: 0; font-size: 13px; }
 .tag { color: var(--accent-text); }
+button.tag:hover, .wikilink:hover { text-decoration: underline; }
+.wikilink { color: var(--accent-text); font: inherit; }
+.wikilink.broken { color: var(--faint); text-decoration: line-through dotted; cursor: help; }
+.side-tags { display: flex; flex-wrap: wrap; gap: 4px 8px; padding: 2px 10px 4px; font-size: 12.5px; }
+.side-tags button { color: var(--muted); }
+.side-tags button.on { color: var(--accent-text); font-weight: 600; }
+.side-tags .cnt { font: 11px var(--mono); color: var(--faint); margin-left: 2px; }
+.hint-line { margin: 10px 20px; padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); font-size: 12.5px; color: var(--muted); }
+.hint-line button { color: var(--accent-text); font-size: 12.5px; margin-left: 4px; }
+.similar { margin: 0 0 12px; padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); font-size: 13px; }
+.similar button { display: block; color: var(--accent-text); font-size: 13px; padding: 2px 0; text-align: left; }
 .empty { padding: 60px 24px; text-align: center; color: var(--faint); }
 .empty .btn { margin-top: 14px; }
 
@@ -266,8 +277,9 @@ dialog.dlg::backdrop { background: rgba(0,0,0,.35); }
     <label><span data-t="noteTitle"></span><input type="text" name="title" required></label>
     <label><span data-t="noteTags"></span><input type="text" name="tags"></label>
     <label><span data-t="noteBody"></span><textarea class="editor" name="body" required></textarea></label>
+    <div class="similar" id="newNoteSimilar" hidden></div>
     <div class="err" id="newNoteErr" hidden></div>
-    <div class="row"><span class="fine"><button type="button" id="importNotes" data-t="importNotes"></button></span><button type="button" class="btn" data-close data-t="cancel"></button><button class="btn primary" data-t="save"></button></div>
+    <div class="row"><span class="fine"><button type="button" id="importNotes" data-t="importNotesLink"></button></span><button type="button" class="btn" data-close data-t="cancel"></button><button class="btn primary" data-t="save"></button></div>
   </form>
 </dialog>
 
@@ -328,6 +340,9 @@ const LANG = window.piWeb && window.piWeb.lang === "en" ? "en" : "zh";
 const TOKEN = window.piWeb ? window.piWeb.token : "";
 document.documentElement.lang = LANG === "zh" ? "zh-CN" : "en";
 
+/** "1 note", "3 notes" (English only; Chinese has no plural). */
+const pl = (n, word, words = word + "s") => `${n} ${n === 1 ? word : words}`;
+
 const T = {
   zh: {
     title: "pi 知识库", brand: "知识库", loading: "正在读取知识库…",
@@ -353,7 +368,7 @@ const T = {
     openOriginal: "查看原文件", viewPage: "看原页", page: n => `第 ${n} 页`, remove: "删除", edit: "编辑", save: "保存", cancel: "取消", back: "← 返回",
     confirmRemoveDoc: t => `删除“${t}”？知识库里保存的副本也会删除。`, confirmRemoveNote: t => `删除笔记“${t}”？笔记文件会被删除。`,
     removed: "已删除", saved: "已保存", synced: (u, r) => `已同步：更新 ${u}，移除 ${r}`,
-    noteTitle: "标题", noteTags: "标签（用逗号分隔，可不填）", noteBody: "内容（Markdown）", importNotes: "或导入 Markdown 文件",
+    noteTitle: "标题", noteTags: "标签（用逗号分隔，可不填）", noteBody: "内容（Markdown）", importNotesLink: "或导入 Markdown 文件",
     offline: "连接不到 pi。pi 可能已经退出，在 pi 中运行 /kb web 重新打开。",
     kbOn: "知识库已开启", kbOff: "知识库已关闭", loadingDoc: "正在读取…",
     overview: "知识库概览", ovDocs: "份文档", ovPages: "页", ovNotes: "条经验笔记",
@@ -371,6 +386,8 @@ const T = {
     semError: "语义检索出错，暂时只按关键词搜索。打开设置查看原因。",
     semInstalling: "语义检索：正在安装本机模型运行时…", semInstallFailed: "本机模型运行时安装失败，打开设置查看原因。",
     settings: "设置", semSetup: "设置",
+    tagView: t => `#${t}`, searchKeywordsOnly: "语义搜索没开，只按字面匹配：中文搜不到英文资料（反过来也一样），换个说法也可能搜不到。",
+    linkMissing: "没有这条笔记", similarNotes: "已有相似的笔记，可以打开它追加内容：", saveAnyway: "仍然新建",
     ask: "✨ 问 AI", askTip: "用 pi 当前的模型，根据知识库回答搜索框里的问题，并标出出处",
     askEmpty: "先在搜索框里输入一个问题", askTitle: "AI 回答", askLoading: "正在查资料并组织回答…", askNone: "知识库里没有找到和这个问题相关的内容。",
     askSources: "出处", askSearched: q => `检索词：${q}`, askCheck: "AI 回答可能有误，重要数值请点开出处核对。",
@@ -413,13 +430,13 @@ const T = {
     actions: "Actions", newNote: "New note", sync: "Sync with the folder", folder: "Location",
     empty: "The knowledge base is empty", emptyHint: "Drop PDFs, images or Markdown on the page to import them",
     emptyView: "Nothing here yet", noHits: q => `No results for "${q}"`, noHitsHint: "Try other keywords, synonyms, or the other language",
-    results: n => `${n} result${n === 1 ? "" : "s"}`, items: n => `${n} item${n === 1 ? "" : "s"}`, pages: n => `${n} pages`,
+    results: n => pl(n, "result"), items: n => pl(n, "item"), pages: n => pl(n, "page"),
     dropDocs: "Import documents", dropDocsHint: "PDF, images, text: converted and searchable by page",
     dropNotes: "Save as experience notes", dropNotesHint: "Markdown files go to the wiki, next to the lessons the agent records",
     importing: (i, n, name) => `Importing ${i}/${n}: ${name}`,
     importNotes: { ocr_download: "First OCR: downloading language data (about 40 MB, once)" },
     sending: (i, n, name) => `Uploading ${i}/${n}: ${name}`,
-    replacedN: n => `replaced ${n} old version(s)`,
+    replacedN: n => `replaced ${pl(n, "old version")}`,
     versionTitle: "New version", versionReplace: "Replace the old version", versionKeep: "Keep both", versionSkip: "Skip this file",
     versionBody: (name, titles) => `"${name}" is a new version of ${titles.join(", ")}, already in the knowledge base. Replace the old version, or keep both?`,
     imported: (a, e, s, f) => `Added ${a}, already present ${e}, skipped ${s}, failed ${f}`,
@@ -428,7 +445,7 @@ const T = {
     openOriginal: "Open original", viewPage: "View page", page: n => `Page ${n}`, remove: "Delete", edit: "Edit", save: "Save", cancel: "Cancel", back: "← Back",
     confirmRemoveDoc: t => `Delete "${t}"? Its stored copy is deleted too.`, confirmRemoveNote: t => `Delete the note "${t}"? The note file is deleted.`,
     removed: "Deleted", saved: "Saved", synced: (u, r) => `Synced: ${u} updated, ${r} removed`,
-    noteTitle: "Title", noteTags: "Tags (comma separated, optional)", noteBody: "Content (Markdown)", importNotes: "or import Markdown files",
+    noteTitle: "Title", noteTags: "Tags (comma separated, optional)", noteBody: "Content (Markdown)", importNotesLink: "or import Markdown files",
     offline: "Cannot reach pi. It may have exited; run /kb web in pi to reopen this page.",
     kbOn: "Knowledge base on", kbOff: "Knowledge base off", loadingDoc: "Loading…",
     overview: "Overview", ovDocs: "documents", ovPages: "pages", ovNotes: "experience notes",
@@ -438,7 +455,7 @@ const T = {
     viewProject: "This project", viewGlobal: "My global", target: "New material goes to", targetProject: n => `project "${n}"`,
     moveTo: { project: "Move to project", global: "Move to global" }, moved: { project: "Moved to the project knowledge base", global: "Moved to your global knowledge base" },
     moveConfirm: { project: (t, n) => `Move "${t}" to the knowledge base of project "${n}"? Once committed, the whole team sees it.`, global: t => `Move "${t}" to your global knowledge base? It leaves the project's knowledge base, so teammates will no longer see it.` },
-    ovProject: (n, d, w) => `This project, "${n}", has its own knowledge base: ${d} documents and ${w} notes, shared with the team through git.`,
+    ovProject: (n, d, w) => `This project, "${n}", has its own knowledge base: ${pl(d, "document")} and ${pl(w, "note")}, shared with the team through git.`,
     ovNoProject: "Run /kb init in a project folder to give the project a knowledge base shared through git: teammates get it with the code.",
     semanticHit: "semantic", semanticHitTip: "Related in meaning; may not contain your words",
     semOff: "Semantic search is off, so only keywords match. Turn it on to ask in natural language and search across Chinese and English.",
@@ -446,6 +463,8 @@ const T = {
     semError: "Semantic search failed, so only keywords match for now. Open the settings to see why.",
     semInstalling: "Semantic search: installing the local model runtime…", semInstallFailed: "Installing the local model runtime failed. Open the settings to see why.",
     settings: "Settings", semSetup: "Settings",
+    tagView: t => `#${t}`, searchKeywordsOnly: "Semantic search is off, so only the exact words match: Chinese won't find English material (or the other way round), and other wording may be missed.",
+    linkMissing: "No such note", similarNotes: "Similar notes already exist; open one to add to it:", saveAnyway: "Save as new anyway",
     ask: "✨ Ask AI", askTip: "Answer the question in the search box from the knowledge base with pi's current model, citing sources",
     askEmpty: "Type a question in the search box first", askTitle: "AI answer", askLoading: "Reading the knowledge base and writing an answer…", askNone: "Nothing in the knowledge base relates to this question.",
     askSources: "Sources", askSearched: q => `Searched: ${q}`, askCheck: "AI answers can be wrong; open the sources to check important values.",
@@ -459,9 +478,9 @@ const T = {
     locSource: { default: "default", config: "chosen", env: "PI_KB_DIR" }, locNew: "New location (full path, e.g. ~/Dropbox/pi-kb or D:\\pi-kb)",
     locCopy: "Copy the current documents and notes there (the originals stay)", locMove: "Move here", locReset: "Back to the default",
     locEnv: "The PI_KB_DIR environment variable sets the location; unset it to change it here.",
-    locConfirmCopy: (dir, d, n) => `Move the knowledge base to ${dir}? The ${d} documents and ${n} notes are copied there; the originals stay.`,
+    locConfirmCopy: (dir, d, n) => `Move the knowledge base to ${dir}? The ${pl(d, "document")} and ${pl(n, "note")} are copied there; the originals stay.`,
     locConfirmUse: dir => `Use the knowledge base in ${dir}? The current documents are not taken along (they stay where they are).`,
-    locMoved: (dir, d, n) => `Now at ${dir}: ${d} documents, ${n} notes`,
+    locMoved: (dir, d, n) => `Now at ${dir}: ${pl(d, "document")}, ${pl(n, "note")}`,
     locProblems: { location_env: "PI_KB_DIR sets the location, so it cannot be changed here", location_busy: "Files are being imported; move after the import finishes", location_relative: "Enter a full path, e.g. ~/Dropbox/pi-kb or D:\\pi-kb", location_not_writable: d => `This folder cannot be written (${d})` },
     semTitle: "Semantic search", semModeOff: "Off", semModeLocal: "Local model", semModeApi: "Online API",
     semOffHint: "Keyword search only. Nothing is downloaded and nothing leaves this machine.",
@@ -502,19 +521,28 @@ async function api(path, { body, raw, etag } = {}) {
 }
 
 // ---- Markdown (input is untrusted document text: escape first, then add a small set of tags) ----
-function inline(s) {
-  return esc(s)
+function inline(s, { links } = {}) {
+  let html = esc(s)
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  // [[note]], [[note|label]], [[note#heading]]: the server says where each goes (null: missing).
+  if (links) html = html.replace(/\[\[([^\]|#\n]+)(#[^\]|\n]*)?(?:\|([^\]\n]*))?\]\]/g, (whole, target, heading, label) => {
+    const to = links[unesc(target).trim()];
+    const text = label || target + (heading || "");
+    return to === undefined ? whole : to ? `<button class="wikilink" data-note="${esc(to.id)}" title="${esc(to.title)}">${text}</button>` : `<span class="wikilink broken" title="${esc(T.linkMissing)}">${text}</span>`;
+  });
+  return html;
 }
-function markdown(text, { pdf, hitPage } = {}) {
+const unesc = s => s.replace(/&(amp|lt|gt|quot|#39);/g, (_, e) => ({ amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'" }[e]));
+function markdown(text, { pdf, hitPage, links } = {}) {
+  const inl = s => inline(s, { links });
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
   const out = [];
   let i = 0;
   const para = [];
   // Keep single line breaks: notes are usually written one fact per line.
-  const flush = () => { if (para.length) { out.push(`<p>${para.map(inline).join("<br>")}</p>`); para.length = 0; } };
+  const flush = () => { if (para.length) { out.push(`<p>${para.map(inl).join("<br>")}</p>`); para.length = 0; } };
   while (i < lines.length) {
     const line = lines[i];
     let m;
@@ -534,15 +562,15 @@ function markdown(text, { pdf, hitPage } = {}) {
       out.push(`<pre><code>${esc(code.join("\n"))}</code></pre>`);
       continue;
     }
-    if ((m = /^(#{1,6})\s+(.*)$/.exec(line))) { flush(); const h = Math.min(4, m[1].length); out.push(`<h${h}>${inline(m[2])}</h${h}>`); i++; continue; }
+    if ((m = /^(#{1,6})\s+(.*)$/.exec(line))) { flush(); const h = Math.min(4, m[1].length); out.push(`<h${h}>${inl(m[2])}</h${h}>`); i++; continue; }
     if (/^\s*\|.*\|\s*$/.test(line)) {
       flush();
       const rows = [];
       while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) rows.push(lines[i++]);
       const cells = r => r.trim().replace(/^\||\|$/g, "").split("|").map(c => c.trim());
       const sep = rows[1] && /^[\s|:-]+$/.test(rows[1]);
-      const head = sep ? `<thead><tr>${cells(rows[0]).map(c => `<th>${inline(c)}</th>`).join("")}</tr></thead>` : "";
-      const bodyRows = (sep ? rows.slice(2) : rows).map(r => `<tr>${cells(r).map(c => `<td>${inline(c)}</td>`).join("")}</tr>`).join("");
+      const head = sep ? `<thead><tr>${cells(rows[0]).map(c => `<th>${inl(c)}</th>`).join("")}</tr></thead>` : "";
+      const bodyRows = (sep ? rows.slice(2) : rows).map(r => `<tr>${cells(r).map(c => `<td>${inl(c)}</td>`).join("")}</tr>`).join("");
       out.push(`<table>${head}<tbody>${bodyRows}</tbody></table>`);
       continue;
     }
@@ -551,14 +579,14 @@ function markdown(text, { pdf, hitPage } = {}) {
       const ordered = /^\s*\d/.test(line);
       const items = [];
       while (i < lines.length && /^\s*([-*+]|\d+[.)])\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*([-*+]|\d+[.)])\s+/, ""));
-      out.push(`<${ordered ? "ol" : "ul"}>${items.map(x => `<li>${inline(x)}</li>`).join("")}</${ordered ? "ol" : "ul"}>`);
+      out.push(`<${ordered ? "ol" : "ul"}>${items.map(x => `<li>${inl(x)}</li>`).join("")}</${ordered ? "ol" : "ul"}>`);
       continue;
     }
     if (/^>\s?/.test(line)) {
       flush();
       const quote = [];
       while (i < lines.length && /^>\s?/.test(lines[i])) quote.push(lines[i++].replace(/^>\s?/, ""));
-      out.push(`<blockquote>${inline(quote.join(" "))}</blockquote>`);
+      out.push(`<blockquote>${inl(quote.join(" "))}</blockquote>`);
       continue;
     }
     if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) { flush(); out.push("<hr>"); i++; continue; }
@@ -568,6 +596,12 @@ function markdown(text, { pdf, hitPage } = {}) {
   }
   flush();
   return out.join("\n");
+}
+
+/** A note's body without its opening "# Title" when that repeats the title shown above it. */
+function withoutTitle(body, title) {
+  const m = /^\s*#\s+(.+)\n?/.exec(body);
+  return m && m[1].trim().toLowerCase() === title.trim().toLowerCase() ? body.slice(m[0].length) : body;
 }
 
 /** Split "---" front matter from a note for display. */
@@ -626,6 +660,7 @@ function renderSide() {
     ${kinds.map(k => nav("kind:" + k, "", T.kinds[k], count(k), true)).join("")}
     ${nav("wiki", "✎", T.notes, count("note"))}
     ${hasProject() ? `${nav("scope:project", "📁", `${T.viewProject} · ${state.status.project.name}`, docs.filter(d => d.scope === "project").length)}${nav("scope:global", "👤", T.viewGlobal, docs.filter(d => d.scope === "global").length)}` : ""}
+    ${sideTags()}
     <div class="nav-label">${esc(T.actions)}</div>
     <button class="nav" id="newNoteBtn"><span class="ico">＋</span><span class="name">${esc(T.newNote)}</span></button>
     <button class="nav" id="syncBtn"><span class="ico">↻</span><span class="name">${esc(T.sync)}</span></button>
@@ -634,8 +669,18 @@ function renderSide() {
     <div class="side-foot">${esc(T.folder)}<br>${esc(state.status?.root ?? "")}</div>`;
 }
 
+/** The notes' tags, most used first (at most 16), to browse by. */
+function sideTags() {
+  const counts = new Map();
+  for (const d of state.docs) for (const t of d.tags || []) counts.set(t, (counts.get(t) || 0) + 1);
+  if (!counts.size) return "";
+  const top = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 16);
+  return `<div class="nav-label">${esc(T.tags)}</div><div class="side-tags">${top.map(([t, n]) => `<button data-view="tag:${esc(t)}" class="${state.view === "tag:" + t && !state.hits ? "on" : ""}">#${esc(t)}<span class="cnt">${n}</span></button>`).join("")}</div>`;
+}
+
 function visibleDocs() {
   const v = state.view;
+  if (v.startsWith("tag:")) return state.docs.filter(d => d.tags?.includes(v.slice(4)));
   return state.docs.filter(d => v === "all" || (v === "docs" && d.collection === "docs") || (v === "wiki" && d.collection === "wiki") || (v.startsWith("kind:") && kindOf(d) === v.slice(5)) || (v.startsWith("scope:") && d.scope === v.slice(6)));
 }
 
@@ -683,12 +728,15 @@ function renderList() {
         }).join("")
       // Next to an answer to this same question, "no results" would read as a contradiction.
       : state.answer?.question === state.q.trim() ? "" : `<div class="empty">${esc(T.noHits(state.q))}<br><small>${esc(T.noHitsHint)}</small></div>`;
-    $("list").innerHTML = `<div class="list-head"><h2>${esc(state.q)}</h2><span class="sub">${esc(T.results(hits.length))}</span>${progress}</div><div class="group">${answerCard()}${body}</div>`;
+    // Few hits with keywords only: say why (bilingual material needs semantic search to cross languages).
+    const hint = hits.length < 3 && state.status?.semantic?.provider === "off" ? `<div class="hint-line">${esc(T.searchKeywordsOnly)}<button id="semOpenList">${esc(T.semSetup)} →</button></div>` : "";
+    $("list").innerHTML = `<div class="list-head"><h2>${esc(state.q)}</h2><span class="sub">${esc(T.results(hits.length))}</span>${progress}</div><div class="group">${answerCard()}${body}</div>${hint}`;
     return;
   }
   const docs = visibleDocs();
   const title = state.view === "all" ? T.all : state.view === "docs" ? T.docs : state.view === "wiki" ? T.notes
-    : state.view === "scope:project" ? `${T.viewProject} · ${state.status?.project?.name ?? ""}` : state.view === "scope:global" ? T.viewGlobal : T.kinds[state.view.slice(5)];
+    : state.view === "scope:project" ? `${T.viewProject} · ${state.status?.project?.name ?? ""}` : state.view === "scope:global" ? T.viewGlobal
+    : state.view.startsWith("tag:") ? T.tagView(state.view.slice(4)) : T.kinds[state.view.slice(5)];
   const empty = state.docs.length
     ? `<div class="empty">${esc(T.emptyView)}</div>`
     : `<div class="empty"><b>${esc(T.empty)}</b><br>${esc(T.emptyHint)}<br><button class="btn primary" id="emptyUpload">${esc(T.upload)}</button></div>`;
@@ -720,7 +768,7 @@ async function renderPreview() {
   if (doc.collection === "wiki") {
     const { fields, body } = splitNote(text);
     const facts = [
-      fields.tags && [T.tags, fields.tags.replace(/^\[|\]$/g, "").split(",").map(t => `<span class="tag">#${esc(t.trim())}</span>`).join(" ")],
+      fields.tags && [T.tags, fields.tags.replace(/^\[|\]$/g, "").split(",").map(t => t.trim()).filter(Boolean).map(t => `<button class="tag" data-tag="${esc(t.toLowerCase())}">#${esc(t)}</button>`).join(" ")],
       fields.updated && [T.updated, esc(fields.updated)],
       fields.created && [T.created, esc(fields.created)],
       fields.project && [T.project, esc(fields.project)],
@@ -731,7 +779,7 @@ async function renderPreview() {
       <dl class="facts">${facts.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>
       ${state.editing
         ? `<textarea class="editor" id="noteText">${esc(text)}</textarea><div class="actions" style="margin-top:10px"><button class="btn primary" id="saveNote">${esc(T.save)}</button><button class="btn" id="cancelEdit">${esc(T.cancel)}</button></div>`
-        : `<div class="actions"><button class="btn" id="editNote">${esc(T.edit)}</button>${moveButton()}<button class="btn danger" id="removeDoc">${esc(T.remove)}</button></div><div class="md">${markdown(body)}</div>`}
+        : `<div class="actions"><button class="btn" id="editNote">${esc(T.edit)}</button>${moveButton()}<button class="btn danger" id="removeDoc">${esc(T.remove)}</button></div><div class="md">${markdown(withoutTitle(body, doc.title), { links: state.doc.links || {} })}</div>`}
     </div>`;
     return;
   }
@@ -934,9 +982,10 @@ $("askModel").addEventListener("change", e => {
 $("files").addEventListener("change", e => { upload(e.target.files, false); e.target.value = ""; });
 $("noteFiles").addEventListener("change", e => { $("newNote").close(); upload(e.target.files, true); e.target.value = ""; });
 
+function showView(view) { state.view = view; state.hits = null; state.q = ""; $("q").value = ""; renderSide(); renderList(); }
 $("side").addEventListener("click", async e => {
   const b = e.target.closest("button"); if (!b) return;
-  if (b.dataset.view) { state.view = b.dataset.view; state.hits = null; state.q = ""; $("q").value = ""; renderSide(); renderList(); return; }
+  if (b.dataset.view) return showView(b.dataset.view);
   if (b.id === "newNoteBtn") { $("newNoteErr").hidden = true; $("newNote").showModal(); return; }
   if (b.id === "semBtn") return openSemantic();
   if (b.dataset.target) {
@@ -949,6 +998,7 @@ $("side").addEventListener("click", async e => {
 $("list").addEventListener("click", e => {
   if (e.target.closest("#emptyUpload")) return $("files").click();
   if (e.target.closest("#askClose")) { askAbort?.abort(); state.answer = null; renderList(); return; }
+  if (e.target.closest("#semOpenList")) return openSemantic();
   const ref = e.target.closest("[data-ref]");
   if (ref && state.answer?.result) { const s = state.answer.result.sources[ref.dataset.ref - 1]; if (s) select(s.docId, s.page); return; }
   const c = e.target.closest(".card"); if (!c) return;
@@ -959,6 +1009,8 @@ $("preview").addEventListener("click", async e => {
   const id = state.selected, doc = state.doc?.doc;
   if (b.id === "back") { $("app").classList.remove("detail"); return; }
   if (b.id === "semOpen") return openSemantic();
+  if (b.dataset.note) return select(b.dataset.note);
+  if (b.dataset.tag) { showView("tag:" + b.dataset.tag); $("app").classList.remove("detail"); return; }
   if (b.id === "openOriginal") return openOriginal(id, Number(b.dataset.page) || null);
   if (b.dataset.page && b.closest(".page-mark")) return openOriginal(id, Number(b.dataset.page));
   if (b.id === "editNote") { state.editing = true; renderPreview(); return; }
@@ -986,13 +1038,29 @@ $("preview").addEventListener("click", async e => {
   }
 });
 
-$("newNote").addEventListener("click", e => { if (e.target.closest("[data-close]")) $("newNote").close(); if (e.target.id === "importNotes") $("noteFiles").click(); });
+$("newNote").addEventListener("click", e => {
+  if (e.target.closest("[data-close]")) $("newNote").close();
+  if (e.target.id === "importNotes") $("noteFiles").click();
+  const open = e.target.closest("[data-note]");
+  if (open) { $("newNote").close(); select(open.dataset.note); }
+});
+/** The dialog's warning about similar notes; saving again after it creates the note anyway. */
+function showSimilar(list) {
+  const box = $("newNoteSimilar"), save = $("newNote").querySelector("button.primary");
+  box.hidden = !list;
+  box.innerHTML = list ? `${esc(T.similarNotes)}${list.map(d => `<button type="button" data-note="${esc(d.id)}">${scopeTag(d.scope)} ${esc(d.title)}</button>`).join("")}` : "";
+  save.textContent = list ? T.saveAnyway : T.save;
+}
+$("newNote").addEventListener("close", () => showSimilar(null));
 $("newNote").querySelector("form").addEventListener("submit", async e => {
   e.preventDefault();
   const f = new FormData(e.target);
   const tags = String(f.get("tags") || "").split(/[,，]/).map(t => t.trim()).filter(Boolean);
   try {
-    const { doc } = await api("/note", { body: { title: f.get("title"), text: f.get("body"), tags, scope: targetScope() } });
+    const force = !$("newNoteSimilar").hidden;
+    const r = await api("/note", { body: { title: f.get("title"), text: f.get("body"), tags, scope: targetScope(), force } });
+    if (r.similar) { showSimilar(r.similar); return; }
+    const { doc } = r;
     $("newNote").close(); e.target.reset(); etags = {}; await refresh(); select(doc.id); toast(T.saved);
   } catch (err) { $("newNoteErr").textContent = err.message; $("newNoteErr").hidden = false; }
 });

@@ -160,7 +160,9 @@ test("uploading a new version asks first, then replaces or keeps both", async ()
 test("notes: create, refuse duplicates, edit, remove; toggle the knowledge base", async () => {
 	const created = await (await post("/api/kb/note", { title: "网页笔记", text: "在网页上记录。", tags: ["web"] })).json();
 	assert.equal(created.doc.collection, "wiki");
-	const dup = await post("/api/kb/note", { title: "网页笔记", text: "again" });
+	const similar = await (await post("/api/kb/note", { title: "网页笔记", text: "again" })).json();
+	assert.deepEqual(similar.similar?.map((d: { id: string }) => d.id), [created.doc.id], "the page is shown the note first");
+	const dup = await post("/api/kb/note", { title: "网页笔记", text: "again", force: true });
 	assert.equal(dup.status, 400);
 	assert.match((await dup.json()).error, /already exists/);
 
@@ -171,6 +173,13 @@ test("notes: create, refuse duplicates, edit, remove; toggle the knowledge base"
 	await post("/api/kb/note", { id: created.doc.id, text: read.raw.replace("在网页上记录。", "改过的内容。") });
 	assert.equal((await (await call(`/api/kb/search?q=${encodeURIComponent("改过的内容")}&scope=wiki`)).json()).hits.length, 1);
 	assert.match(readFileSync(join(root, "wiki", "log.md"), "utf8"), /edited \[\[网页笔记\]\]/);
+
+	const other = await (await post("/api/kb/note", { title: "网页调试", text: "见 [[网页笔记]] 和 [[没有这条]]。", tags: ["Web", "debug"], force: true })).json();
+	const linked = await (await call(`/api/kb/doc?id=${other.doc.id}`)).json();
+	assert.deepEqual(linked.links, { 网页笔记: { id: created.doc.id, title: "网页笔记", scope: "global" }, 没有这条: null }, "links resolved by title; missing ones are null");
+	const listed = (await (await call("/api/kb/docs")).json()).docs;
+	assert.deepEqual(listed.find((d: { id: string }) => d.id === other.doc.id).tags, ["web", "debug"], "tags come with the list, lowercased, to browse by");
+	await post("/api/kb/remove", { id: other.doc.id });
 
 	await post("/api/kb/remove", { id: created.doc.id });
 	assert.equal((await (await call("/api/kb/docs")).json()).docs.filter((d: { collection: string }) => d.collection === "wiki").length, 0);

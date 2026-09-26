@@ -23,7 +23,7 @@ const READ_LIMIT = 30_000;
 const KB_ADD_WAIT = 30_000;
 /** /kb list shows this many items; the web page shows everything. */
 const LIST_LIMIT = 50;
-const SUBCOMMANDS = ["on", "off", "status", "add", "cancel", "list", "search", "note", "remove", "sync", "init", "move", "semantic", "eval", "open", "web", "lang"];
+const SUBCOMMANDS = ["on", "off", "status", "add", "cancel", "list", "search", "note", "lint", "remove", "sync", "init", "move", "semantic", "eval", "open", "web", "lang"];
 /** Model-facing text is English regardless of the interface language. */
 const MODEL = messages("en");
 
@@ -612,39 +612,59 @@ export default function piKb(pi: ExtensionAPI) {
 		executionMode: "sequential",
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			const library = lib();
-			const mode: NoteMode = params.mode ?? "create";
+			let mode: NoteMode = params.mode ?? "create";
+			let noteId = params.id;
 			// An existing note stays in its knowledge base; a new one goes where the model said (or the project's).
-			let scope: Scope = mode !== "create" && params.id ? (library.locate(params.id)?.scope ?? "global") : project ? (params.scope ?? "project") : "global";
+			let scope: Scope = mode !== "create" && noteId ? (library.locate(noteId)?.scope ?? "global") : project ? (params.scope ?? "project") : "global";
 			// The project's name, not the subfolder pi happens to run in.
-			const projectName = basename(project?.info.root ?? projectRootFor(ctx.cwd)) || undefined;
+			let input = { ...params, project: basename(project?.info.root ?? projectRootFor(ctx.cwd)) || undefined };
 			let base = library.kb(scope);
-			let prepared = base.prepareNote({ ...params, project: projectName }, mode, params.id);
+			let prepared = base.prepareNote(input, mode, noteId);
+			// Notes that may already say this (in either language, with semantic search): adding to one keeps the wiki from splitting.
+			const similar = mode === "create" ? await library.similarNotes(params.title) : [];
 			let edited: string | undefined;
 			if (ctx.hasUI) {
 				const m = t();
-				const preview = renderNote(prepared.note);
-				const title = prepared.existing?.title ?? "";
-				const verb = mode === "create" ? m.noteNew : mode === "append" ? m.noteAppend(title) : m.noteReplace(title);
 				const name = project?.info.name ?? "";
-				const whereNow = project ? ` → ${m.scopeLabel(scope, name)}` : "";
-				ctx.ui.setWidget("kb", [`📚 ${verb}${whereNow}`, ...preview.split("\n").slice(0, 40)]);
 				try {
-					const [save, edit, skip] = m.noteChoices;
-					// A new note can go to the other knowledge base instead: the user decides what the team sees.
-					const other: Scope = scope === "project" ? "global" : "project";
-					const switchTo = project && mode === "create" ? m.noteSwitch(m.scopeLabel(other, name)) : undefined;
-					const choices = switchTo ? [save, edit, switchTo, skip] : [save, edit, skip];
-					const choice = await ctx.ui.select(m.noteAsk(prepared.note.meta.title) + whereNow, choices);
-					if (switchTo && choice === switchTo) {
-						scope = other;
-						base = library.kb(scope);
-						prepared = base.prepareNote({ ...params, project: projectName }, mode, params.id);
-					} else if (choice === edit) edited = await ctx.ui.editor(m.noteEditor, preview);
-					if (!(choice === save || choice === switchTo || (choice === edit && edited !== undefined))) {
-						return {
-							content: [{ type: "text", text: "The user chose not to save this note. Do not retry on your own, but if the user asks for it again, call kb_note again: they will review it again." }],
-							details: { saved: false },
-						};
+					for (;;) {
+						const preview = renderNote(prepared.note);
+						const title = prepared.existing?.title ?? "";
+						const verb = mode === "create" ? m.noteNew : mode === "append" ? m.noteAppend(title) : m.noteReplace(title);
+						const whereNow = project ? ` → ${m.scopeLabel(scope, name)}` : "";
+						const alike = mode === "create" && similar.length ? [m.noteSimilar, ...similar.map((d) => `  • ${d.title}${project ? ` ${m.scopeTag[d.scope]}` : ""}`), ""] : [];
+						ctx.ui.setWidget("kb", [`📚 ${verb}${whereNow}`, ...alike, ...preview.split("\n").slice(0, 40)]);
+						const [save, edit, skip] = m.noteChoices;
+						const appendTo = mode === "create" ? similar.slice(0, 2).map((d) => ({ d, label: m.noteAppendInstead(d.title) })) : [];
+						// A new note can go to the other knowledge base instead: the user decides what the team sees.
+						const other: Scope = scope === "project" ? "global" : "project";
+						const switchTo = project && mode === "create" ? m.noteSwitch(m.scopeLabel(other, name)) : undefined;
+						const choices = [save, ...appendTo.map((a) => a.label), edit, ...(switchTo ? [switchTo] : []), skip];
+						const choice = await ctx.ui.select(m.noteAsk(prepared.note.meta.title) + whereNow, choices);
+						const into = appendTo.find((a) => a.label === choice)?.d;
+						if (into) {
+							// Added to that note as a section under the new title, then shown again for review.
+							mode = "append";
+							noteId = into.id;
+							scope = into.scope;
+							base = library.kb(scope);
+							const content = /^#{1,6}\s/.test(params.content.trim()) ? params.content : `# ${params.title}\n\n${params.content}`;
+							input = { ...input, content };
+							prepared = base.prepareNote(input, mode, noteId);
+							continue;
+						}
+						if (switchTo && choice === switchTo) {
+							scope = other;
+							base = library.kb(scope);
+							prepared = base.prepareNote(input, mode, noteId);
+						} else if (choice === edit) edited = await ctx.ui.editor(m.noteEditor, preview);
+						if (!(choice === save || choice === switchTo || (choice === edit && edited !== undefined))) {
+							return {
+								content: [{ type: "text", text: "The user chose not to save this note. Do not retry on your own, but if the user asks for it again, call kb_note again: they will review it again." }],
+								details: { saved: false },
+							};
+						}
+						break;
 					}
 				} finally {
 					ctx.ui.setWidget("kb", undefined);
@@ -653,13 +673,22 @@ export default function piKb(pi: ExtensionAPI) {
 			const doc = base.writeNote(prepared, edited);
 			refresh(ctx);
 			const where = project ? ` in the ${scope === "project" ? `project knowledge base "${project.info.name}" (shared with the team once committed)` : "user's global knowledge base"}` : "";
-			const text = `Saved wiki note "${doc.title}" (${doc.id})${where} at ${doc.path}${edited !== undefined ? " after the user edited it" : ""}.`;
+			const redirected = (params.mode ?? "create") === "create" && mode === "append";
+			const text = [
+				redirected
+					? `The user chose to add this to the existing note "${doc.title}" (${doc.id}) instead of creating a new one: it was appended as a section${where}${edited !== undefined ? " after the user edited it" : ""}.`
+					: `Saved wiki note "${doc.title}" (${doc.id})${where} at ${doc.path}${edited !== undefined ? " after the user edited it" : ""}.`,
+				// Without a UI nobody chose: tell the model, so related lessons end up in one note next time.
+				!ctx.hasUI && similar.length
+					? `Similar notes already exist: ${similar.map((d) => `"${d.title}" (${d.id})`).join(", ")}. If one covers the same topic, extend it with mode append and its id instead of creating another note.`
+					: "",
+			].filter(Boolean).join("\n");
 			return { content: [{ type: "text", text }], details: { saved: true, id: doc.id } };
 		},
 	});
 
 	pi.registerCommand("kb", {
-		description: "Knowledge base / 知识库: on | off | status | add | cancel | note | list | search | remove | sync | open | lang",
+		description: "Knowledge base / 知识库: add | search | list | note | lint | init | move | web | semantic | eval | …",
 		getArgumentCompletions: (prefix) => {
 			if (prefix.includes(" ")) return null;
 			const descriptions = t().subcommands;
@@ -808,6 +837,23 @@ export default function piKb(pi: ExtensionAPI) {
 					const focus = rest.join(" ").trim();
 					const message = focus ? `${m.noteRequest}\n${m.noteFocus(focus)}` : m.noteRequest;
 					pi.sendUserMessage(message, ctx.isIdle() ? undefined : { deliverAs: "followUp" });
+					return;
+				}
+				case "lint": {
+					const library = lib();
+					if (ctx.hasUI) ctx.ui.setStatus("kb", m.lintRunning);
+					const report = await library.checkWiki().finally(() => refresh(ctx));
+					const tag = (d: { scope: Scope }) => (project ? `${m.scopeTag[d.scope]} ` : "");
+					const note = (d: { scope: Scope; title: string; id: string }) => `${tag(d)}${d.title} (${d.id})`;
+					const sections: [string, string[]][] = [
+						[m.lintDuplicates, report.duplicates.map(([a, b]) => `- ${note(a)} ↔ ${note(b)}`)],
+						[m.lintBroken, report.broken.map((b) => `- ${note(b.note)}: [[${b.target}]]`)],
+						[m.lintPrivate, report.private.map((p) => `- ${note(p.note)} → ${p.target.title}`)],
+						[m.lintUntagged, report.untagged.map((d) => `- ${note(d)}`)],
+					];
+					const found = sections.filter(([, lines]) => lines.length);
+					const body = found.length ? found.flatMap(([head, lines]) => [head, ...lines, ""]).join("\n").trimEnd() : m.lintClean;
+					show(ctx, m.lintTitle(report.notes), body);
 					return;
 				}
 				case "sync": {

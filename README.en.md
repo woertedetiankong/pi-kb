@@ -38,10 +38,13 @@ Supported material: PDF, images (PNG / JPG etc., via OCR), Markdown and plain te
 |---|---|
 | `/kb` or `/kb status` | Show whether it is on and how much it holds |
 | `/kb on` / `/kb off` | Turn on / off (saved). When off, the tools and the prompt section are removed and take no context |
-| `/kb add <file or folder…>` | Import material in the background; the command returns at once and you can keep working. Dragging paths into the terminal works |
+| `/kb add <file or folder…> [--project\|--global]` | Import material in the background; the command returns at once and you can keep working. Dragging paths into the terminal works. In a project with its own knowledge base, choose which one it goes to |
 | `/kb cancel` | Stop the import in progress (files already imported are kept) |
 | `/kb add <note.md…> --note` | Add as experience notes in the wiki |
 | `/kb note [focus]` | Ask the agent to review this conversation and save what is worth keeping as wiki notes |
+| `/kb lint` | Check the wiki notes: likely duplicates, broken `[[links]]`, project notes linking to global ones (teammates can't open them), notes without tags |
+| `/kb init` | Create a project knowledge base in the project (`.pi/kb`, shared with the team through git); see below |
+| `/kb move <id> project\|global` | Move a document or note to the project's or your global knowledge base |
 | `/kb list [words]` | List documents and notes (up to 50; add words to filter by title) |
 | `/kb search <keywords>` | Search it yourself |
 | `/kb remove <id>` | Delete (a note's file is deleted too) |
@@ -155,6 +158,8 @@ git add .pi/kb && git commit -m "Project knowledge base"
 - Search results show pages and open right at that page; for PDFs, "View page" opens the original at that page in the browser
 - "✨ Ask AI" answers the question in the search box from the knowledge base, with pi's current model or one picked next to the button (remembered in the browser; a cheap, fast model is usually enough): the model first turns it into a few searches (including the other language and the wording a manual would use), then answers only from the passages found, citing each fact as [1]; a citation opens the original at that page. When the documents do not cover the question, it says so instead of guessing. Each question makes two model calls (about 1-2 thousand tokens)
 - Browse the converted text (tables and headings rendered as Markdown), create and edit notes, delete, and turn the knowledge base on or off
+- `[[links]]` in notes open the linked note (missing ones are struck through); click a tag, or one under "Tags" in the sidebar, to see the notes with that tag
+- With semantic search off, a search with few results says why: only the exact words match, so Chinese does not find English material
 - 中文 / English switch; add `?lang=en` or `?lang=zh` to a link to choose the language, `?q=<keywords>` to search directly, `?doc=<id>&page=<n>` to open a page of a document
 
 The page is served by the shared pi-web server (`src/hub.ts`). When [pi-sessions](https://github.com/woertedetiankong/pi-newsession) and [pi-learn](https://github.com/woertedetiankong/pi-learn) are installed too, they live under one address (`/sessions/`, `/kb/`, `/learn/`) with a switcher at the top, sharing the access token in `~/.pi/agent/pi-web/token`. After `/reload` the server comes back at the same address, so open pages keep working. `src/hub.ts` must stay identical in all three repositories.
@@ -195,6 +200,10 @@ Symptom / root cause / fix / how to recognize it next time
 ```
 
 Appending to a note adds a dated section: if the new content opens with its own heading, that heading stays with the date on the line below; otherwise the date is the heading.
+
+**No duplicate notes**: before a new note is saved, similar existing notes are looked up: alike titles (such as "XR100 SPI clock divider" and "XR-100 SPI divider") and notes a search for the new title finds. With semantic search on, Chinese and English notes recognise each other (only with a model that has a similarity floor, such as the local Qwen3; otherwise the closest notes would be listed whether related or not). The save dialog in the terminal lists them and adds "Add to … instead", which shows the combined note before saving; a new note on the web page lists them first, so you can open one and add to it, or "Save as new anyway". `/kb lint` checks the whole wiki at any time.
+
+Notes link to each other with `[[file name]]`, `[[subfolder/file name]]` or `[[note title]]` (also `[[target|label]]` and `[[target#section]]`), as in Obsidian.
 
 Hand-written notes (front matter optional) placed in `wiki/` are indexed too. Each write appends a line to `wiki/log.md`. The index holds the body and `#tags`, not front matter field names.
 

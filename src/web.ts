@@ -8,7 +8,7 @@ import { ask, AskError, listModels, type ModelContext } from "./ask.ts";
 import { type KbLocation, LocationError, type SemanticConfig } from "./config.ts";
 import { apiKeyEnv, folderSize, localModelDirs, removeLocalModel, runtimeInstalled } from "./semantic/providers.ts";
 import type { Library, Scope } from "./library.ts";
-import { parseNote } from "./notes.ts";
+import { parseNote, wikiLinks } from "./notes.ts";
 import type { Collection } from "./store.ts";
 
 const UPLOAD_LIMIT = 200 * 1024 * 1024;
@@ -111,7 +111,8 @@ export class KbWebApp implements WebApp {
 					return { enabled: this.host.enabled(), root: kb.root, ...stats, project, semantic, imports: { ...imports, current } };
 				}
 				case "GET /docs":
-					return { docs: lib.listDocs() };
+					// Notes carry their tags, so the page can browse by tag.
+					return { docs: lib.listDocs().map((d) => (d.collection === "wiki" ? { ...d, tags: lib.noteTags(d) } : d)) };
 				case "GET /search": {
 					const q = (req.query.get("q") ?? "").trim();
 					const scope = req.query.get("scope");
@@ -125,7 +126,14 @@ export class KbWebApp implements WebApp {
 					// `raw` is the whole file, for editing.
 					const raw = lib.noteText(id);
 					const { meta, body } = parseNote(raw, doc.title);
-					return { doc, text: body, note: meta, raw, scope };
+					// Where each [[link]] goes (null: no such note), so the page can open them.
+					const links = Object.fromEntries(
+						wikiLinks(body).map((target) => {
+							const to = lib.resolveLink(target, scope);
+							return [target, to ? { id: to.id, title: to.title, scope: to.scope } : null];
+						}),
+					);
+					return { doc, text: body, note: meta, raw, scope, links };
 				}
 				case "GET /file": {
 					const { file, name } = lib.originalFile(id);
@@ -192,8 +200,14 @@ export class KbWebApp implements WebApp {
 					if (body.id) doc = lib.editNote(String(body.id), text);
 					else {
 						const tags = Array.isArray(body.tags) ? body.tags.map(String) : [];
+						const title = String(body.title ?? "");
+						// A note that may already say this: let the person open it and add there, or save anyway.
+						if (body.force !== true && title.trim() && text.trim()) {
+							const similar = await lib.similarNotes(title);
+							if (similar.length) return { similar: similar.map((d) => ({ id: d.id, title: d.title, scope: d.scope })) };
+						}
 						const target = lib.kb(pickScope(body.scope, lib));
-						doc = target.writeNote(target.prepareNote({ title: String(body.title ?? ""), content: text, tags }));
+						doc = target.writeNote(target.prepareNote({ title, content: text, tags }));
 					}
 					this.host.changed();
 					return { doc };

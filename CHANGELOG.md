@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.5.2 — 2026-09-25
+
+### Keeping the wiki tidy
+
+- New notes are checked against existing ones first: titles that are alike ("XR100 SPI clock divider" next to "XR-100 SPI divider") and notes a search for the new title finds, Chinese and English across each other when semantic search is on (only with a model that has a similarity floor, such as the local Qwen3). The terminal's save dialog lists them and offers "Add to … instead", which appends the lesson as a section of that note and shows the result before saving. The web page's "New note" lists them first, with "Save as new anyway". Without a UI the agent is told about them.
+- `/kb lint` checks the wiki: likely duplicates (alike titles, or notes that semantic search finds first for each other's title), `[[links]]` to notes that don't exist, project notes linking to your global notes (teammates can't open them), and notes without tags.
+- `[[links]]` between notes open the linked note on the web page, by file name, path or title (`[[target|label]]` and `[[target#section]]` too); missing ones are struck through.
+- Tags on the web page are clickable, and the sidebar lists the most used ones: click one to see the notes with that tag.
+
+### Web page and messages
+
+- With semantic search off, a search that finds little says why (only the exact words match, so Chinese does not find English material) and links to Settings.
+- A note no longer shows its title twice.
+- The web page shows "first OCR: downloading language data" again during the first OCR import; a text key used twice on the page had hidden it since v0.3.1. A test now checks the page's texts for keys defined twice.
+- English counts read naturally: "1 doc · 1 note", "1 page", "2 files" instead of "1 docs", "file(s)".
+- The README's command table lists `/kb init`, `/kb move`, `/kb lint` and `--project` / `--global`.
+
 ## v0.5.1 — 2026-09-25
 
 - In a project with its own knowledge base, `/kb add` and the agent's `kb_add` put files from outside the project (say `~/Downloads/vendor.pdf`) into your global knowledge base unless you ask for the project with `--project` (or `scope: "project"`), so they are not committed for the team by accident. Files inside the project still go to the project; the message says where each went.

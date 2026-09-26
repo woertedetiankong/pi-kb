@@ -89,3 +89,37 @@ export function slugify(title: string): string {
 export function normalizeTags(tags: string[] | undefined): string[] {
 	return [...new Set((tags ?? []).map((t) => t.trim().toLowerCase().replace(/[\s,[\]]+/g, "-")).filter(Boolean))];
 }
+
+/** Letters and digits only, lowercased: "XR-100 SPI 分频" → "xr100spi分频". */
+const bare = (text: string) => text.toLowerCase().normalize("NFKC").replace(/[^\p{L}\p{N}]+/gu, "");
+
+/**
+ * How alike two note titles are, 0 to 1 (Dice coefficient over character pairs), so "XR100 SPI
+ * clock divider" is recognised next to "XR-100 SPI divider". Works for Chinese as well; titles in
+ * different languages score low, which semantic search covers instead.
+ */
+export function titleSimilarity(a: string, b: string): number {
+	const pairs = (text: string) => {
+		const s = bare(text);
+		const out = new Set<string>();
+		for (let i = 0; i < s.length - 1; i++) out.add(s.slice(i, i + 2));
+		// A one-character title still compares with itself.
+		if (s.length === 1) out.add(s);
+		return out;
+	};
+	const [x, y] = [pairs(a), pairs(b)];
+	if (!x.size || !y.size) return 0;
+	let shared = 0;
+	for (const p of x) if (y.has(p)) shared++;
+	return (2 * shared) / (x.size + y.size);
+}
+
+/** The notes a note links to with [[target]], [[target|label]] or [[target#heading]], in order, once each. */
+export function wikiLinks(body: string): string[] {
+	const out = new Set<string>();
+	for (const m of body.matchAll(/\[\[([^\]|#\n]+)(?:#[^\]|\n]*)?(?:\|[^\]\n]*)?\]\]/g)) {
+		const target = m[1].trim();
+		if (target) out.add(target);
+	}
+	return [...out];
+}

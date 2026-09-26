@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { messages, parseLanguage, resolveLanguage } from "../src/i18n.ts";
 
 const saved = process.env.PI_KB_LANG;
@@ -32,5 +34,31 @@ test("both languages cover every subcommand and keep choices aligned", () => {
 	assert.deepEqual(Object.keys(zh.subcommands).sort(), Object.keys(en.subcommands).sort());
 	assert.equal(zh.noteChoices.length, en.noteChoices.length);
 	assert.equal(zh.statusOn(3, 1), "📚 知识库 · 3 份文档 · 1 条笔记");
-	assert.equal(en.statusOn(3, 1), "📚 KB · 3 docs · 1 notes");
+	assert.equal(en.statusOn(3, 1), "📚 KB · 3 docs · 1 note");
+	assert.equal(en.statusOn(1, 0), "📚 KB · 1 doc · 0 notes");
+});
+
+test("the web page's texts: no key defined twice (the later one silently wins), and both languages have the same keys", async () => {
+	const { default: ts } = await import("typescript");
+	const html = readFileSync(join(import.meta.dirname, "..", "web", "kb.html"), "utf8");
+	const script = html.slice(html.indexOf("<script>") + "<script>".length, html.lastIndexOf("</script>"));
+	const file = ts.createSourceFile("kb.js", script, ts.ScriptTarget.Latest);
+	let table: import("typescript").ObjectLiteralExpression | undefined;
+	file.forEachChild(function find(node) {
+		// const T = { zh: {…}, en: {…} }[LANG];
+		const init = ts.isVariableDeclaration(node) && node.name.getText(file) === "T" ? node.initializer : undefined;
+		const object = init && ts.isElementAccessExpression(init) ? init.expression : init;
+		if (object && ts.isObjectLiteralExpression(object)) table = object;
+		else node.forEachChild(find);
+	});
+	assert.ok(table, "const T = { zh: {…}, en: {…} }[LANG]");
+	const keys: Record<string, string[]> = {};
+	for (const lang of table.properties) {
+		if (!ts.isPropertyAssignment(lang) || !ts.isObjectLiteralExpression(lang.initializer)) continue;
+		keys[lang.name.getText(file)] = lang.initializer.properties.map((p) => p.name?.getText(file) ?? "");
+	}
+	for (const [lang, names] of Object.entries(keys)) {
+		assert.deepEqual(names.filter((n, i) => names.indexOf(n) !== i), [], `${lang}: keys defined twice`);
+	}
+	assert.deepEqual([...keys.zh].sort(), [...keys.en].sort());
 });

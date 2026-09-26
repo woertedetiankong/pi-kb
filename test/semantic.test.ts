@@ -254,3 +254,30 @@ test("config changed by another pi window is picked up, and saving starts from i
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+test("with semantic search, a note in the other language counts as similar, and lint pairs notes that find each other", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-kb-sem-similar-"));
+	const kb = new KnowledgeBase(root);
+	try {
+		const { Library } = await import("../src/library.ts");
+		const lib = new Library(kb);
+		const chinese = (await kb.addFile(join(fixtures, "spi-lesson.md"), { wiki: true })).doc!;
+		kb.writeNote(kb.prepareNote({ title: "Lunch", content: "Noodles.", tags: ["food"] }));
+		assert.deepEqual(await lib.similarNotes("SPI clock divider gotcha"), [], "keywords alone miss the Chinese note");
+
+		kb.updateConfig({ semantic: { ...DEFAULT_SEMANTIC, provider: "api", api: { baseUrl, model: "concepts" } } });
+		await kb.indexSemantic();
+		assert.deepEqual(await lib.similarNotes("SPI clock divider gotcha"), [], "no similarity floor: the closest notes, related or not, are not trusted");
+		kb.updateConfig({ semantic: { ...kb.config.semantic, minScore: 0.3 } });
+		const found = await lib.similarNotes("SPI clock divider gotcha");
+		assert.deepEqual(found.map((d) => [d.id, d.why]), [[chinese.id, "search"]]);
+
+		const english = kb.writeNote(kb.prepareNote({ title: "Clock divider must be set first", content: "The clock divider resets to 1; set it to 4 before using the flash.", tags: ["spi"] }));
+		await kb.indexSemantic();
+		const report = await lib.checkWiki();
+		assert.deepEqual(report.duplicates.map((pair) => pair.map((d) => d.id).sort()), [[chinese.id, english.id].sort()]);
+	} finally {
+		kb.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});

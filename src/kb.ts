@@ -637,6 +637,22 @@ export class KnowledgeBase {
 		return { file: join(dir, name), name };
 	}
 
+	private tags = new Map<string, { hash: string; tags: string[] }>();
+
+	/** A note's tags from its front matter, read again only when the note changed. */
+	noteTags(doc: DocRecord): string[] {
+		const cached = this.tags.get(doc.id);
+		if (cached?.hash === doc.hash) return cached.tags;
+		let tags: string[] = [];
+		try {
+			tags = normalizeTags(parseNote(readFileSync(join(this.root, doc.path), "utf8"), doc.title).meta.tags);
+		} catch {
+			// removed meanwhile: no tags
+		}
+		this.tags.set(doc.id, { hash: doc.hash, tags });
+		return tags;
+	}
+
 	/** The note file as stored, front matter included. */
 	noteText(id: string): string {
 		const doc = this.store.getDoc(id);
@@ -687,6 +703,15 @@ export class KnowledgeBase {
 			const hit = hits.get(h.rowid);
 			return hit ? [{ ...hit, score: h.score, match: "semantic" as const }] : [];
 		});
+	}
+
+	/**
+	 * Whether semantic results have a similarity floor (measured for the model, or set in the config).
+	 * Without one the closest notes always come back, related or not.
+	 */
+	semanticFloor(): boolean {
+		const cfg = this.config.semantic;
+		return (cfg.minScore ?? defaultMinScore(cfg.provider === "api" ? cfg.api.model : cfg.local.model)) !== undefined;
 	}
 
 	/** Whether semantic search can answer now (provider set and some chunks embedded). */
