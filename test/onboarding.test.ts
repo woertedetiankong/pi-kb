@@ -1,10 +1,10 @@
 /**
  * First-run hints, through the extension itself with a fake pi: the welcome on an empty knowledge
  * base, the empty hint in /kb status, the one-time semantic search tip, /kb help and completions,
- * and naming what to remove by title.
+ * naming what to remove by title, the Markdown-as-documents hint and /kb reread.
  */
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
@@ -13,6 +13,8 @@ const root = mkdtempSync(join(tmpdir(), "pi-kb-onboarding-"));
 process.env.PI_KB_DIR = join(root, "kb");
 process.env.PI_CODING_AGENT_DIR = join(root, "agent");
 process.env.PI_KB_LANG = "en";
+// Share downloaded OCR language data between runs instead of fetching it per temp root.
+process.env.PI_KB_TESSDATA ??= join(tmpdir(), "pi-kb-test-tessdata");
 const cwd = join(root, "work");
 mkdirSync(cwd, { recursive: true });
 
@@ -148,4 +150,30 @@ test("/kb remove takes a title or words from it, and asks which one when several
 	assert.equal(notes.at(-1), "Removed b.md");
 	await kb.handler("remove b.md", ctx);
 	assert.equal(notes.at(-1), 'Nothing in the knowledge base matches "b.md"');
+});
+
+test("/kb add says Markdown stays a document; /kb reread reads a PDF again, only PDFs, images and Office", async () => {
+	const until = async (check: () => boolean) => {
+		while (!check()) await new Promise((r) => setTimeout(r, 5));
+	};
+	writeFileSync(join(cwd, "c.md"), "# C\n\nSome text.\n");
+	widget = [];
+	await kb.handler("add c.md", ctx);
+	await until(() => /import/i.test(widget[0] ?? ""));
+	assert.match(widget.join("\n"), /Markdown files were imported as documents\. To keep one as a note instead/);
+
+	copyFileSync(join(import.meta.dirname, "fixtures", "xr100-manual.pdf"), join(cwd, "xr100-manual.pdf"));
+	widget = [];
+	await kb.handler("add xr100-manual.pdf", ctx);
+	await until(() => /import/i.test(widget[0] ?? ""));
+	assert.doesNotMatch(widget.join("\n"), /Markdown files/);
+
+	widget = [];
+	await kb.handler("reread xr100", ctx);
+	assert.match(notes.at(-1) ?? "", /^Reading xr100-manual\.pdf again in the background/);
+	await until(() => /import/i.test(widget[0] ?? ""));
+	assert.match(widget.join("\n"), /^📚 Knowledge base import\nRead 1 document again from the original\.\n- read again: xr100-manual\.pdf/);
+
+	await kb.handler("reread c.md", ctx);
+	assert.equal(notes.at(-1), 'Nothing in the knowledge base matches "c.md"', "a text file has no OCR to redo");
 });

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
@@ -132,6 +132,33 @@ test("reread converts a document again from its original, keeping its id, title 
 	assert.deepEqual([missing.status, missing.reason], ["failed", "no_original"]);
 	assert.deepEqual(pages("CTRL_REG"), [2]);
 	kb.remove(doc.id);
+});
+
+test("convert turns a note into a document and a Markdown document back into a note", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "pi-kb-convert-"));
+	const readme = join(dir, "AGENTS.md");
+	writeFileSync(readme, "# AGENTS\n\nPrefer the smallest change that satisfies the request.\n");
+	const note = await kb.addFile(readme, { wiki: true });
+	assert.equal(note.doc?.collection, "wiki");
+	const noteFile = join(root, note.doc.path);
+
+	const asDoc = await kb.convert(note.doc.id);
+	assert.equal(asDoc.status, "added", asDoc.message);
+	assert.deepEqual([asDoc.doc?.collection, asDoc.doc?.title], ["docs", "AGENTS.md"]);
+	assert.equal(kb.store.getDoc(note.doc.id), undefined, "the note is gone");
+	assert.ok(!existsSync(noteFile), "and its file");
+	assert.deepEqual(kb.search("smallest change").map((h) => h.docId), [asDoc.doc?.id]);
+
+	const back = await kb.convert(asDoc.doc!.id);
+	assert.deepEqual([back.status, back.doc?.collection, back.doc?.title], ["added", "wiki", "AGENTS"]);
+	assert.equal(kb.store.getDoc(asDoc.doc!.id), undefined, "the document is gone");
+	assert.deepEqual(kb.search("smallest change").map((h) => h.docId), [back.doc?.id]);
+
+	const pdf = await kb.addFile(join(fixtures, "xr100-manual.pdf"));
+	await assert.rejects(kb.convert(pdf.doc!.id), /Only Markdown documents can become notes/);
+	kb.remove(back.doc!.id);
+	kb.remove(pdf.doc!.id);
+	rmSync(dir, { recursive: true });
 });
 
 test("remove deletes the document and its index entries", async () => {

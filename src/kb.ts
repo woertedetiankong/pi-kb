@@ -449,6 +449,28 @@ export class KnowledgeBase {
 	}
 
 	/**
+	 * Turn a note into a document, or a Markdown document into a note, in this knowledge base: e.g.
+	 * a README dropped on the web page (which takes Markdown as notes) that is reference material.
+	 * The new item gets a new id; the old one is removed once the new one is in.
+	 */
+	async convert(id: string): Promise<AddResult> {
+		const doc = this.store.getDoc(id);
+		if (!doc) throw new Error(`No knowledge base document with id ${id}`);
+		if (doc.collection === "wiki") {
+			const file = join(this.root, doc.path);
+			// Titled by its file name, as the web upload it most likely came from.
+			const result = await this.addFile(file, { source: `upload:${basename(file)}` });
+			if (result.status === "added" || result.status === "exists") this.remove(id);
+			return result;
+		}
+		const file = this.originalPath(doc);
+		if (!file || !isMarkdown(file)) throw new Error("Only Markdown documents can become notes");
+		const result = await this.addFile(file, { wiki: true });
+		if (result.status === "added") this.remove(id);
+		return result;
+	}
+
+	/**
 	 * Convert an imported document again from its original, e.g. after the OCR language or server
 	 * changed. It keeps its id, title and import date, so citations still fit; when the new
 	 * conversion gives no text, the old one stays.

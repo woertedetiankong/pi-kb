@@ -356,6 +356,12 @@ const T = {
     results: n => `${n} 条结果`, items: n => `${n} 项`, pages: n => `${n} 页`,
     dropTitle: "松开即可导入", dropHint: "PDF、图片、文本作为资料，按页检索；Markdown 文件作为笔记，和 agent 记下的经验放在一起",
     notesImported: n => `${n} 个 Markdown 文件已作为笔记导入`, asDocs: "改为资料导入",
+    docsTip: "资料：导入的 PDF、图片、手册等，别人写的参考材料。只读，引用时带页码",
+    notesTip: "笔记：你或 agent 记下的经验、踩坑和偏好。可以编辑、追加",
+    toDocs: "改为资料", toNote: "改为笔记",
+    toDocsTip: "这其实是参考文档（比如 README）？改为只读的资料", toNoteTip: "这是你自己的经验记录？改为可以编辑、追加的笔记",
+    toDocsConfirm: t => `把笔记“${t}”改为资料？它会变成只读的资料，引用和检索照常。`, toNoteConfirm: t => `把“${t}”改为笔记？之后可以编辑、追加。`,
+    converted: { docs: t => `“${t}”已改为资料`, wiki: t => `“${t}”已改为笔记` },
     reread: "重新识别", rereadTip: "用现在的 OCR 设置重新识别这份资料（比如改了识别语言或 OCR 服务之后）",
     rereadConfirm: t => `用现在的 OCR 设置重新识别“${t}”？新识别出的文字会替换现在的；完成之前照常可以搜索。`, rereadDone: t => `已重新识别“${t}”`,
     askFew: "结果不多？让 AI 换几种说法、用中英文再找找", askFewBtn: "✨ 用 AI 找找看",
@@ -436,6 +442,12 @@ const T = {
     results: n => pl(n, "result"), items: n => pl(n, "item"), pages: n => pl(n, "page"),
     dropTitle: "Drop to import", dropHint: "PDF, images and text become documents, searchable by page; Markdown files become notes, next to the lessons the agent records",
     notesImported: n => `${pl(n, "Markdown file")} imported as notes`, asDocs: "Import as documents instead",
+    docsTip: "Documents: imported PDFs, images, manuals and other reference material. Read-only, cited by page",
+    notesTip: "Notes: lessons, gotchas and preferences you or the agent wrote down. Editable",
+    toDocs: "Make it a document", toNote: "Make it a note",
+    toDocsTip: "Reference material (a README, say) rather than your own lesson? Make it a read-only document", toNoteTip: "Your own lesson? Make it an editable note",
+    toDocsConfirm: t => `Make the note “${t}” a document? It becomes read-only reference material; search and citations work as before.`, toNoteConfirm: t => `Make “${t}” a note? You can then edit it and add to it.`,
+    converted: { docs: t => `“${t}” is now a document`, wiki: t => `“${t}” is now a note` },
     reread: "Read again", rereadTip: "Read this document again with the current OCR settings (e.g. after changing the OCR language or server)",
     rereadConfirm: t => `Read "${t}" again with the current OCR settings? The new text replaces the current one; searching works as usual meanwhile.`, rereadDone: t => `Read "${t}" again`,
     askFew: "Few results? Let AI search with other wordings, in Chinese and English", askFewBtn: "✨ Ask AI",
@@ -657,14 +669,14 @@ function renderHeader() {
 
 function renderSide() {
   const docs = state.docs, count = k => docs.filter(d => kindOf(d) === k).length;
-  const nav = (view, ico, name, cnt, sub) => `<button class="nav${sub ? " sub" : ""}${state.view === view && !state.hits ? " on" : ""}" data-view="${view}"><span class="ico">${ico}</span><span class="name">${esc(name)}</span><span class="cnt">${cnt}</span></button>`;
+  const nav = (view, ico, name, cnt, sub, tip) => `<button class="nav${sub ? " sub" : ""}${state.view === view && !state.hits ? " on" : ""}" data-view="${view}"${tip ? ` title="${esc(tip)}"` : ""}><span class="ico">${ico}</span><span class="name">${esc(name)}</span><span class="cnt">${cnt}</span></button>`;
   const kinds = ["pdf", "office", "image", "text"].filter(k => count(k));
   $("side").innerHTML = `
     <div class="nav-label">${esc(T.views)}</div>
     ${nav("all", "◎", T.all, docs.length)}
-    ${nav("docs", "▤", T.docs, docs.filter(d => d.collection === "docs").length)}
+    ${nav("docs", "▤", T.docs, docs.filter(d => d.collection === "docs").length, false, T.docsTip)}
     ${kinds.map(k => nav("kind:" + k, "", T.kinds[k], count(k), true)).join("")}
-    ${nav("wiki", "✎", T.notes, count("note"))}
+    ${nav("wiki", "✎", T.notes, count("note"), false, T.notesTip)}
     ${hasProject() ? `${nav("scope:project", "📁", `${T.viewProject} · ${state.status.project.name}`, docs.filter(d => d.scope === "project").length)}${nav("scope:global", "👤", T.viewGlobal, docs.filter(d => d.scope === "global").length)}` : ""}
     ${sideTags()}
     <div class="nav-label">${esc(T.actions)}</div>
@@ -786,7 +798,7 @@ async function renderPreview() {
       <dl class="facts">${facts.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>
       ${state.editing
         ? `<textarea class="editor" id="noteText">${esc(text)}</textarea><div class="actions" style="margin-top:10px"><button class="btn primary" id="saveNote">${esc(T.save)}</button><button class="btn" id="cancelEdit">${esc(T.cancel)}</button></div>`
-        : `<div class="actions"><button class="btn" id="editNote">${esc(T.edit)}</button>${moveButton()}<button class="btn danger" id="removeDoc">${esc(T.remove)}</button></div><div class="md">${markdown(withoutTitle(body, doc.title), { links: state.doc.links || {} })}</div>`}
+        : `<div class="actions"><button class="btn" id="editNote">${esc(T.edit)}</button><button class="btn" id="convertDoc" title="${esc(T.toDocsTip)}">${esc(T.toDocs)}</button>${moveButton()}<button class="btn danger" id="removeDoc">${esc(T.remove)}</button></div><div class="md">${markdown(withoutTitle(body, doc.title), { links: state.doc.links || {} })}</div>`}
     </div>`;
     return;
   }
@@ -801,7 +813,7 @@ async function renderPreview() {
       <dt>${esc(T.source)}</dt><dd>${esc(doc.source.replace(/^upload:/, ""))}</dd>
       <dt>${esc(T.id)}</dt><dd class="num">${esc(doc.id)}</dd>
     </dl>
-    <div class="actions"><button class="btn" id="openOriginal" data-page="${state.focusPage ?? ""}">${esc(T.openOriginal)} ↗</button>${["pdf", "image", "office"].includes(doc.kind) ? `<button class="btn" id="rereadDoc" title="${esc(T.rereadTip)}">${esc(T.reread)}</button>` : ""}${moveButton()}<button class="btn danger" id="removeDoc">${esc(T.remove)}</button></div>
+    <div class="actions"><button class="btn" id="openOriginal" data-page="${state.focusPage ?? ""}">${esc(T.openOriginal)} ↗</button>${["pdf", "image", "office"].includes(doc.kind) ? `<button class="btn" id="rereadDoc" title="${esc(T.rereadTip)}">${esc(T.reread)}</button>` : ""}${doc.kind === "text" && isMarkdown(doc.source) ? `<button class="btn" id="convertDoc" title="${esc(T.toNoteTip)}">${esc(T.toNote)}</button>` : ""}${moveButton()}<button class="btn danger" id="removeDoc">${esc(T.remove)}</button></div>
     ${image ? `<img class="orig" id="origImg" alt="">` : ""}
     <div class="md">${markdown(text, { pdf, hitPage: state.focusPage })}</div>
   </div>`;
@@ -953,10 +965,14 @@ async function upload(files, note) {
   const undo = notes.length && {
     label: T.asDocs,
     run: async () => {
-      const names = new Set(notes.map(r => r.path));
-      try { for (const r of notes) await api("/remove", { body: { id: r.doc.id } }); }
-      catch (e) { toast(e.message); return; }
-      await upload(list.filter(f => names.has(f.name)), false);
+      try {
+        const made = [];
+        for (const r of notes) made.push((await api("/convert", { body: { id: r.doc.id } })).result);
+        etags = {}; await refresh();
+        const done = made.filter(r => r.doc);
+        if (done.length === 1 && list.length === 1) select(done[0].doc.id);
+        toast(done.length === 1 ? T.converted.docs(done[0].doc.title) : T.imported(done.length, 0, 0, made.length - done.length));
+      } catch (e) { toast(e.message); }
     },
   };
   toast([...summary, ...(notes.length ? [T.notesImported(notes.length)] : [])].join(" · "), undo || undefined);
@@ -1069,6 +1085,17 @@ $("preview").addEventListener("click", async e => {
   if (b.id === "saveNote") {
     try { await api("/note", { body: { id, text: $("noteText").value } }); state.editing = false; state.doc = null; etags = {}; await refresh(); renderPreview(); toast(T.saved); }
     catch (err) { toast(err.message); }
+    return;
+  }
+  if (b.id === "convertDoc" && doc) {
+    if (!confirm(doc.collection === "wiki" ? T.toDocsConfirm(doc.title) : T.toNoteConfirm(doc.title))) return;
+    try {
+      const { result } = await api("/convert", { body: { id } });
+      if (!result.doc) { toast(`${doc.title}: ${T.reasons[result.reason] ?? result.message ?? ""}`); return; }
+      etags = {}; await refresh();
+      select(result.doc.id);
+      toast(T.converted[result.doc.collection](result.doc.title));
+    } catch (err) { toast(err.message); }
     return;
   }
   if (b.id === "rereadDoc" && doc) {

@@ -39,7 +39,7 @@ Everyday commands (typing `/kb ` in pi completes only these; `/kb help` lists th
 | Command | What it does |
 |---|---|
 | `/kb add <file or folder…> [--project\|--global]` | Import material in the background; the command returns at once and you can keep working. Dragging paths into the terminal works. In a project with its own knowledge base, choose which one it goes to |
-| `/kb add <note.md…> --note` | Import as notes |
+| `/kb add <note.md…> --note` | Import as notes (without `--note`, Markdown is imported as documents and the summary says so; Markdown dropped on the web page becomes notes by default) |
 | `/kb search <keywords>` | Search it yourself |
 | `/kb web` | Open the knowledge base page in the browser (`/kb web url` prints the full address, `/kb web stop` closes it) |
 | `/kb note [focus]` | Ask the agent to review this conversation and save what is worth keeping as notes |
@@ -57,6 +57,7 @@ More commands (project knowledge bases, search settings, upkeep; completed once 
 | `/kb init` | Create a project knowledge base in the project (`.pi/kb`, shared with the team through git); see below |
 | `/kb move <title or id> [project\|global]` | Move a document or note to the project's or your global knowledge base (without a target: to the other one) |
 | `/kb semantic [status\|api\|local\|off\|remove]` | Semantic search: show status, use an online API, use a local model, turn off, delete the local model (frees about 1.1 GB; documents and notes stay) |
+| `/kb reread <title or id>` | Read a PDF, image or Office document again from its original with the current OCR settings (after changing the OCR language or server). Keeps its id, title and import date; runs in the background |
 | `/kb lint` | Check the notes: likely duplicates, broken `[[links]]`, project notes linking to global ones (teammates can't open them), notes without tags |
 | `/kb eval [init\|draft\|run]` | Measure retrieval: create the question file, let the agent draft questions, run the evaluation |
 | `/kb open` | Open the knowledge base folder |
@@ -162,7 +163,7 @@ git add .pi/kb && git commit -m "Project knowledge base"
 
 `/kb web` opens a local page (listening on `127.0.0.1` only, access token required):
 
-- Drop files on the page to import them: Markdown files become notes, everything else documents. To keep a Markdown file as a document (a software manual, say), click "Import as documents instead" on the toast. They go through the same background queue as `/kb add`, with progress on the page; imports started in the terminal show their progress there too
+- Drop files on the page to import them: Markdown files become notes, everything else documents. To keep a Markdown file as a document (a software manual, say), click "Import as documents instead" on the toast; missed it? A note's page has "Make it a document" any time, and a Markdown document's page "Make it a note". Hovering "Documents" or "Notes" in the sidebar says how they differ. They go through the same background queue as `/kb add`, with progress on the page; imports started in the terminal show their progress there too
 - Search results show pages and open right at that page; for PDFs, "View page" opens the original at that page in the browser
 - "✨ Ask AI" answers the question in the search box from the knowledge base, with pi's current model or one picked next to the button (remembered in the browser; a cheap, fast model is usually enough): the model first turns it into a few searches (including the other language and the wording a manual would use), then answers only from the passages found, citing each fact as [1]; a citation opens the original at that page. When the documents do not cover the question, it says so instead of guessing. Each question makes two model calls (about 1-2 thousand tokens). When a search finds fewer than 3 results, "Ask AI" appears below them to ask the same question
 - Browse the converted text (tables and headings rendered as Markdown), create and edit notes, delete, and turn the knowledge base on or off

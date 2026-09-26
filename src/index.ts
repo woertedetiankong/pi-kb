@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 import { checkWritable, copyContent, expandDir, kbLocation, LocationError } from "./config.ts";
 import { type LanguageSetting, type Messages, messages, resolveLanguage } from "./i18n.ts";
+import { isMarkdown } from "./convert.ts";
 import { type AddResult, formatCitation, KnowledgeBase, type NoteMode, type PageOcr, pathsOutside } from "./kb.ts";
 import { renderNote } from "./notes.ts";
 import { sharedHub } from "./hub.ts";
@@ -29,7 +30,9 @@ const LIST_LIMIT = 50;
 /** What most people need; shown first by /kb help and the only ones completed before a letter is typed. */
 const EVERYDAY = ["add", "search", "web", "note", "list", "remove", "cancel", "status", "on", "off", "help"];
 /** Teams, tuning and upkeep: listed under "More" in /kb help, completed once their first letters are typed. */
-const MORE = ["init", "move", "semantic", "lint", "eval", "open", "lang", "sync"];
+const MORE = ["init", "move", "semantic", "reread", "lint", "eval", "open", "lang", "sync"];
+/** Kinds whose text may come from OCR, so reading them again with other OCR settings can change it. */
+const REREAD_KINDS = ["pdf", "image", "office"];
 const SUBCOMMANDS = [...EVERYDAY, ...MORE];
 /** Model-facing text is English regardless of the interface language. */
 const MODEL = messages("en");
@@ -485,7 +488,9 @@ export default function piKb(pi: ExtensionAPI) {
 		const summary = summarizeAdds(results, m);
 		// After the first documents arrive, say once why a question in the other language may find nothing.
 		const tip = results.some((r) => r.status === "added") && semanticOff() && firstTime("semantic") ? `\n\n${m.semanticTip}` : "";
-		show(ctx, m.importTitle, summary + tip);
+		// The web page takes dropped Markdown as notes; here it stays a document unless --note says so.
+		const markdown = results.some((r) => r.status === "added" && r.doc?.collection === "docs" && isMarkdown(r.path)) ? `\n\n${m.mdAsDocuments}` : "";
+		show(ctx, m.importTitle, summary + markdown + tip);
 		ctx.ui.notify(summary.split("\n")[0], results.some((r) => r.status === "failed") ? "warning" : "info");
 	};
 
@@ -864,18 +869,18 @@ export default function piKb(pi: ExtensionAPI) {
 	 * The document or note the user named for /kb remove or /kb move: by id, title or words from
 	 * the title; asks when several match (or none was named), undefined when there is nothing to act on.
 	 */
-	const choose = async (args: string[], action: "remove" | "move", ctx: ExtensionContext) => {
+	const choose = async (args: string[], action: "remove" | "move" | "reread", ctx: ExtensionContext) => {
 		const m = t();
 		const query = args.join(" ").trim();
-		const all = lib().listDocs();
+		const all = lib().listDocs().filter((d) => action !== "reread" || (d.collection === "docs" && REREAD_KINDS.includes(d.kind)));
 		const matches = matchDocs(all, query);
 		if (matches.length === 1) return matches[0];
 		if (!matches.length) {
-			ctx.ui.notify(query ? m.listNone(query) : m.listEmpty, "warning");
+			ctx.ui.notify(query ? m.listNone(query) : action === "reread" ? m.usageReread : m.listEmpty, "warning");
 			return undefined;
 		}
 		if (!ctx.hasUI) {
-			ctx.ui.notify(query ? m.pickMany(query, matches.length) : action === "remove" ? m.usageRemove : m.usageMove, "warning");
+			ctx.ui.notify(query ? m.pickMany(query, matches.length) : { remove: m.usageRemove, move: m.usageMove, reread: m.usageReread }[action], "warning");
 			return undefined;
 		}
 		const shown = matches.slice(0, LIST_LIMIT);
@@ -1027,6 +1032,21 @@ export default function piKb(pi: ExtensionAPI) {
 					lib().remove(doc.id);
 					refresh(ctx);
 					ctx.ui.notify(m.removed(doc.title), "info");
+					return;
+				}
+				case "reread": {
+					const doc = await choose(rest, "reread", ctx);
+					if (!doc) return;
+					let file: string;
+					try {
+						file = lib().originalFile(doc.id).file;
+					} catch {
+						ctx.ui.notify(`${doc.title}: ${m.reasons.no_original}`, "warning");
+						return;
+					}
+					const job = imports.enqueue([{ path: file, wiki: false, reread: doc.id, scope: doc.scope }]);
+					ctx.ui.notify(m.rereadStarted(doc.title), "info");
+					void job.done.then(reportImport);
 					return;
 				}
 				case "note": {

@@ -329,6 +329,12 @@ export class KbWebApp implements WebApp {
 					kb.updateConfig({ ocrLanguage: language, ocrServerUrl: optionalUrl(body.serverUrl, "OCR server") });
 					return { language: kb.config.ocrLanguage, serverUrl: kb.config.ocrServerUrl ?? "" };
 				}
+				case "POST /convert": {
+					const body = await req.json();
+					const result = await lib.convert(String(body.id ?? ""));
+					this.host.changed();
+					return { result: { ...result, path: basename(result.path) } };
+				}
 				case "POST /reread": {
 					const body = await req.json();
 					const found = lib.locate(String(body.id ?? ""));

@@ -270,6 +270,12 @@ export class Library {
 		return this.need(id).kb.editNote(id, text);
 	}
 
+	/** A note becomes a document or a Markdown document a note, in the knowledge base it is in. */
+	async convert(id: string): Promise<AddResult & { scope: Scope }> {
+		const { kb, scope } = this.need(id);
+		return { ...(await kb.convert(id)), scope };
+	}
+
 	reread(id: string, options?: Parameters<KnowledgeBase["reread"]>[1]) {
 		return this.need(id).kb.reread(id, options);
 	}

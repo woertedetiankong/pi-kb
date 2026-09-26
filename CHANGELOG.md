@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+The terminal catches up with the web page, and Markdown can switch between note and document:
+
+- `/kb reread <title or id>` reads a PDF, image or Office document again from its original with the current OCR settings, like "Read again" on the web page: in the background, keeping its id, title and import date. Several matches (or none named) open a picker of those documents only; without the original on this computer it says why.
+- On the web page, a note's page has "Make it a document" and a Markdown document's page "Make it a note", so a README dropped on the page (which takes Markdown as notes) can be turned into reference material any time, not only from the 10-second toast; the toast's "Import as documents instead" uses the same conversion now. Hovering "Documents" and "Notes" in the sidebar explains the difference.
+- `/kb add` keeps importing Markdown as documents (a folder of project docs should not turn into dozens of notes), but the import summary now says so and how to make one a note (`/kb remove`, then `/kb add <file> --note`). The agent's `kb_add` imports show the same hint.
+
 ## v0.5.14 — 2026-09-26
 
 Web page:

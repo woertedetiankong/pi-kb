@@ -164,6 +164,18 @@ test("reread: a document is converted again from its original through the import
 	assert.equal((await missing.json()).error, "no_original", "a code the page explains");
 });
 
+test("convert: a Markdown upload taken as a note becomes a document, and back", async () => {
+	const { result } = await upload("GUIDE.md", "# Guide\n\nzzconvert text", "&note=1");
+	assert.equal(result.doc.collection, "wiki");
+	const asDoc = (await (await post("/api/kb/convert", { id: result.doc.id })).json()).result;
+	assert.deepEqual([asDoc.status, asDoc.doc.collection, asDoc.doc.title, asDoc.path], ["added", "docs", "GUIDE.md", "GUIDE.md"]);
+	const back = (await (await post("/api/kb/convert", { id: asDoc.doc.id })).json()).result;
+	assert.equal(back.doc.collection, "wiki");
+	const titles = (await (await call("/api/kb/docs")).json()).docs.map((d: { title: string }) => d.title);
+	assert.ok(titles.includes("Guide") && !titles.includes("GUIDE.md"), "one copy, as a note");
+	await post("/api/kb/remove", { id: back.doc.id });
+});
+
 test("uploading a new version asks first, then replaces or keeps both", async () => {
 	const v1 = await upload("spec.md", "# Spec\n\nlimit 10 A");
 	assert.equal(v1.result.status, "added");
