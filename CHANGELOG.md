@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.5.13 — 2026-09-26
 
 - One word for each thing in the interface: imported files are 资料 / documents and lessons are 笔记 / notes, in the terminal and on the web page. 文档, wiki 笔记, 经验笔记, "wiki notes" and "experience notes" are gone ("wiki" is left only where it names the `wiki/` folder). Office files show as "Office" in Chinese too. Text for the model is unchanged.
 
