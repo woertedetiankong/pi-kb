@@ -258,6 +258,10 @@ export class Library {
 		return { ...kb.read(id, pages), scope };
 	}
 
+	renderPages(id: string, pages: string | undefined, limit: number, signal?: AbortSignal) {
+		return this.need(id).kb.renderPages(id, pages, limit, signal);
+	}
+
 	noteText(id: string): string {
 		return this.need(id).kb.noteText(id);
 	}

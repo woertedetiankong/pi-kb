@@ -69,6 +69,23 @@ test("markdown notes become wiki notes and follow manual edits", async () => {
 	assert.deepEqual(kb.syncWiki(), { updated: 0, removed: 1 });
 });
 
+test("renders pages of PDFs and images from the original for viewing", async () => {
+	const pdf = kb.search("供电电压").find((hit) => hit.title === "xr100-manual.pdf")!;
+	const { images } = await kb.renderPages(pdf.docId, "1-5", 4);
+	assert.deepEqual(images.map((i) => i.page), [1, 2], "clamped to the last page");
+	const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+	assert.ok(images.every((i) => i.png.subarray(0, 4).equals(png)));
+
+	const scan = kb.search("电气特性").find((hit) => hit.title === "scan-note.png")!;
+	const single = await kb.renderPages(scan.docId, undefined, 4);
+	assert.equal(single.images.length, 1, "an image is its one page");
+
+	await assert.rejects(kb.renderPages(pdf.docId, undefined, 4), /Say which pages/);
+	await assert.rejects(kb.renderPages(pdf.docId, "1-2", 1), /at most 1 pages/);
+	const note = kb.search("CTRL_REG", { collection: "wiki" })[0];
+	await assert.rejects(kb.renderPages(note.docId, undefined, 4), /text only/);
+});
+
 test("collectFiles walks folders and reports unsupported files", () => {
 	const { files, skipped } = kb.collectFiles([fixtures, join(fixtures, "nope.xyz")], "/");
 	assert.equal(files.length, 3);

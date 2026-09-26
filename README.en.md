@@ -177,7 +177,7 @@ Tool descriptions and the system prompt the model sees are always English: model
 When on, the agent has four tools:
 
 - `kb_search`: keyword search, returning citations like `[manual.pdf p.12]` and document ids
-- `kb_read`: read the original text by id and pages (e.g. `pages: "12-14"`)
+- `kb_read`: read the original text by id and pages (e.g. `pages: "12-14"`). With `view: true` it also returns pictures of up to 4 pages, rendered from the original PDF, image or Office file, so the model can see diagrams, schematics, pinouts and table layout that the text loses. Only for models that accept images, and only where the original is present (project knowledge bases leave originals out of git by default)
 - `kb_add`: import files when the user asks to "put this in the knowledge base". Files outside the current project folder (including through symlinks) need your confirmation first; without a UI they are refused, so use `/kb add` yourself. This keeps instructions hidden in a document or web page from making the agent file away something like `~/.ssh`, or send it to an online embeddings service
 - `kb_note`: write experience as a wiki note. The agent calls it on its own after solving a non-obvious problem (a root cause found by debugging, a gotcha, a workaround) or learning something lasting about your setup; every note is previewed first and you choose **Save / Edit, then save / Don't save**. A note with the same title is not duplicated but extended (`append`) or rewritten (`replace`)
 

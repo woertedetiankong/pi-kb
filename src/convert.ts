@@ -112,8 +112,18 @@ async function ensureVerticalModels(dir: string, language: string): Promise<void
 	}
 }
 
-/** What the worker process sends back. */
-type WorkerReply = { ok: true; pages: { pageNum: number; markdown: string }[] } | { ok: false; error: string };
+/** A page rendered to an image. */
+export interface PageImage {
+	page: number;
+	png: Buffer;
+}
+
+/** What the worker process sends back: converted pages, or rendered ones when asked for a screenshot. */
+type WorkerOk = { ok: true; pages?: { pageNum: number; markdown: string }[]; images?: { pageNum: number; png: string }[] };
+type WorkerReply = WorkerOk | { ok: false; error: string };
+
+/** Resolution for rendered pages: a Letter page becomes 1275×1650, legible for small print in diagrams. */
+const RENDER_DPI = 150;
 
 const WORKER = fileURLToPath(new URL("./parse-worker.mjs", import.meta.url));
 
@@ -123,14 +133,20 @@ const WORKER = fileURLToPath(new URL("./parse-worker.mjs", import.meta.url));
  * stderr kept only for error messages. Aborting kills the child, which also stops a long PDF
  * part-way (LiteParse itself cannot be interrupted).
  */
-function runParse(path: string, config: Record<string, unknown>, children: Set<ChildProcess>, signal?: AbortSignal) {
+function runParse(
+	path: string,
+	config: Record<string, unknown>,
+	children: Set<ChildProcess>,
+	signal?: AbortSignal,
+	screenshot?: number[],
+) {
 	signal?.throwIfAborted();
-	return new Promise<WorkerReply & { ok: true }>((resolve, reject) => {
+	return new Promise<WorkerOk>((resolve, reject) => {
 		const child = spawn(process.execPath, [WORKER], { stdio: ["ignore", "ignore", "pipe", "ipc"], windowsHide: true });
 		children.add(child);
 		let settled = false;
 		let stderr = "";
-		const finish = (error?: Error, reply?: WorkerReply & { ok: true }) => {
+		const finish = (error?: Error, reply?: WorkerOk) => {
 			if (settled) return;
 			settled = true;
 			children.delete(child);
@@ -145,7 +161,7 @@ function runParse(path: string, config: Record<string, unknown>, children: Set<C
 		child.on("error", (error) => finish(error));
 		child.on("exit", (code) => finish(new Error(`parser process exited (${code})${stderr ? `: ${stderr.trim().split("\n").pop()}` : ""}`)));
 		child.on("message", (reply: WorkerReply) => (reply.ok ? finish(undefined, reply) : finish(new Error(reply.error))));
-		child.send({ path, config });
+		child.send({ path, config, screenshot });
 	});
 }
 
@@ -209,9 +225,22 @@ export class Converter {
 			this.verticalReady ??= ensureVerticalModels(this.options.tessdataDir, this.options.ocrLanguage);
 			await this.verticalReady;
 		}
-		let result: WorkerReply & { ok: true };
+		const result = await this.run(path, this.parseConfig, signal);
+		const pages = (result.pages ?? []).map((p) => ({ page: kind === "image" ? null : p.pageNum, markdown: normalizeText(p.markdown) }));
+		return { kind, pages };
+	}
+
+	/** Render pages of a PDF, Office file or image to PNG (an image has the one page 1). No OCR runs. */
+	async render(path: string, pages: number[], signal?: AbortSignal): Promise<PageImage[]> {
+		const kind = sourceKind(path);
+		if (!kind || kind === "text") throw new Error(`Cannot render ${extname(path) || path} files as pages`);
+		const result = await this.run(path, { quiet: true, dpi: RENDER_DPI }, signal, pages);
+		return (result.images ?? []).map((i) => ({ page: i.pageNum, png: Buffer.from(i.png, "base64") }));
+	}
+
+	private async run(path: string, config: Record<string, unknown>, signal?: AbortSignal, screenshot?: number[]): Promise<WorkerOk> {
 		try {
-			result = await runParse(path, this.parseConfig, this.children, signal);
+			return await runParse(path, config, this.children, signal, screenshot);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			if (/LibreOffice is not installed/i.test(message)) {
@@ -219,8 +248,6 @@ export class Converter {
 			}
 			throw error;
 		}
-		const pages = result.pages.map((p) => ({ page: kind === "image" ? null : p.pageNum, markdown: normalizeText(p.markdown) }));
-		return { kind, pages };
 	}
 
 	/** Stop every running conversion. */

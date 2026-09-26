@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { chunkPages } from "./chunk.ts";
 import { configStamp, defaultMinScore, type KbConfig, loadConfig, saveConfig } from "./config.ts";
-import { type ConvertedPage, Converter, isMarkdown, normalizeText, sourceKind } from "./convert.ts";
+import { type ConvertedPage, Converter, type PageImage, isMarkdown, normalizeText, sourceKind } from "./convert.ts";
 import { type Note, normalizeTags, now, parseNote, renderNote, slugify, today } from "./notes.ts";
 import { fuse } from "./search.ts";
 import { type IndexerStatus, SemanticIndexer } from "./semantic/indexer.ts";
@@ -749,14 +749,31 @@ export class KnowledgeBase {
 		if (!doc) throw new Error(`No knowledge base document with id ${id}`);
 		const markdown = readFileSync(join(this.root, doc.path), "utf8");
 		if (!pages?.trim()) return { doc, text: markdown };
-		const range = /^\s*(\d+)(?:\s*-\s*(\d+))?\s*$/.exec(pages);
-		if (!range) throw new Error('pages must look like "3" or "3-5"');
-		if (!doc.pages) throw new Error(`${doc.title} has no pages; omit the pages argument`);
-		const from = Number(range[1]);
-		const to = Math.min(Number(range[2] ?? range[1]), doc.pages);
+		const { from, to } = pageRange(doc, pages);
 		const parts = splitConverted(markdown).filter((p) => p.page !== null && p.page >= from && p.page <= to);
 		if (!parts.length) throw new Error(`${doc.title} has pages 1-${doc.pages}`);
 		return { doc, text: parts.map((p) => `<!-- kb:page ${p.page} -->\n${p.markdown}`).join("\n\n") };
+	}
+
+	/**
+	 * Render pages of an imported document from its original, so a model can see figures, diagrams
+	 * and layout that the converted text loses. An image document is its one page; a paged document
+	 * needs `pages`, at most `limit` of them.
+	 */
+	async renderPages(id: string, pages: string | undefined, limit: number, signal?: AbortSignal): Promise<{ doc: DocRecord; images: PageImage[] }> {
+		const doc = this.store.getDoc(id);
+		if (!doc) throw new Error(`No knowledge base document with id ${id}`);
+		if (doc.collection !== "docs" || doc.kind === "text") throw new Error(`${doc.title} is text only; there is no page to view`);
+		let numbers = [1];
+		if (doc.pages) {
+			if (!pages?.trim()) throw new Error(`Say which pages of ${doc.title} to view, e.g. pages: "3" or "3-4"`);
+			const { from, to } = pageRange(doc, pages);
+			if (from > to) throw new Error(`${doc.title} has pages 1-${doc.pages}`);
+			if (to - from + 1 > limit) throw new Error(`View at most ${limit} pages at a time`);
+			numbers = Array.from({ length: to - from + 1 }, (_, i) => from + i);
+		}
+		const { file } = this.originalFile(id);
+		return { doc, images: await this.converter.render(file, numbers, signal) };
 	}
 
 	/** Remove a document; for wiki notes this deletes the note file as well. */
@@ -824,3 +841,11 @@ function splitConverted(markdown: string): ConvertedPage[] {
 	});
 }
 
+
+/** Parse a page argument such as "3" or "3-5"; the end is clamped to the document's last page. */
+function pageRange(doc: DocRecord, pages: string): { from: number; to: number } {
+	const range = /^\s*(\d+)(?:\s*-\s*(\d+))?\s*$/.exec(pages);
+	if (!range) throw new Error('pages must look like "3" or "3-5"');
+	if (!doc.pages) throw new Error(`${doc.title} has no pages; omit the pages argument`);
+	return { from: Number(range[1]), to: Math.min(Number(range[2] ?? range[1]), doc.pages) };
+}
