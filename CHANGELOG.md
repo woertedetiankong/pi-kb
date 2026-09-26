@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.5.3 — 2026-09-25
 
 - Appending to a hand-written note that has no front matter gave it a `created` date in UTC, which in the evening in the US is a day after its `updated` date; both are now local dates.
 - `scripts/model-check` has a scenario that adds a detail in English while the existing note is in Chinese (it should be appended, not written as a second note).
