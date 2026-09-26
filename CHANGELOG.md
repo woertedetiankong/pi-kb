@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.5.1 — 2026-09-25
 
 - In a project with its own knowledge base, `/kb add` and the agent's `kb_add` put files from outside the project (say `~/Downloads/vendor.pdf`) into your global knowledge base unless you ask for the project with `--project` (or `scope: "project"`), so they are not committed for the team by accident. Files inside the project still go to the project; the message says where each went.
 - The agent is no longer told the knowledge base holds Office documents; supported material is PDF, images, Markdown and text (Office stays experimental).
