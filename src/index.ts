@@ -173,7 +173,7 @@ export default function piKb(pi: ExtensionAPI) {
 		if (project && info && resolve(project.info.dir) === resolve(info.dir)) return;
 		closeProject();
 		if (!info) return;
-		const kb = new KnowledgeBase(global.localDir, { dir: info.dir });
+		const kb = new KnowledgeBase(global.localDir, { dir: info.dir, project: true });
 		kb.onSemantic = repaint;
 		project = { kb, info };
 		kb.sync();
@@ -342,7 +342,7 @@ export default function piKb(pi: ExtensionAPI) {
 	let ticker: NodeJS.Timeout | undefined;
 	const imports = new ImportQueue(
 		(item, signal, note) =>
-			lib().kb(item.scope ?? "global").addFile(item.path, { wiki: item.wiki, signal, source: item.source, replace: item.replace, onNote: note }),
+			lib().addFile(item.scope ?? "global", item.path, { wiki: item.wiki, signal, source: item.source, replace: item.replace, onNote: note }),
 		() => {
 			if (imports.active && !ticker) {
 				ticker = setInterval(() => lastCtx && refresh(lastCtx), 1000);

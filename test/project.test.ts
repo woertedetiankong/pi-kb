@@ -47,7 +47,7 @@ async function twoKnowledgeBases(name: string) {
 	const repo = join(tmp, name);
 	const { project: info } = initProjectKb(repo);
 	const global = new KnowledgeBase(local);
-	const project = new KnowledgeBase(local, { dir: info.dir });
+	const project = new KnowledgeBase(local, { dir: info.dir, project: true });
 	return { lib: new Library(global, { kb: project, info }), global, project, info };
 }
 
@@ -95,6 +95,60 @@ test("moving a note or document between the project and the global knowledge bas
 	}
 });
 
+test("a project note and a global note at the same path keep their own ids, so neither hides the other", async () => {
+	const { lib, global, project } = await twoKnowledgeBases("same-path");
+	try {
+		const mine = global.writeNote(global.prepareNote({ title: "XR-100 SPI divider", content: "My own reminder." }));
+		const team = project.writeNote(project.prepareNote({ title: "XR-100 SPI divider", content: "The team's version." }));
+		assert.equal(mine.path, team.path, "same file name in both folders");
+		assert.notEqual(mine.id, team.id);
+		assert.equal(lib.locate(mine.id)?.scope, "global");
+		assert.match(lib.read(mine.id).text, /My own reminder/);
+		assert.match(lib.read(team.id).text, /The team's version/);
+		assert.throws(() => lib.move(mine.id, "project"), /already has a note titled "XR-100 SPI divider"/, "a move says why it cannot, instead of doing nothing");
+		assert.equal(lib.remove(mine.id).scope, "global");
+		assert.equal(lib.locate(team.id)?.scope, "project", "removing mine left the team's alone");
+	} finally {
+		project.close();
+		global.close();
+	}
+});
+
+test("a moved note keeps its dates, tags and project", async () => {
+	const { lib, global, project, info } = await twoKnowledgeBases("keep-meta");
+	try {
+		const note = project.writeNote(project.prepareNote({ title: "Flash wiring", content: "CS on GPIO10.", tags: ["flash"], project: "keep-meta" }));
+		const file = join(info.dir, note.path);
+		writeFileSync(file, readFileSync(file, "utf8").replace(/created: .*/, "created: 2025-01-02").replace(/updated: .*/, "updated: 2025-03-04"));
+		project.sync();
+		const moved = lib.move(note.id, "global");
+		const text = global.noteText(moved.id);
+		assert.match(text, /^created: 2025-01-02$/m);
+		assert.match(text, /^updated: 2025-03-04$/m, "moving is not an edit");
+		assert.match(text, /^tags: \[flash\]$/m);
+		assert.match(text, /^project: "keep-meta"$/m);
+	} finally {
+		project.close();
+		global.close();
+	}
+});
+
+test("a document already in one knowledge base is not imported into the other", async () => {
+	const { lib, global, project } = await twoKnowledgeBases("no-twins");
+	try {
+		const first = await lib.addFile("global", join(fixtures, "xr100-manual.pdf"));
+		assert.equal(first.status, "added");
+		const again = await lib.addFile("project", join(fixtures, "xr100-manual.pdf"));
+		assert.deepEqual([again.status, again.reason, again.doc?.id], ["exists", "in_global", first.doc!.id]);
+		assert.equal(project.store.stats().docs, 0, "no second copy with the same id");
+		assert.equal((await lib.addFile("project", join(fixtures, "spi-lesson.md"), { wiki: true })).status, "added", "notes are not affected");
+		assert.equal((await lib.addFile("global", join(fixtures, "xr100-manual.pdf"))).status, "exists", "the same knowledge base says so as before");
+	} finally {
+		project.close();
+		global.close();
+	}
+});
+
 test("a teammate's commit arrives through git: the originals are not there, and search, reading and moving still work", async () => {
 	// Alice imports into the project; the repository is copied without raw/ (what git would carry).
 	const alice = await twoKnowledgeBases("alice");
@@ -112,7 +166,7 @@ test("a teammate's commit arrives through git: the originals are not there, and 
 
 	const info = findProjectKb(bobRepo)!;
 	const bobGlobal = new KnowledgeBase(join(tmp, "bob-local"));
-	const bobProject = new KnowledgeBase(join(tmp, "bob-local"), { dir: info.dir });
+	const bobProject = new KnowledgeBase(join(tmp, "bob-local"), { dir: info.dir, project: true });
 	try {
 		assert.deepEqual(bobProject.sync(), { updated: 2, removed: 0 }, "the document and the note");
 		const lib = new Library(bobGlobal, { kb: bobProject, info });

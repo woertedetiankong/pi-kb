@@ -348,7 +348,7 @@ const T = {
     versionTitle: "新版本", versionReplace: "替换旧版本", versionKeep: "两份都保留", versionSkip: "跳过这个文件",
     versionBody: (name, titles) => `“${name}”是知识库里已有文档（${titles.join("、")}）的新版本。要替换旧版本，还是两份都保留？`,
     imported: (a, e, s, f) => `新增 ${a}，已存在 ${e}，跳过 ${s}，失败 ${f}`,
-    reasons: { not_found: "文件不存在", unsupported: "不支持的文件类型", no_text: "没有提取到文字", ocr_unavailable: "没有识别出文字：OCR 语言包没能从 GitHub 下载，检查网络后重新导入这个文件即可", not_markdown: "只有 Markdown 可以作为笔记", needs_libreoffice: "Office 文件需要安装 LibreOffice", cancelled: "已取消", skippedByUser: "你选择了跳过" },
+    reasons: { not_found: "文件不存在", unsupported: "不支持的文件类型", no_text: "没有提取到文字", ocr_unavailable: "没有识别出文字：OCR 语言包没能从 GitHub 下载，检查网络后重新导入这个文件即可", not_markdown: "只有 Markdown 可以作为笔记", needs_libreoffice: "Office 文件需要安装 LibreOffice", cancelled: "已取消", skippedByUser: "你选择了跳过", in_project: "已在本项目的知识库里", in_global: "已在你的全局知识库里（要共享给团队，点“移到项目库”）" },
     type: "类型", pageCount: "页数", source: "来源", added: "导入时间", id: "ID", tags: "标签", updated: "更新", created: "创建", project: "项目",
     openOriginal: "查看原文件", viewPage: "看原页", page: n => `第 ${n} 页`, remove: "删除", edit: "编辑", save: "保存", cancel: "取消", back: "← 返回",
     confirmRemoveDoc: t => `删除“${t}”？知识库里保存的副本也会删除。`, confirmRemoveNote: t => `删除笔记“${t}”？笔记文件会被删除。`,
@@ -423,7 +423,7 @@ const T = {
     versionTitle: "New version", versionReplace: "Replace the old version", versionKeep: "Keep both", versionSkip: "Skip this file",
     versionBody: (name, titles) => `"${name}" is a new version of ${titles.join(", ")}, already in the knowledge base. Replace the old version, or keep both?`,
     imported: (a, e, s, f) => `Added ${a}, already present ${e}, skipped ${s}, failed ${f}`,
-    reasons: { not_found: "file not found", unsupported: "unsupported file type", no_text: "no text could be extracted", ocr_unavailable: "no text recognised: the OCR language data could not be downloaded from GitHub; check the network and import the file again", not_markdown: "only Markdown can become a note", needs_libreoffice: "Office files need LibreOffice", cancelled: "cancelled", skippedByUser: "skipped by you" },
+    reasons: { not_found: "file not found", unsupported: "unsupported file type", no_text: "no text could be extracted", ocr_unavailable: "no text recognised: the OCR language data could not be downloaded from GitHub; check the network and import the file again", not_markdown: "only Markdown can become a note", needs_libreoffice: "Office files need LibreOffice", cancelled: "cancelled", skippedByUser: "skipped by you", in_project: "already in this project's knowledge base", in_global: "already in your global knowledge base (to share it with the team, use “Move to project”)" },
     type: "Type", pageCount: "Pages", source: "Source", added: "Imported", id: "ID", tags: "Tags", updated: "Updated", created: "Created", project: "Project",
     openOriginal: "Open original", viewPage: "View page", page: n => `Page ${n}`, remove: "Delete", edit: "Edit", save: "Save", cancel: "Cancel", back: "← Back",
     confirmRemoveDoc: t => `Delete "${t}"? Its stored copy is deleted too.`, confirmRemoveNote: t => `Delete the note "${t}"? The note file is deleted.`,
@@ -865,7 +865,8 @@ async function upload(files, note) {
   await refresh();
   const n = s => results.filter(r => r.status === s).length;
   const replaced = results.reduce((k, r) => k + (r.replaced?.length ?? 0), 0);
-  const problems = results.filter(r => r.status === "failed" || r.status === "skipped").map(r => `${r.path}: ${T.reasons[r.reason] ?? r.message ?? ""}`);
+  // Also say where a file already in the other knowledge base is (the page then opens it, with its move button).
+  const problems = results.filter(r => r.status === "failed" || r.status === "skipped" || r.reason?.startsWith("in_")).map(r => `${r.doc?.title ?? r.path}: ${T.reasons[r.reason] ?? r.message ?? ""}`);
   toast([T.imported(n("added"), n("exists"), n("skipped"), n("failed")), ...(replaced ? [T.replacedN(replaced)] : []), ...problems.slice(0, 2)].join(" · "));
   const added = results.find(r => r.doc);
   if (added && list.length === 1) select(added.doc.id);

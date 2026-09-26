@@ -1,6 +1,6 @@
-import { cpSync, existsSync } from "node:fs";
+import { cpSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { type KnowledgeBase, pathsOutside } from "./kb.ts";
+import { type AddResult, contentId, type KnowledgeBase, pathsOutside } from "./kb.ts";
 import { parseNote } from "./notes.ts";
 import type { ProjectKb } from "./project.ts";
 import type { Collection, DocRecord, SearchHit } from "./store.ts";
@@ -59,6 +59,24 @@ export class Library {
 			if (doc) return { kb, scope, doc };
 		}
 		return undefined;
+	}
+
+	/**
+	 * Import a file into `scope`. A document already in the other knowledge base is not imported
+	 * again: both copies would have the same id, and the project's would hide the global one.
+	 */
+	async addFile(scope: Scope, path: string, options: Parameters<KnowledgeBase["addFile"]>[1] = {}): Promise<AddResult> {
+		const other = this.scopes.find(([s]) => s !== scope);
+		if (other && !options.wiki) {
+			let doc: DocRecord | undefined;
+			try {
+				doc = other[1].store.getDoc(contentId(readFileSync(path)));
+			} catch {
+				// unreadable: addFile reports it
+			}
+			if (doc) return { path, status: "exists", doc, reason: other[0] === "project" ? "in_project" : "in_global" };
+		}
+		return this.kb(scope).addFile(path, options);
 	}
 
 	private need(id: string) {
@@ -159,7 +177,9 @@ export class Library {
 		const target = this.kb(to);
 		let moved: DocRecord;
 		if (doc.collection === "wiki") {
-			// Written as it is, so its dates and tags survive the move.
+			const clash = target.store.listDocs("wiki").find((d) => d.title.toLowerCase() === doc.title.toLowerCase());
+			if (clash) throw new Error(`The ${to} knowledge base already has a note titled "${clash.title}" (${clash.id}): merge the two or rename one first`);
+			// Written as it is, so its dates, tags and project survive the move.
 			const text = from.noteText(id);
 			const { meta, body } = parseNote(text, doc.title);
 			moved = target.writeNote(target.prepareNote({ title: doc.title, content: body || text, tags: meta.tags }, "create"), text);

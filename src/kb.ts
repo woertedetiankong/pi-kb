@@ -31,7 +31,17 @@ export interface PreparedNote {
 }
 
 /** Known failure reasons, so the interface can explain them in the user's language. */
-export type AddReason = "not_found" | "unsupported" | "no_text" | "ocr_unavailable" | "not_markdown" | "needs_libreoffice" | "cancelled";
+export type AddReason =
+	| "not_found"
+	| "unsupported"
+	| "no_text"
+	| "ocr_unavailable"
+	| "not_markdown"
+	| "needs_libreoffice"
+	| "cancelled"
+	/** Already in the other knowledge base (project or global), so not imported twice. */
+	| "in_project"
+	| "in_global";
 
 export interface AddResult {
 	path: string;
@@ -54,8 +64,16 @@ const SEMANTIC_ONLY_WITH_KEYWORDS = 3;
 const SEMANTIC_ONLY_ALONE = 5;
 const sha = (data: string | Buffer) => createHash("sha256").update(data).digest("hex");
 
-/** A wiki note's id: from its path inside the content folder, with forward slashes on every system. */
-const wikiId = (root: string, file: string) => `w-${sha(relative(root, file).split(sep).join("/")).slice(0, 12)}`;
+/** An imported document's id: from its content, so importing the same file again is noticed. */
+export const contentId = (bytes: Buffer) => `k-${sha(bytes).slice(0, 12)}`;
+
+/**
+ * A wiki note's id: from its path inside the content folder, with forward slashes on every system.
+ * A project's notes hash differently, so a project note and a global note at the same path
+ * (wiki/xr-100-spi.md in both) never share an id and hide each other.
+ */
+const wikiId = (root: string, file: string, project: boolean) =>
+	`w-${sha(`${project ? "project:" : ""}${relative(root, file).split(sep).join("/")}`).slice(0, 12)}`;
 
 /**
  * The search index for a content folder. The default layout keeps it in the folder (kb.db, as
@@ -124,6 +142,8 @@ export class KnowledgeBase {
 	/** Called whenever background embedding makes progress or fails. */
 	onSemantic?: (status: IndexerStatus) => void;
 	private provider?: EmbeddingProvider;
+	/** A project's knowledge base (shared through git), whose note ids are kept apart from the global one's. */
+	private readonly project: boolean;
 	/** config.json's modification time and size when last read or written. */
 	private configStamp: string;
 
@@ -132,9 +152,10 @@ export class KnowledgeBase {
 	 * The index is a cache of the content (see sync()), so the content folder can be synced
 	 * between computers or shared, while SQLite never sits in a synced folder.
 	 */
-	constructor(localDir: string, options: { dir?: string } = {}) {
+	constructor(localDir: string, options: { dir?: string; project?: boolean } = {}) {
 		this.localDir = localDir;
 		this.root = options.dir ?? localDir;
+		this.project = options.project ?? false;
 		for (const dir of ["raw", "converted", "wiki"]) mkdirSync(join(this.root, dir), { recursive: true });
 		this.configStamp = configStamp(localDir);
 		this.config = loadConfig(localDir);
@@ -254,7 +275,7 @@ export class KnowledgeBase {
 			}
 			const bytes = readFileSync(path);
 			const hash = sha(bytes);
-			const id = `k-${hash.slice(0, 12)}`;
+			const id = contentId(bytes);
 			const existing = this.store.getDoc(id);
 			if (existing) return { path, status: "exists", doc: existing };
 
@@ -317,7 +338,7 @@ export class KnowledgeBase {
 	 * is already in the knowledge base, which addFile reports as "already present".
 	 */
 	previousVersions(path: string, upload?: { name: string }): DocRecord[] {
-		if (this.store.getDoc(`k-${sha(readFileSync(path)).slice(0, 12)}`)) return [];
+		if (this.store.getDoc(contentId(readFileSync(path)))) return [];
 		const name = upload?.name ?? basename(path);
 		return this.store
 			.listDocs("docs")
@@ -369,7 +390,7 @@ export class KnowledgeBase {
 		const rel = relative(this.root, file);
 		const content = normalizeText(readFileSync(file, "utf8"));
 		const hash = sha(content);
-		const id = wikiId(this.root, file);
+		const id = wikiId(this.root, file, this.project);
 		const existing = this.store.getDoc(id);
 		if (existing?.hash === hash) return existing;
 		const note = parseNote(content, basename(file, extname(file)));
@@ -516,7 +537,7 @@ export class KnowledgeBase {
 				const full = join(dir, entry.name);
 				if (entry.isDirectory()) walk(full);
 				else if (isMarkdown(entry.name) && !(dir === this.wikiDir && WIKI_META.has(entry.name))) {
-					const before = this.store.getDoc(wikiId(this.root, full))?.hash;
+					const before = this.store.getDoc(wikiId(this.root, full, this.project))?.hash;
 					const doc = this.indexWikiFile(full);
 					seen.add(doc.id);
 					if (doc.hash !== before) updated++;
@@ -571,14 +592,23 @@ export class KnowledgeBase {
 
 	/**
 	 * Write a prepared note, index it and record the change in wiki/log.md.
-	 * `edited` is the full note text after the user changed it in an editor.
+	 * `edited` is the full note text after the user changed it in an editor (or a note being
+	 * moved here); its front matter wins, and fields it leaves out keep the prepared values.
 	 */
 	writeNote(prepared: PreparedNote, edited?: string): DocRecord {
 		let note = prepared.note;
 		if (edited !== undefined) {
-			const parsed = parseNote(edited, note.meta.title);
-			const tags = parsed.meta.tags.length ? parsed.meta.tags : note.meta.tags;
-			note = { meta: { ...note.meta, title: parsed.meta.title, tags }, body: parsed.body };
+			const { meta, body } = parseNote(edited, note.meta.title);
+			note = {
+				meta: {
+					title: meta.title,
+					tags: meta.tags.length ? meta.tags : note.meta.tags,
+					created: meta.created || note.meta.created,
+					updated: meta.updated || note.meta.updated,
+					project: meta.project ?? note.meta.project,
+				},
+				body,
+			};
 		}
 		writeFileSync(prepared.file, renderNote(note));
 		const doc = this.indexWikiFile(prepared.file);
