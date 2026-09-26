@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Imports survive quitting pi, `/reload`, `/new` and `/resume`: the files not imported yet are recorded in `~/.pi/kb/pending-imports/` and the next pi that starts imports them (the one being converted starts over). Web uploads are copied first, since their temporary files are deleted. Files for a project knowledge base wait until pi runs in that project; several windows stopping or starting at once neither lose nor double-import a batch, and a batch whose pi crashed is picked up again. `pi -p` runs don't take them over.
+
 ## v0.5.10 — 2026-09-26
 
 - No more syncing by hand: the global knowledge base now notices changed files the way a project one does, so documents and notes from another computer (a shared iCloud or Dropbox folder) or notes edited by hand show up within seconds, at the next search or page load. The web page's "Sync with the folder" button is gone; `/kb sync` stays for forcing it.

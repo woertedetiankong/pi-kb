@@ -261,7 +261,7 @@ To keep everything in one folder, index and models included (on an external disk
 - Tesseract is mediocre on Chinese scans: word order within a line can be scrambled. For many scans, configure a PaddleOCR server: enter its address as the OCR server in the web page's Settings, or set `"ocrServerUrl"` (LiteParse's OCR HTTP interface) in `config.json`. The OCR languages can be changed there too; changes apply to the next import without restarting pi. With a model that accepts images this matters less: OCR only has to be good enough to find the page, and the agent is told to view OCR'd pages before quoting exact values.
 - Vector search always returns the "closest" chunks, even when nothing is relevant: semantic-only results are capped in number and marked separately; the tested models (Qwen3-0.6B, bge-m3) also have a similarity floor, other models (such as OpenAI) only the cap for now.
 - The floors were measured on the material above (Qwen3 has a margin of about 0.03–0.04 on each side); for very different material you may need to tune `semantic.minScore`.
-- Quitting pi, `/reload`, `/new` or `/resume` stops an import in progress; files already imported are kept, and running `/kb add` again skips them.
+- Quitting pi, `/reload`, `/new` or `/resume` pauses an import in progress: files already imported are kept, and the rest are recorded in `~/.pi/kb/pending-imports/` on this computer and imported when pi next starts (web uploads are copied first). The file that was being converted starts over. Files bound for a project knowledge base wait until pi starts in that project. Non-interactive runs such as `pi -p` leave them alone.
 
 ## Development
 

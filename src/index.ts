@@ -16,6 +16,7 @@ import { initQuestions, parseQuestions, questionsFile, readQuestions, runEval, s
 import { folderSize, installRuntime, localModelDirs, removeLocalModel, runtimeInstalled } from "./semantic/providers.ts";
 import { type ImportJob, ImportQueue } from "./queue.ts";
 import { NUDGE_TYPE, noteNudge, nudgeText } from "./nudge.ts";
+import { claimPending, dropBatch, type PendingBatch, savePending } from "./resume.ts";
 
 const TOOLS = ["kb_search", "kb_read", "kb_add", "kb_note"];
 const READ_LIMIT = 30_000;
@@ -476,6 +477,35 @@ export default function piKb(pi: ExtensionAPI) {
 		ctx.ui.notify(summary.split("\n")[0], results.some((r) => r.status === "failed") ? "warning" : "info");
 	};
 
+	/** Batches of stopped imports this pi took over; removed once imported, or saved again when pi stops. */
+	const resumed: PendingBatch[] = [];
+	/** Pick up the imports a stopped pi left: the ones for this project, or for no project. */
+	const resumeImports = (ctx: ExtensionContext) => {
+		const localDir = kbLocation().localDir;
+		const batches = claimPending(localDir);
+		if (!batches.length) return;
+		const here = project && resolve(project.info.dir);
+		const items = batches.flatMap((b) => b.items);
+		const now = items.filter((item) => item.scope !== "project" || (item.projectDir && resolve(item.projectDir) === here));
+		// Files for another project wait until pi runs there.
+		savePending(localDir, items.filter((item) => !now.includes(item)));
+		if (!now.length) {
+			for (const b of batches) dropBatch(b);
+			return;
+		}
+		resumed.push(...batches);
+		const job = imports.enqueue(now.map(({ projectDir, ...item }) => item));
+		// A widget, not a notification: after /reload pi's "Reloaded …" status replaces the last notification.
+		show(ctx, t().importTitle, t().importResumed(now.length));
+		void job.done.then((results) => {
+			for (const b of batches) {
+				dropBatch(b);
+				if (resumed.includes(b)) resumed.splice(resumed.indexOf(b), 1);
+			}
+			reportImport(results);
+		});
+	};
+
 	pi.registerFlag("kb", { description: "Knowledge base for this run / 本次运行的知识库: on | off", type: "string" });
 
 	pi.on("session_start", (_event, ctx) => {
@@ -490,13 +520,22 @@ export default function piKb(pi: ExtensionAPI) {
 		}
 		attachProject(ctx.cwd);
 		refresh(ctx);
+		// Only in the interactive app: a pi -p run would stop again before finishing them.
+		if (ctx.hasUI) resumeImports(ctx);
 		// A new install shows "0 docs" and nothing else: say once how to start.
 		if (enabled() && ctx.hasUI && isEmpty() && firstTime("welcome")) ctx.ui.notify(t().welcome, "info");
 	});
 
 	pi.on("session_shutdown", async (event) => {
 		lastCtx = undefined;
-		// The runtime is torn down (quit, reload, or a session switch): stop importing; finished files are kept.
+		// The runtime is torn down (quit, reload, or a session switch): stop importing; finished files are
+		// kept, and what is left is saved for the next pi to import.
+		try {
+			savePending(kbLocation().localDir, imports.items().map((item) => (item.scope === "project" ? { ...item, projectDir: project?.info.dir } : item)));
+			for (const b of resumed.splice(0)) dropBatch(b);
+		} catch {
+			// The files are not lost: /kb add them again.
+		}
 		imports.cancel();
 		close();
 		// Reload brings new code: leave the shared hub (it stops once every app has left) and remount on session_start.

@@ -27,6 +27,7 @@ const en = {
 		`${files.length === 1 ? "This file is a new version" : `${files.length} files are new versions`} of documents already in the knowledge base:\n${files.map((f) => `  ${f}`).join("\n")}`,
 	versionChoices: ["Replace the old version", "Keep both", "Cancel import"] as [replace: string, keep: string, cancel: string],
 	importCancelled: "Import cancelled",
+	importResumed: (n: number) => `Resuming the import of ${plural(n, "file")} that pi was working on when it last stopped. /kb cancel stops it.`,
 	listMore: (shown: number, total: number) => `…showing ${shown} of ${total}. Narrow it with /kb list <words>, or see everything with /kb web`,
 	listNone: (filter: string) => `Nothing in the knowledge base matches "${filter}"`,
 	outsideTitle: "Import files from outside this project?",
@@ -261,6 +262,7 @@ const zh: Messages = {
 		"提示：语义检索未开启。pi 回答问题时通常仍能跨中英文找到资料（它会用两种语言搜索），但你自己搜索时（/kb search 和网页）只能按字面匹配。如果想自己按意思、跨语言搜索，可以用 /kb semantic local 开启（在本机运行，需下载约 1.1 GB），或 /kb semantic api（在线服务，资料文字会发送给该服务）。",
 	wikiNote: "wiki 笔记",
 	usageRemove: "用法：/kb remove <标题或 id>",
+	importResumed: (n) => `继续导入上次 pi 关闭时没导完的 ${n} 个文件。/kb cancel 可以停止。`,
 	pickTitle: (action, shown, total) =>
 		`${action === "remove" ? "要删除哪一项？" : "要移动哪一项？"}${total > shown ? `（显示 ${shown}/${total} 项，加上标题里的词可以缩小范围）` : ""}`,
 	pickMany: (query, n) => `有 ${n} 项匹配“${query}”：再加几个标题里的词，或者用 /kb list 里的 id`,
