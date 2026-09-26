@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { chunkPages } from "./chunk.ts";
 import { configStamp, defaultMinScore, type KbConfig, loadConfig, saveConfig } from "./config.ts";
-import { type ConvertedPage, Converter, type PageImage, isMarkdown, normalizeText, sourceKind } from "./convert.ts";
+import { type ConvertedPage, Converter, type OcrShare, type PageImage, isMarkdown, normalizeText, sourceKind } from "./convert.ts";
 import { type Note, normalizeTags, now, parseNote, renderNote, slugify, today } from "./notes.ts";
 import { fuse } from "./search.ts";
 import { type IndexerStatus, SemanticIndexer } from "./semantic/indexer.ts";
@@ -84,6 +84,12 @@ export function indexFile(localDir: string, dir: string): string {
 	return join(localDir, "indexes", sha(resolve(dir)).slice(0, 12), "kb.db");
 }
 const PAGE_MARK = /^<!-- kb:page (\d+) -->$/m;
+/**
+ * How much of a page's text came from OCR, on its own line after the page marker. A separate line
+ * rather than part of the page marker, so versions before it still split pages correctly.
+ */
+const OCR_MARK = /^<!-- kb:ocr (\d+)\/(\d+) -->\n?/m;
+const OCR_MARKS = new RegExp(OCR_MARK.source, "gm");
 /** Files kept in the wiki folder for navigation and history rather than as knowledge. */
 const WIKI_META = new Set(["index.md", "log.md", "SCHEMA.md"]);
 
@@ -117,6 +123,9 @@ export function sourcePath(source: string, depth: number): string {
 	const path = source.startsWith("upload:") ? source.slice("upload:".length) : source;
 	return path.split(/[\\/]+/).filter(Boolean).slice(-depth).join("/");
 }
+
+/** A page (null for an unpaged document) and how much of its text came from OCR. */
+export type PageOcr = OcrShare & { page: number | null };
 
 export function formatCitation(hit: Pick<SearchHit, "title" | "page">): string {
 	return hit.page ? `[${hit.title} p.${hit.page}]` : `[${hit.title}]`;
@@ -744,15 +753,20 @@ export class KnowledgeBase {
 	}
 
 	/** Read a document's Markdown, optionally limited to a page range such as "3" or "3-5". */
-	read(id: string, pages?: string): { doc: DocRecord; text: string } {
+	/**
+	 * Read a document's Markdown, optionally limited to a page range such as "3" or "3-5". `ocr` lists
+	 * the pages read whose text came partly or wholly from OCR.
+	 */
+	read(id: string, pages?: string): { doc: DocRecord; text: string; ocr: PageOcr[] } {
 		const doc = this.store.getDoc(id);
 		if (!doc) throw new Error(`No knowledge base document with id ${id}`);
 		const markdown = readFileSync(join(this.root, doc.path), "utf8");
-		if (!pages?.trim()) return { doc, text: markdown };
+		const ocrOf = (parts: ConvertedPage[]) => parts.flatMap((p) => (p.ocr ? [{ page: p.page, ...p.ocr }] : []));
+		if (!pages?.trim()) return { doc, text: markdown.replace(OCR_MARKS, ""), ocr: ocrOf(pagesOf(markdown)) };
 		const { from, to } = pageRange(doc, pages);
 		const parts = splitConverted(markdown).filter((p) => p.page !== null && p.page >= from && p.page <= to);
 		if (!parts.length) throw new Error(`${doc.title} has pages 1-${doc.pages}`);
-		return { doc, text: parts.map((p) => `<!-- kb:page ${p.page} -->\n${p.markdown}`).join("\n\n") };
+		return { doc, text: parts.map((p) => `<!-- kb:page ${p.page} -->\n${p.markdown}`).join("\n\n"), ocr: ocrOf(parts) };
 	}
 
 	/**
@@ -821,7 +835,10 @@ export function appendSection(content: string, date: string): string {
 
 function renderConverted(title: string, pages: ConvertedPage[]): string {
 	const body = pages
-		.map((p) => (p.page === null ? p.markdown : `<!-- kb:page ${p.page} -->\n${p.markdown}`))
+		.map((p) => {
+			const ocr = p.ocr ? `<!-- kb:ocr ${p.ocr.chars}/${p.ocr.total} -->\n` : "";
+			return p.page === null ? `${ocr}${p.markdown}` : `<!-- kb:page ${p.page} -->\n${ocr}${p.markdown}`;
+		})
 		.join("\n\n");
 	return `<!-- kb:source ${title} -->\n\n${body}\n`;
 }
@@ -837,7 +854,10 @@ function splitConverted(markdown: string): ConvertedPage[] {
 	const parts = markdown.split(/(?=^<!-- kb:page \d+ -->$)/m);
 	return parts.map((part) => {
 		const match = PAGE_MARK.exec(part);
-		return { page: match ? Number(match[1]) : null, markdown: part.replace(PAGE_MARK, "").trim() };
+		const ocr = OCR_MARK.exec(part);
+		const page: ConvertedPage = { page: match ? Number(match[1]) : null, markdown: part.replace(PAGE_MARK, "").replace(OCR_MARK, "").trim() };
+		if (ocr) page.ocr = { chars: Number(ocr[1]), total: Number(ocr[2]) };
+		return page;
 	});
 }
 

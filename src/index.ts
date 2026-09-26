@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 import { checkWritable, copyContent, expandDir, kbLocation, LocationError } from "./config.ts";
 import { type LanguageSetting, type Messages, messages, resolveLanguage } from "./i18n.ts";
-import { type AddResult, formatCitation, KnowledgeBase, type NoteMode, pathsOutside } from "./kb.ts";
+import { type AddResult, formatCitation, KnowledgeBase, type NoteMode, type PageOcr, pathsOutside } from "./kb.ts";
 import { renderNote } from "./notes.ts";
 import { sharedHub } from "./hub.ts";
 import type { SearchHit } from "./store.ts";
@@ -28,6 +28,46 @@ const LIST_LIMIT = 50;
 const SUBCOMMANDS = ["on", "off", "status", "add", "cancel", "list", "search", "note", "lint", "remove", "sync", "init", "move", "semantic", "eval", "open", "web", "lang"];
 /** Model-facing text is English regardless of the interface language. */
 const MODEL = messages("en");
+
+/** A page counts as scanned when at least half its text came from OCR. */
+const OCR_MOSTLY = 0.5;
+/** Fewer OCR characters than this on a page are usually a logo or noise, not worth a warning. */
+const OCR_SOME = 20;
+
+/** "1-3, 7" from [1, 2, 3, 7]. */
+export function pageList(pages: number[]): string {
+	const out: string[] = [];
+	for (let i = 0; i < pages.length; i++) {
+		let j = i;
+		while (j + 1 < pages.length && pages[j + 1] === pages[j] + 1) j++;
+		out.push(i === j ? `${pages[i]}` : `${pages[i]}-${pages[j]}`);
+		i = j;
+	}
+	return out.join(", ");
+}
+
+/**
+ * Tell the model which text came from OCR, so it treats exact values there with care and, when it
+ * can see images, checks them on the page. Images imported before OCR shares were recorded are
+ * all OCR. Empty when nothing needs saying.
+ */
+export function ocrHint(ocr: PageOcr[], kind: string, canView: boolean): string {
+	const shares = !ocr.length && kind === "image" ? [{ page: null, chars: 1, total: 1 }] : ocr;
+	const mostly = shares.filter((o) => o.chars >= o.total * OCR_MOSTLY);
+	const some = shares.filter((o) => !mostly.includes(o) && o.chars >= OCR_SOME);
+	if (!mostly.length && !some.length) return "";
+	const pages = (list: PageOcr[]) => pageList(list.map((o) => o.page).filter((p): p is number => p !== null));
+	const parts: string[] = [];
+	if (mostly.length) {
+		const where = mostly[0].page === null ? "This text" : `The text of page ${pages(mostly)}`;
+		parts.push(`${where} was read from an image by OCR and may have wrong words, numbers or word order.`);
+	}
+	if (some.length) parts.push(`Page ${pages(some)} has some text read by OCR from pictures on the page (figures, diagrams, scanned parts).`);
+	const flagged = mostly.length + some.length;
+	const target = mostly[0]?.page === null ? "the image" : flagged > 1 ? "these pages" : "this page";
+	parts.push(canView ? `Check exact values by viewing ${target} (kb_read with view: true).` : "Treat exact values from OCR text with care.");
+	return `[OCR: ${parts.join(" ")}]`;
+}
 
 /** Whether the current model accepts images; unknown models are assumed to, as pi's own read tool does. */
 function seesImages(ctx: Pick<ExtensionContext, "model">): boolean {
@@ -528,13 +568,17 @@ export default function piKb(pi: ExtensionAPI) {
 			),
 		}),
 		async execute(_id, params, signal, _onUpdate, ctx) {
-			const { doc, text } = lib().read(params.id, params.pages);
+			const { doc, text, ocr } = lib().read(params.id, params.pages);
 			const offset = params.offset ?? 0;
 			const slice = text.slice(offset, offset + READ_LIMIT);
 			const more = offset + READ_LIMIT < text.length;
 			const header = `${doc.title} (${doc.id}${doc.pages ? `, ${doc.pages} pages` : ""})`;
 			const footer = more ? `\n\n[Truncated. Continue with offset=${offset + READ_LIMIT} or narrow pages.]` : "";
-			const content: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[] = [{ type: "text", text: `${header}\n\n${slice}${footer}` }];
+			// Not repeated once the pages are shown.
+			const hint = params.view ? "" : ocrHint(ocr, doc.kind, seesImages(ctx));
+			const content: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[] = [
+				{ type: "text", text: `${header}${hint ? `\n${hint}` : ""}\n\n${slice}${footer}` },
+			];
 			const viewed: number[] = [];
 			if (params.view) {
 				// The text is still useful when the pages cannot be shown, so say why instead of failing.

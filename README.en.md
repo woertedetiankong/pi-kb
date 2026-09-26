@@ -177,7 +177,7 @@ Tool descriptions and the system prompt the model sees are always English: model
 When on, the agent has four tools:
 
 - `kb_search`: keyword search, returning citations like `[manual.pdf p.12]` and document ids
-- `kb_read`: read the original text by id and pages (e.g. `pages: "12-14"`). With `view: true` it also returns pictures of up to 4 pages, rendered from the original PDF, image or Office file, so the model can see diagrams, schematics, pinouts and table layout that the text loses. Only for models that accept images, and only where the original is present (project knowledge bases leave originals out of git by default)
+- `kb_read`: read the original text by id and pages (e.g. `pages: "12-14"`). With `view: true` it also returns pictures of up to 4 pages, rendered from the original PDF, image or Office file, so the model can see diagrams, schematics, pinouts and table layout that the text loses. Only for models that accept images, and only where the original is present (project knowledge bases leave originals out of git by default). When a page's text came from OCR (a scan or photo, or text read from a figure), `kb_read` says so at the top and suggests viewing the page before relying on exact values
 - `kb_add`: import files when the user asks to "put this in the knowledge base". Files outside the current project folder (including through symlinks) need your confirmation first; without a UI they are refused, so use `/kb add` yourself. This keeps instructions hidden in a document or web page from making the agent file away something like `~/.ssh`, or send it to an online embeddings service
 - `kb_note`: write experience as a wiki note. The agent calls it on its own after solving a non-obvious problem (a root cause found by debugging, a gotcha, a workaround) or learning something lasting about your setup; every note is previewed first and you choose **Save / Edit, then save / Don't save**. A note with the same title is not duplicated but extended (`append`) or rewritten (`replace`)
 
@@ -216,7 +216,7 @@ A small catalog (counts, wiki note titles, recent documents) is added to the sys
 ```
 # Content: documents and notes (can move, and can be synced between computers)
 raw/<id>/<original file>  copy of the original
-converted/<id>.md         converted Markdown with <!-- kb:page N --> page markers
+converted/<id>.md         converted Markdown with <!-- kb:page N --> page markers (and <!-- kb:ocr n/total --> where text came from OCR)
 docs/<id>.json            each document's description (title, source, pages); the index is rebuilt from it
 wiki/**/*.md              experience notes; edit them with Obsidian or any editor
 
@@ -258,7 +258,7 @@ To keep everything in one folder, index and models included (on an external disk
 
 ### Known limitations
 
-- Tesseract is mediocre on Chinese scans: word order within a line can be scrambled. For many scans, configure a PaddleOCR server: enter its address as the OCR server in the web page's Settings, or set `"ocrServerUrl"` (LiteParse's OCR HTTP interface) in `config.json`. The OCR languages can be changed there too; changes apply to the next import without restarting pi.
+- Tesseract is mediocre on Chinese scans: word order within a line can be scrambled. For many scans, configure a PaddleOCR server: enter its address as the OCR server in the web page's Settings, or set `"ocrServerUrl"` (LiteParse's OCR HTTP interface) in `config.json`. The OCR languages can be changed there too; changes apply to the next import without restarting pi. With a model that accepts images this matters less: OCR only has to be good enough to find the page, and the agent is told to view OCR'd pages before quoting exact values.
 - Vector search always returns the "closest" chunks, even when nothing is relevant: semantic-only results are capped in number and marked separately; the tested models (Qwen3-0.6B, bge-m3) also have a similarity floor, other models (such as OpenAI) only the cap for now.
 - The floors were measured on the material above (Qwen3 has a margin of about 0.03–0.04 on each side); for very different material you may need to tune `semantic.minScore`.
 - Quitting pi, `/reload`, `/new` or `/resume` stops an import in progress; files already imported are kept, and running `/kb add` again skips them.

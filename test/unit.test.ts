@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { chunkPages } from "../src/chunk.ts";
 import { normalizeText } from "../src/convert.ts";
-import { padDisplay, opener, splitArgs } from "../src/index.ts";
+import { ocrHint, padDisplay, opener, pageList, splitArgs } from "../src/index.ts";
 import { pathsOutside } from "../src/kb.ts";
 import { containsTerm, coverage, planQuery } from "../src/search.ts";
 
@@ -97,4 +97,30 @@ test("opener uses each system's default app; on Windows start gets an empty titl
 	assert.deepEqual(opener("darwin"), ["open"]);
 	assert.deepEqual(opener("win32"), ["cmd", "/c", "start", ""]);
 	assert.deepEqual(opener("linux"), ["xdg-open"]);
+});
+
+test("pageList joins runs of pages into ranges", () => {
+	assert.equal(pageList([1, 2, 3, 7, 9, 10]), "1-3, 7, 9-10");
+	assert.equal(pageList([4]), "4");
+});
+
+test("ocrHint flags scanned pages and pictures with text, not stray characters", () => {
+	const scan = { page: 1, chars: 900, total: 950 };
+	const figure = { page: 3, chars: 99, total: 1144 };
+	const logo = { page: 4, chars: 3, total: 547 };
+	assert.equal(ocrHint([logo], "pdf", true), "");
+	assert.equal(ocrHint([], "pdf", true), "");
+
+	const both = ocrHint([scan, figure, logo], "pdf", true);
+	assert.match(both, /page 1 was read from an image by OCR/);
+	assert.match(both, /Page 3 has some text read by OCR from pictures/);
+	assert.doesNotMatch(both, /\b4\b/);
+	assert.match(both, /viewing these pages \(kb_read with view: true\)/);
+
+	assert.match(ocrHint([figure], "pdf", true), /viewing this page/);
+	const noImages = ocrHint([scan], "pdf", false);
+	assert.match(noImages, /with care/);
+	assert.doesNotMatch(noImages, /view/);
+	// Images imported before OCR shares were recorded are all OCR.
+	assert.match(ocrHint([], "image", true), /This text was read from an image by OCR[\s\S]*viewing the image/);
 });

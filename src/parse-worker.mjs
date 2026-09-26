@@ -11,7 +11,13 @@ process.once("message", async ({ path, config, screenshot }) => {
 			return;
 		}
 		const result = await parser.parse(path);
-		const pages = result.pages.map((p) => ({ pageNum: p.pageNum, markdown: p.markdown }));
+		// OCR'd text items carry a confidence score; native PDF text has none.
+		const chars = (items) => items.reduce((n, t) => n + t.text.trim().length, 0);
+		const pages = result.pages.map((p) => ({
+			pageNum: p.pageNum,
+			markdown: p.markdown,
+			ocr: { chars: chars(p.textItems.filter((t) => t.confidence !== undefined)), total: chars(p.textItems) },
+		}));
 		process.send({ ok: true, pages }, () => process.exit(0));
 	} catch (error) {
 		process.send({ ok: false, error: error instanceof Error ? error.message : String(error) }, () => process.exit(1));

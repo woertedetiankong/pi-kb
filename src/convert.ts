@@ -8,6 +8,13 @@ import { fileURLToPath } from "node:url";
 export interface ConvertedPage {
 	page: number | null;
 	markdown: string;
+	/** How much of the page's text came from OCR, in characters; absent when none did or it is unknown. */
+	ocr?: OcrShare;
+}
+
+export interface OcrShare {
+	chars: number;
+	total: number;
 }
 
 export type SourceKind = "pdf" | "office" | "image" | "text";
@@ -119,7 +126,7 @@ export interface PageImage {
 }
 
 /** What the worker process sends back: converted pages, or rendered ones when asked for a screenshot. */
-type WorkerOk = { ok: true; pages?: { pageNum: number; markdown: string }[]; images?: { pageNum: number; png: string }[] };
+type WorkerOk = { ok: true; pages?: { pageNum: number; markdown: string; ocr: OcrShare }[]; images?: { pageNum: number; png: string }[] };
 type WorkerReply = WorkerOk | { ok: false; error: string };
 
 /** Resolution for rendered pages: a Letter page becomes 1275×1650, legible for small print in diagrams. */
@@ -226,7 +233,11 @@ export class Converter {
 			await this.verticalReady;
 		}
 		const result = await this.run(path, this.parseConfig, signal);
-		const pages = (result.pages ?? []).map((p) => ({ page: kind === "image" ? null : p.pageNum, markdown: normalizeText(p.markdown) }));
+		const pages = (result.pages ?? []).map((p) => ({
+			page: kind === "image" ? null : p.pageNum,
+			markdown: normalizeText(p.markdown),
+			...(p.ocr.chars ? { ocr: p.ocr } : {}),
+		}));
 		return { kind, pages };
 	}
 

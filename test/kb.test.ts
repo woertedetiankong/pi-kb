@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
@@ -49,8 +49,26 @@ test("OCRs Chinese text in images", async () => {
 	assert.equal(result.status, "added", result.message);
 	assert.equal(result.doc?.kind, "image");
 	// Tesseract often reorders Chinese words within a line, so assert on stable terms only.
-	assert.match(kb.read(result.doc?.id ?? "").text, /电气特性/);
+	const read = kb.read(result.doc?.id ?? "");
+	assert.match(read.text, /电气特性/);
 	assert.ok(kb.search("电气特性").some((hit) => hit.title === "scan-note.png"));
+
+	// How much text came from OCR is kept in the converted file, not shown as text or indexed.
+	assert.match(readFileSync(join(root, "converted", `${result.doc?.id}.md`), "utf8"), /^<!-- kb:ocr (\d+)\/\1 -->$/m);
+	assert.doesNotMatch(read.text, /kb:ocr/);
+	assert.equal(read.ocr.length, 1);
+	assert.equal(read.ocr[0].chars, read.ocr[0].total);
+	assert.equal(kb.search("kb:ocr").length, 0);
+	const pdf = kb.search("供电电压").find((hit) => hit.title === "xr100-manual.pdf")!;
+	assert.deepEqual(kb.read(pdf.docId, "1-2").ocr, [], "native PDF text");
+
+	// A drawing with a few OCR'd labels: page reads report the share and hide the line too.
+	const outline = await kb.addFile(join(import.meta.dirname, "../scripts/model-check/corpus/xr100-outline.pdf"));
+	const page = kb.read(outline.doc?.id ?? "", "1");
+	assert.doesNotMatch(page.text, /kb:ocr/);
+	assert.equal(page.ocr[0]?.page, 1);
+	assert.ok(page.ocr[0].chars > 0 && page.ocr[0].chars < page.ocr[0].total / 2, JSON.stringify(page.ocr));
+	kb.remove(outline.doc?.id ?? "");
 });
 
 test("markdown notes become wiki notes and follow manual edits", async () => {

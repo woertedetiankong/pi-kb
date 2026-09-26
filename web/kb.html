@@ -552,7 +552,7 @@ function markdown(text, { pdf, hitPage, links } = {}) {
       out.push(`<div class="page-mark${n === hitPage ? " hit" : ""}" id="p-${n}">${esc(T.page(n))}${pdf ? ` <button data-page="${n}">${esc(T.viewPage)} ↗</button>` : ""}</div>`);
       i++; continue;
     }
-    if (/^<!-- kb:source .* -->$/.test(line)) { i++; continue; }
+    if (/^<!-- kb:(source .*|ocr \d+\/\d+) -->$/.test(line)) { i++; continue; }
     if (/^```/.test(line)) {
       flush();
       const code = [];
