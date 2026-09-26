@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.5.12 — 2026-09-26
 
 - Fewer commands to wade through: typing `/kb ` completes only the everyday ones (add, search, web, note, list, remove, cancel, status, on, off, help); the rest (init, move, semantic, lint, eval, open, lang, sync) appear once their first letters are typed. New `/kb help` lists everything in two groups, and `/kb status` and unknown subcommands point to it.
 
