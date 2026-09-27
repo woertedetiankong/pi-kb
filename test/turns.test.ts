@@ -14,8 +14,14 @@ const outline = join(import.meta.dirname, "..", "scripts", "model-check", "corpu
 const otherPi = process.ppid;
 let root: string;
 let kb: KnowledgeBase;
+/**
+ * A waiting indexer or OCR loop never keeps the process running (so `pi -p` can exit); pi's
+ * interface keeps it running, and this timer does here.
+ */
+let alive: NodeJS.Timeout;
 
 before(async () => {
+	alive = setInterval(() => {}, 1000);
 	process.env.PI_KB_TESSDATA ??= join(tmpdir(), "pi-kb-test-tessdata");
 	root = mkdtempSync(join(tmpdir(), "pi-kb-turns-"));
 	kb = new KnowledgeBase(root);
@@ -24,6 +30,7 @@ before(async () => {
 	assert.equal((await kb.addFile(note, { wiki: true })).status, "added");
 });
 after(() => {
+	clearInterval(alive);
 	kb.close();
 	rmSync(root, { recursive: true, force: true });
 });
