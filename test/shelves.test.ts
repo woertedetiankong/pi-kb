@@ -15,7 +15,10 @@ import { VectorIndex } from "../src/semantic/vectors.ts";
 
 const temp = (name: string) => mkdtempSync(join(tmpdir(), `pi-kb-${name}-`));
 const roots: string[] = [];
+const opened: KnowledgeBase[] = [];
 after(() => {
+	// Closed first: Windows cannot delete a folder while its index database is open.
+	for (const kb of opened) kb.close();
 	for (const r of roots) rmSync(r, { recursive: true, force: true });
 });
 
@@ -30,6 +33,7 @@ async function setUp() {
 		return join(files, name);
 	};
 	const kb = new KnowledgeBase(join(root, "local"), { dir: join(root, "kb") });
+	opened.push(kb);
 	const esp = await kb.addFile(write("esp32-c3.md", "# ESP32-C3\n\nThe GPIO maximum current is 40 mA."), { shelves: ["ESP32"] });
 	const stm = await kb.addFile(write("stm32f1.md", "# STM32F103\n\nThe GPIO maximum current is 25 mA."), { shelves: ["STM32"] });
 	const both = await kb.addFile(write("spi-guide.md", "# SPI guide\n\nSet the GPIO clock divider before the first transfer."), { shelves: ["ESP32", "STM32"] });

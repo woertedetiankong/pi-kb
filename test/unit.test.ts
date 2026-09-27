@@ -10,7 +10,7 @@ import { pathsOutside } from "../src/kb.ts";
 import { containsTerm, coverage, planQuery } from "../src/search.ts";
 
 test("splitArgs handles quotes and drag-and-drop escapes", () => {
-	assert.deepEqual(splitArgs('add "My Docs/a b.pdf" ~/x\\ y.md --note'), ["add", "My Docs/a b.pdf", "~/x y.md", "--note"]);
+	assert.deepEqual(splitArgs('add "My Docs/a b.pdf" ~/x\\ y.md --note', "darwin"), ["add", "My Docs/a b.pdf", "~/x y.md", "--note"]);
 	assert.deepEqual(splitArgs("  "), []);
 	assert.deepEqual(splitArgs('search ""'), ["search", ""]);
 	// Windows paths keep their backslashes; quotes still group paths with spaces.
