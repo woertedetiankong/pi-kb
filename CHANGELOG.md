@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.6.3 — 2026-09-26
 
 You can see when the knowledge base helps: its tools show a one-line summary in pi's terminal instead of raw arguments and text.
 
