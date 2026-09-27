@@ -1,4 +1,5 @@
-import { type ExtensionAPI, type ExtensionContext, formatDimensionNote, getAgentDir, resizeImage } from "@earendil-works/pi-coding-agent";
+import { type AgentToolResult, type ExtensionAPI, type ExtensionContext, formatDimensionNote, getAgentDir, resizeImage, type Theme, type ToolDefinition, type ToolRenderResultOptions } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { statSync, unwatchFile, watchFile } from "node:fs";
 import { basename, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,6 +19,10 @@ import { folderSize, installRuntime, localModelDirs, removeLocalModel, runtimeIn
 import { type ImportJob, ImportQueue } from "./queue.ts";
 import { NUDGE_TYPE, noteNudge, nudgeText } from "./nudge.ts";
 import { claimPending, dropBatch, type PendingBatch, savePending } from "./resume.ts";
+import { type AddSummary, addCall, addResult, type HitSummary, noteCall, noteResult, readCall, readResult, searchCall, searchResult } from "./render.ts";
+
+/** What pi passes a tool renderer (the type is not exported by name). */
+type ToolRenderContext = Parameters<NonNullable<ToolDefinition["renderCall"]>>[2];
 
 const TOOLS = ["kb_search", "kb_read", "kb_add", "kb_note"];
 const READ_LIMIT = 30_000;
@@ -387,6 +392,27 @@ export default function piKb(pi: ExtensionAPI) {
 	const enabled = () => override ?? open().config.enabled;
 	/** Interface text in the configured or detected language. */
 	const t = () => messages(resolveLanguage(open().config.language));
+
+	/** One Text component per tool row, reused across redraws. */
+	const line = (text: string, context: ToolRenderContext) => {
+		const component = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+		component.setText(text);
+		return component;
+	};
+	/**
+	 * A tool's result line: `summary` when it worked, its message when it failed (the whole message
+	 * when expanded).
+	 */
+	const resultLine = (result: AgentToolResult<unknown>, options: ToolRenderResultOptions, theme: Theme, context: ToolRenderContext, summary: () => string) => {
+		if (!context.isError) return line(summary(), context);
+		const first = result.content.find((c) => c.type === "text");
+		const message = first?.type === "text" ? first.text : "";
+		return line(theme.fg("error", options.expanded ? message : message.split("\n")[0]), context);
+	};
+	const textOf = (result: AgentToolResult<unknown>) => {
+		const first = result.content.find((c) => c.type === "text");
+		return first?.type === "text" ? first.text : "";
+	};
 
 	/** Latest context, so changes made on the web page can update the status bar. */
 	let lastCtx: ExtensionContext | undefined;
@@ -758,6 +784,12 @@ export default function piKb(pi: ExtensionAPI) {
 			}
 			return { content: [{ type: "text", text }], details: { hits, pending } };
 		},
+		renderCall: (args, theme, context) => line(searchCall(theme, t(), args), context),
+		renderResult: (result, options, theme, context) =>
+			resultLine(result, options, theme, context, () => {
+				const details = result.details as { hits?: HitSummary[]; pending?: string[] } | undefined;
+				return searchResult(theme, t(), details?.hits ?? [], details?.pending?.length ?? 0, options.expanded);
+			}),
 	});
 
 	pi.registerTool({
@@ -815,6 +847,24 @@ export default function piKb(pi: ExtensionAPI) {
 				details: { id: doc.id, offset, truncated: more, viewed },
 			};
 		},
+		renderCall: (args, theme, context) => {
+			// The title says more than the id; looked up once per row.
+			const state = context.state as { title?: string } | undefined;
+			let title = state?.title;
+			if (!title) {
+				try {
+					title = lib().locate(args.id)?.doc.title;
+				} catch {
+					// knowledge base closed or moved: show the id
+				}
+				if (state && title) state.title = title;
+			}
+			return line(readCall(theme, t(), args, title), context);
+		},
+		renderResult: (result, options, theme, context) =>
+			resultLine(result, options, theme, context, () =>
+				readResult(theme, t(), textOf(result), result.details as { truncated?: boolean; viewed?: number[] } | undefined, options.expanded),
+			),
 	});
 
 	pi.registerTool({
@@ -844,14 +894,14 @@ export default function piKb(pi: ExtensionAPI) {
 					const text = ctx.hasUI
 						? `The user chose not to import ${outside.join(", ")}; nothing was imported. Do not retry on your own, but if the user asks for it again, call kb_add again: they will be asked again.`
 						: `Nothing was imported: ${outside.join(", ")} is outside the project folder and there is no user to confirm. Ask the user to run /kb add with the path.`;
-					return { content: [{ type: "text", text }], details: undefined };
+					return { content: [{ type: "text", text }], details: { added: 0, exists: 0, failed: 0, declined: true } as AddSummary };
 				}
 			}
 			const shelf = params.shelf?.trim() || undefined;
 			const started = await startImport(params.paths, ctx.cwd, params.as_note ?? false, ctx, project && !shelf ? params.scope : "global", { shelf });
 			if (!started) {
 				const text = "The user cancelled this import; nothing was imported. Do not retry on your own, but if the user asks for it again, call kb_add again.";
-				return { content: [{ type: "text", text }], details: undefined };
+				return { content: [{ type: "text", text }], details: { added: 0, exists: 0, failed: 0, declined: true } as AddSummary };
 			}
 			const { job, placed } = started;
 			const placement =
@@ -864,7 +914,9 @@ export default function piKb(pi: ExtensionAPI) {
 				new Promise<false>((resolve) => (timer = setTimeout(() => resolve(false), KB_ADD_WAIT))),
 			]);
 			clearTimeout(timer);
-			if (finished) return { content: [{ type: "text", text: [summarizeAdds(job.results, MODEL), placement].filter(Boolean).join("\n") }], details: undefined };
+			const count = (...statuses: AddResult["status"][]) => job.results.filter((r) => statuses.includes(r.status)).length;
+			const summary: AddSummary = { added: count("added", "updated"), exists: count("exists"), failed: count("failed") };
+			if (finished) return { content: [{ type: "text", text: [summarizeAdds(job.results, MODEL), placement].filter(Boolean).join("\n") }], details: summary };
 			// A long manual: let it finish in the background and tell the user then.
 			void job.done.then(reportImport);
 			const text = [
@@ -872,8 +924,11 @@ export default function piKb(pi: ExtensionAPI) {
 				job.results.length ? summarizeAdds(job.results, MODEL) : "",
 				placement,
 			].filter(Boolean).join("\n");
-			return { content: [{ type: "text", text }], details: undefined };
+			return { content: [{ type: "text", text }], details: { ...summary, background: { done: job.results.length, total: job.total } } };
 		},
+		renderCall: (args, theme, context) => line(addCall(theme, t(), args), context),
+		renderResult: (result, options, theme, context) =>
+			resultLine(result, options, theme, context, () => addResult(theme, t(), result.details as AddSummary | undefined)),
 	});
 
 	pi.registerTool({
@@ -1003,8 +1058,11 @@ export default function piKb(pi: ExtensionAPI) {
 					? `Similar notes already exist: ${similar.map((d) => `"${d.title}" (${d.id})`).join(", ")}. If one covers the same topic, extend it with mode append and its id instead of creating another note.`
 					: "",
 			].filter(Boolean).join("\n");
-			return { content: [{ type: "text", text }], details: { saved: true, id: doc.id } };
+			return { content: [{ type: "text", text }], details: { saved: true, id: doc.id, title: doc.title } };
 		},
+		renderCall: (args, theme, context) => line(noteCall(theme, t(), args), context),
+		renderResult: (result, options, theme, context) =>
+			resultLine(result, options, theme, context, () => noteResult(theme, t(), result.details as { saved?: boolean; title?: string } | undefined)),
 	});
 
 	/**

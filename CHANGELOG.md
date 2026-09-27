@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+You can see when the knowledge base helps: its tools show a one-line summary in pi's terminal instead of raw arguments and text.
+
+- `kb_search`: `📚 KB search "BMI270 I2C address"` over `5 hits · bmi270-datasheet.pdf p.132, 145, 148-150 · note "SPI gotcha"` (pages sorted, runs as ranges, notes by title, `+N more` past three documents, files still importing), or `no matches`. Expanded (ctrl+o): each hit's citation and snippet, without Markdown marks.
+- `kb_read`: the document's title (not its id) and pages; the result says how many characters came back, how many page pictures were viewed and whether there is more. Expanded: the start of the text.
+- `kb_add`: `imported 2 · 1 already there`, `importing in the background 1/3` or `not imported`; `kb_note`: `✓ saved "…"` or `not saved`. Errors show their message in red.
+- Follows the interface language (中文 / English). What the model reads is unchanged. Checked live with gpt-6-sol in both languages.
+
 ## v0.6.2 — 2026-09-26
 
 - Pictures on PDF pages show as `[figure]` instead of LiteParse's `![](img_p12_1.png)`, a link to an image file that was never written. On the web page it is a "Figure · View page" button that opens the original at that page; the agent is told it marks a picture worth viewing with `kb_read view: true`. Documents converted before show the marker too when read, without converting again. The marker is kept out of the search index, so searching "figure", "p12" or "png" no longer finds every picture. Checked with 1488 heading queries over the four sticks3 datasheets and the ESP32-S3 manual (keyword search): the right page first 1392 times before and after, in the top 8 1480 → 1481.
