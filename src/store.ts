@@ -83,6 +83,10 @@ CREATE TABLE IF NOT EXISTS shelves (
   shelf TEXT NOT NULL COLLATE NOCASE,
   PRIMARY KEY (doc_id, shelf)
 );
+-- PDFs searchable by their text layer whose pictures are still to be read by OCR (see KnowledgeBase.ocrNext).
+CREATE TABLE IF NOT EXISTS ocr_pending (
+  doc_id TEXT PRIMARY KEY
+);
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks USING fts5(
   doc_id UNINDEXED, page UNINDEXED, title, heading, content,
   tokenize = 'trigram'
@@ -143,6 +147,21 @@ export class Store {
 			this.db.exec("ROLLBACK");
 			throw error;
 		}
+	}
+
+	/** Whether a document's pictures are still to be read by OCR. */
+	isOcrPending(id: string): boolean {
+		return !!this.db.prepare("SELECT 1 FROM ocr_pending WHERE doc_id = ?").get(id);
+	}
+
+	setOcrPending(id: string, pending: boolean): void {
+		if (pending) this.db.prepare("INSERT OR IGNORE INTO ocr_pending (doc_id) VALUES (?)").run(id);
+		else this.db.prepare("DELETE FROM ocr_pending WHERE doc_id = ?").run(id);
+	}
+
+	/** Documents whose pictures are still to be read by OCR, oldest import first. */
+	ocrPending(): DocRecord[] {
+		return this.db.prepare("SELECT d.* FROM docs d JOIN ocr_pending o ON o.doc_id = d.id ORDER BY d.added_at").all() as unknown as DocRecord[];
 	}
 
 	/** Every document's and note's shelves, for listings. */
@@ -223,6 +242,7 @@ export class Store {
 			this.db.prepare("DELETE FROM vectors WHERE doc_id = ?").run(id);
 			this.db.prepare("DELETE FROM docs WHERE id = ?").run(id);
 			this.db.prepare("DELETE FROM shelves WHERE doc_id = ?").run(id);
+			this.db.prepare("DELETE FROM ocr_pending WHERE doc_id = ?").run(id);
 			this.db.exec("COMMIT");
 		} catch (error) {
 			this.db.exec("ROLLBACK");

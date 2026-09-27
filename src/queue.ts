@@ -47,6 +47,24 @@ interface QueuedJob extends ImportJob {
 export type ImportFn = (item: ImportItem, signal: AbortSignal, note: (note: ImportNote | undefined) => void) => Promise<AddResult>;
 
 /**
+ * Work done while no import waits: reading the pictures of documents imported by their text layer
+ * (OCR). Calls `started` with what it works on; resolves true when it did something (there may be
+ * more), false when nothing was left. An import queued meanwhile aborts it, to go first.
+ */
+export type BackgroundFn = (
+	signal: AbortSignal,
+	note: (note: ImportNote | undefined) => void,
+	started: (label: string) => void,
+) => Promise<boolean>;
+
+export interface BackgroundStatus {
+	/** What it works on, e.g. a document's title, and since when (ms since epoch). */
+	current: string;
+	startedAt: number;
+	note?: ImportNote;
+}
+
+/**
  * Imports files one at a time in the background, so /kb add returns at once and
  * a long manual does not hold up the conversation. Conversion runs in a child
  * process (see runParse in convert.ts), so pi stays responsive meanwhile.
@@ -58,18 +76,41 @@ export class ImportQueue {
 	private readonly jobs: QueuedJob[] = [];
 	private readonly importFn: ImportFn;
 	private readonly onChange: () => void;
+	private readonly backgroundFn?: BackgroundFn;
+	/** Background work in progress. */
+	private bg?: { controller: AbortController; current?: string; startedAt?: number; note?: ImportNote };
+	/** Cancelled: no background work until the next import. */
+	private paused = false;
 	private running = false;
 	private done = 0;
 	private total = 0;
 	private current?: { item: ImportItem; path: string; startedAt: number; controller: AbortController; note?: ImportNote };
 
-	constructor(importFn: ImportFn, onChange: () => void) {
+	constructor(importFn: ImportFn, onChange: () => void, background?: BackgroundFn) {
 		this.importFn = importFn;
 		this.onChange = onChange;
+		this.backgroundFn = background;
 	}
 
+	/** Files are being imported (not counting background work). */
 	get active(): boolean {
+		return !!this.current || this.jobs.length > 0;
+	}
+
+	/** Importing or doing background work. */
+	get busy(): boolean {
 		return this.running;
+	}
+
+	/** The background work in progress, once it has said what it works on. */
+	get background(): BackgroundStatus | undefined {
+		const bg = this.bg;
+		return bg?.current ? { current: bg.current, startedAt: bg.startedAt ?? Date.now(), note: bg.note } : undefined;
+	}
+
+	/** Start background work if nothing runs, e.g. documents left waiting by an earlier pi. */
+	kick(): void {
+		if (!this.running && this.backgroundFn && !this.paused) void this.run();
 	}
 
 	get status(): ImportStatus {
@@ -97,13 +138,21 @@ export class ImportQueue {
 		}
 		this.jobs.push(job);
 		this.total += items.length;
+		this.paused = false;
+		// Imports go first; the background work starts over once they are done.
+		this.bg?.controller.abort();
 		if (!this.running) void this.run();
 		else this.onChange();
 		return job;
 	}
 
-	/** Drop every queued file and stop the one being converted. Returns how many files were not imported. */
+	/**
+	 * Drop every queued file and stop the one being converted, and the background work until the next
+	 * import. Returns how many files were not imported.
+	 */
 	cancel(): number {
+		this.paused = true;
+		this.bg?.controller.abort();
 		let dropped = 0;
 		for (const job of this.jobs) {
 			for (const item of job.items.splice(0)) {
@@ -123,7 +172,14 @@ export class ImportQueue {
 	private async run(): Promise<void> {
 		this.running = true;
 		this.onChange();
-		while (this.jobs.length) {
+		for (;;) {
+			if (!this.jobs.length) {
+				this.done = this.total = 0;
+				const worked = this.backgroundFn && !this.paused && (await this.runBackground());
+				// Imports queued meanwhile go on; otherwise the queue rests until the next one.
+				if (!worked && !this.jobs.length) break;
+				continue;
+			}
 			const job = this.jobs[0];
 			const item = job.items.shift();
 			if (!item) {
@@ -152,5 +208,28 @@ export class ImportQueue {
 		this.running = false;
 		this.done = this.total = 0;
 		this.onChange();
+	}
+
+	private async runBackground(): Promise<boolean> {
+		const bg: NonNullable<typeof this.bg> = { controller: new AbortController() };
+		this.bg = bg;
+		try {
+			return await this.backgroundFn!(
+				bg.controller.signal,
+				(note) => {
+					bg.note = note;
+					this.onChange();
+				},
+				(current) => {
+					Object.assign(bg, { current, startedAt: Date.now(), note: undefined });
+					this.onChange();
+				},
+			);
+		} catch {
+			return false; // unexpected: stop rather than try again in a loop
+		} finally {
+			this.bg = undefined;
+			this.onChange();
+		}
 	}
 }

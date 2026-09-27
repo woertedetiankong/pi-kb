@@ -393,6 +393,7 @@ const T = {
     rereadConfirm: t => `用现在的 OCR 设置重新识别“${t}”？新识别出的文字会替换现在的；完成之前照常可以搜索。`, rereadDone: t => `已重新识别“${t}”`,
     askFew: "结果不多？让 AI 换几种说法、用中英文再找找", askFewBtn: "✨ 用 AI 找找看",
     importing: (i, n, name) => `正在导入 ${i}/${n}：${name}`,
+    ocrRunning: name => `正在后台识别图片中的文字：${name}（正文已经可以搜索）`,
     importNotes: { ocr_download: "首次使用 OCR，正在下载语言包（约 40MB，只需一次）" },
     sending: (i, n, name) => `正在上传 ${i}/${n}：${name}`,
     replacedN: n => `替换了 ${n} 个旧版本`,
@@ -490,6 +491,7 @@ const T = {
     rereadConfirm: t => `Read "${t}" again with the current OCR settings? The new text replaces the current one; searching works as usual meanwhile.`, rereadDone: t => `Read "${t}" again`,
     askFew: "Few results? Let AI search with other wordings, in Chinese and English", askFewBtn: "✨ Ask AI",
     importing: (i, n, name) => `Importing ${i}/${n}: ${name}`,
+    ocrRunning: name => `Reading text in pictures: ${name} (its other text is searchable already)`,
     importNotes: { ocr_download: "First OCR: downloading language data (about 40 MB, once)" },
     sending: (i, n, name) => `Uploading ${i}/${n}: ${name}`,
     replacedN: n => `replaced ${pl(n, "old version")}`,
@@ -798,7 +800,8 @@ const importingText = im => T.importing(im.done + 1, im.total, im.current) + (im
 
 function renderList() {
   const im = state.status?.imports;
-  const busy = state.uploading || (im?.active && im.current ? importingText(im) : "");
+  const ocr = state.status?.ocr?.current;
+  const busy = state.uploading || (im?.active && im.current ? importingText(im) : ocr ? T.ocrRunning(ocr) : "");
   const progress = busy ? `<div class="progress"><span class="spin"></span>${esc(busy)}</div>` : "";
   if (state.hits) {
     const hits = state.hits;

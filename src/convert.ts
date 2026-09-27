@@ -102,6 +102,10 @@ const CJK_CHAR = /[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/g;
 const NATIVE_TEXT_MIN = 200;
 /** ...and with this many CJK characters, it uses them (a stray symbol or name does not count). */
 const CJK_MIN = 3;
+/** Whether pages have enough text of their own to be searched before OCR has read their pictures. */
+export function hasTextLayer(pages: ConvertedPage[]): boolean {
+	return pages.reduce((n, p) => n + p.markdown.replace(/\s/g, "").length, 0) >= NATIVE_TEXT_MIN;
+}
 /** Languages whose models load a vertical-text companion that LiteParse does not download itself. */
 const VERTICAL = CJK_LANGUAGES;
 
@@ -240,6 +244,17 @@ export class Converter {
 		const text = (probe.pages ?? []).map((p) => p.markdown).join("");
 		if (text.replace(/\s/g, "").length < NATIVE_TEXT_MIN || (text.match(CJK_CHAR) ?? []).length >= CJK_MIN) return configured;
 		return others.join("+");
+	}
+
+	/**
+	 * A PDF's own text layer as Markdown pages, without OCR: seconds even for a 1500-page manual, where
+	 * OCR of the pictures in it takes minutes (see KnowledgeBase.addFile, which OCRs later).
+	 */
+	async readText(path: string, signal?: AbortSignal): Promise<Converted> {
+		const kind = sourceKind(path);
+		if (kind !== "pdf") throw new Error(`Only PDFs have a text layer to read on its own: ${extname(path) || path}`);
+		const result = await this.run(path, { outputFormat: "markdown", ocrEnabled: false, continueOnPageError: true, maxPages: 5000, quiet: true }, signal);
+		return { kind, pages: (result.pages ?? []).map((p) => ({ page: p.pageNum, markdown: normalizeText(p.markdown) })) };
 	}
 
 	/**

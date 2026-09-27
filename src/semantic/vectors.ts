@@ -9,7 +9,14 @@ CREATE TABLE IF NOT EXISTS vectors (
   vec BLOB NOT NULL
 );
 CREATE INDEX IF NOT EXISTS vectors_doc ON vectors(doc_id);
+CREATE TABLE IF NOT EXISTS ocr_pending (doc_id TEXT PRIMARY KEY);
 `;
+
+/**
+ * Chunks of documents still waiting for OCR are embedded once OCR has replaced their text, not
+ * before: embedding the text layer first would be thrown away minutes later.
+ */
+const READY = "c.doc_id NOT IN (SELECT doc_id FROM ocr_pending)";
 
 export interface PendingChunk {
 	rowid: number;
@@ -45,14 +52,14 @@ export class VectorIndex {
 			.prepare(
 				`SELECT c.rowid AS rowid, c.doc_id AS docId, c.title AS title, c.heading AS heading, c.content AS content
          FROM chunks c LEFT JOIN vectors v ON v.chunk_rowid = c.rowid AND v.model = ?
-         WHERE v.chunk_rowid IS NULL ORDER BY c.rowid LIMIT ?`,
+         WHERE v.chunk_rowid IS NULL AND ${READY} ORDER BY c.rowid LIMIT ?`,
 			)
 			.all(model, limit) as unknown as { rowid: number; docId: string; title: string; heading: string; content: string }[];
 		return rows.map((r) => ({ rowid: r.rowid, docId: r.docId, text: passage(r.title, r.heading, r.content) }));
 	}
 
 	progress(model: string): { done: number; total: number } {
-		const total = (this.db.prepare("SELECT COUNT(*) AS n FROM chunks").get() as { n: number }).n;
+		const total = (this.db.prepare(`SELECT COUNT(*) AS n FROM chunks c WHERE ${READY}`).get() as { n: number }).n;
 		const done = (this.db.prepare("SELECT COUNT(*) AS n FROM vectors WHERE model = ?").get(model) as { n: number }).n;
 		return { done, total };
 	}

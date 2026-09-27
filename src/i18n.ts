@@ -21,6 +21,11 @@ const en = {
 	importStarted: (n: number, queued: boolean) =>
 		`${queued ? `Added ${plural(n, "file")} to the import queue` : `Importing ${plural(n, "file")} in the background`}. Keep working; you'll be notified when it's done. /kb cancel stops it.`,
 	importing: (done: number, total: number) => ` · importing ${done}/${total}`,
+	ocrBadge: (name: string, elapsed: string) => ` · 🔍 reading pictures ${name} ${elapsed}`,
+	ocrWaiting: (n: number) =>
+		`\nText in pictures: ${plural(n, "document")} still to read in the background (their text is searchable already)`,
+	ocrLater: "Searchable now. Text inside pictures (figure labels, scanned pages) is read in the background; the status bar shows 🔍 while it runs.",
+	ocrStopped: "Stopped reading text in pictures; it goes on with the next import or when pi starts again.",
 	cancelNone: "Nothing is being imported",
 	replacedOld: "replaced the old version",
 	versionAsk: (files: string[]) =>
@@ -244,6 +249,10 @@ const zh: Messages = {
 	importStarted: (n, queued) =>
 		`${queued ? `已把 ${n} 个文件加入导入队列` : `开始在后台导入 ${n} 个文件`}，可以继续使用，完成后会通知。/kb cancel 可以取消。`,
 	importing: (done, total) => ` · 正在导入 ${done}/${total}`,
+	ocrBadge: (name, elapsed) => ` · 🔍 识别图片文字 ${name} ${elapsed}`,
+	ocrWaiting: (n) => `\n图片中的文字：还有 ${n} 份资料在后台识别（它们的正文已经可以搜索）`,
+	ocrLater: "已经可以搜索。图片里的文字（图中标注、扫描页）会在后台继续识别，进行时状态栏显示 🔍。",
+	ocrStopped: "已暂停识别图片中的文字，下次导入或重新启动 pi 时继续。",
 	cancelNone: "当前没有正在导入的文件",
 	replacedOld: "已替换旧版本",
 	versionAsk: (files) =>

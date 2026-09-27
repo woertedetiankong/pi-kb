@@ -401,7 +401,10 @@ export default function piKb(pi: ExtensionAPI) {
 			setEnabled: (on) => {
 				override = undefined;
 				open().updateConfig({ enabled: on });
-				if (on) lib().sync();
+				if (on) {
+					lib().sync();
+					imports.kick();
+				}
 				if (lastCtx) refresh(lastCtx);
 			},
 			changed: () => {
@@ -409,7 +412,7 @@ export default function piKb(pi: ExtensionAPI) {
 			},
 			enqueue: (item) => imports.enqueue([item]),
 			queued: () => imports.items(),
-			importStatus: () => ({ ...imports.status, active: imports.active }),
+			importStatus: () => ({ ...imports.status, active: imports.active, background: imports.background }),
 			useLocal,
 			localSetup: () => (install ? { installing: install.line } : installError ? { installError } : {}),
 			forgetInstallError: () => {
@@ -442,13 +445,16 @@ export default function piKb(pi: ExtensionAPI) {
 	/** " · 📦 <npm output>" while the local model runtime installs. */
 	const installBadge = () => (install ? ` · ${install.line ? `📦 ${install.line.slice(0, 60)}` : t().localInstalling}` : "");
 
-	/** " · 📥 2/5 manual.pdf 3:12" while importing. */
+	/** " · 📥 2/5 manual.pdf 3:12" while importing, " · 🔍 reading pictures manual.pdf 0:40" while OCR runs after. */
 	const importBadge = () => {
+		const since = (at: number | undefined) => {
+			const seconds = Math.floor((Date.now() - (at ?? Date.now())) / 1000);
+			return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+		};
 		const st = imports.status;
-		if (!imports.active || !st.current) return "";
-		const seconds = Math.floor((Date.now() - (st.startedAt ?? Date.now())) / 1000);
-		const elapsed = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-		return t().importBadge(st.done + 1, st.total, basename(st.current), elapsed) + (st.note ? t().importNotes[st.note] : "");
+		const bg = imports.background;
+		if (!imports.active || !st.current) return bg ? t().ocrBadge(bg.current, since(bg.startedAt)) + (bg.note ? t().importNotes[bg.note] : "") : "";
+		return t().importBadge(st.done + 1, st.total, basename(st.current), since(st.startedAt)) + (st.note ? t().importNotes[st.note] : "");
 	};
 
 	/** " · 🧠 120/600" while indexing, " · 🧠" when ready, nothing when semantic search is off. */
@@ -482,15 +488,18 @@ export default function piKb(pi: ExtensionAPI) {
 						shelves: (item.scope ?? "global") === "global" ? item.shelves : undefined,
 					}),
 		() => {
-			if (imports.active && !ticker) {
+			if (imports.busy && !ticker) {
 				ticker = setInterval(() => lastCtx && refresh(lastCtx), 1000);
 				ticker.unref();
-			} else if (!imports.active && ticker) {
+			} else if (!imports.busy && ticker) {
 				clearInterval(ticker);
 				ticker = undefined;
 			}
 			if (lastCtx) refresh(lastCtx);
 		},
+		// Once imports are done: read the pictures of PDFs imported by their text layer.
+		async (signal, note, started) =>
+			enabled() && !!(await lib().ocrNext({ signal, onNote: note, onStart: (doc) => started(doc.title) })),
 	);
 
 	/**
@@ -570,7 +579,9 @@ export default function piKb(pi: ExtensionAPI) {
 		const tip = results.some((r) => r.status === "added") && semanticOff() && firstTime("semantic") ? `\n\n${m.semanticTip}` : "";
 		// The web page takes dropped Markdown as notes; here it stays a document unless --note says so.
 		const markdown = results.some((r) => r.status === "added" && r.doc?.collection === "docs" && isMarkdown(r.path)) ? `\n\n${m.mdAsDocuments}` : "";
-		show(ctx, m.importTitle, summary + markdown + tip);
+		const waiting = new Set(lib().ocrPending().map((d) => d.id));
+		const ocr = results.some((r) => r.status === "added" && r.doc && waiting.has(r.doc.id)) ? `\n\n${m.ocrLater}` : "";
+		show(ctx, m.importTitle, summary + markdown + ocr + tip);
 		ctx.ui.notify(summary.split("\n")[0], results.some((r) => r.status === "failed") ? "warning" : "info");
 	};
 
@@ -618,7 +629,11 @@ export default function piKb(pi: ExtensionAPI) {
 		attachProject(ctx.cwd);
 		refresh(ctx);
 		// Only in the interactive app: a pi -p run would stop again before finishing them.
-		if (ctx.hasUI) resumeImports(ctx);
+		if (ctx.hasUI) {
+			resumeImports(ctx);
+			// PDFs whose pictures an earlier pi had not read yet.
+			imports.kick();
+		}
 		// A new install shows "0 docs" and nothing else: say once how to start.
 		if (enabled() && ctx.hasUI && isEmpty() && firstTime("welcome")) ctx.ui.notify(t().welcome, "info");
 	});
@@ -713,7 +728,7 @@ export default function piKb(pi: ExtensionAPI) {
 				}),
 			),
 		}),
-		async execute(_id, params) {
+		async execute(_id, params, _signal, _update, ctx) {
 			const scope = params.scope && params.scope !== "all" ? params.scope : undefined;
 			const library = lib();
 			const known = library.shelfList();
@@ -734,6 +749,12 @@ export default function piKb(pi: ExtensionAPI) {
 			if (pending.length) {
 				const names = pending.slice(0, 5).map((p) => basename(p)).join(", ") + (pending.length > 5 ? ", …" : "");
 				text += `\n\nNote: ${pending.length} file(s) are still being imported (${names}) and are not searchable yet. If the results above do not answer the user, say that the import is still running and suggest asking again when it finishes; do not say the knowledge base lacks the information.`;
+			}
+			// PDFs searchable by their text layer while OCR still reads their pictures.
+			const reading = library.ocrPending();
+			if (reading.length) {
+				const names = reading.slice(0, 5).map((d) => d.title).join(", ") + (reading.length > 5 ? ", …" : "");
+				text += `\n\nNote: text inside pictures (figure labels, scanned pages) of ${reading.length} document(s) is still being read by OCR (${names}); their other text is searchable. If something that would be in a figure is missing, ${seesImages(ctx) ? "look at the page with kb_read view: true, or " : ""}say the pictures are still being read.`;
 			}
 			return { content: [{ type: "text", text }], details: { hits, pending } };
 		},
@@ -1039,14 +1060,18 @@ export default function piKb(pi: ExtensionAPI) {
 				case "off": {
 					override = undefined;
 					base.updateConfig({ enabled: sub === "on" });
-					if (sub === "on") lib().sync();
+					if (sub === "on") {
+						lib().sync();
+						imports.kick();
+					}
 					refresh(ctx);
 					ctx.ui.notify(sub === "on" ? m.enabled : m.disabled, "info");
 					return;
 				}
 				case "status": {
 					const { docs, wiki, pages } = base.store.stats();
-					const importing = imports.active ? m.importing(imports.status.done, imports.status.total) : "";
+					const waiting = lib().ocrPending().length;
+					const importing = (imports.active ? m.importing(imports.status.done, imports.status.total) : "") + (waiting ? m.ocrWaiting(waiting) : "");
 					const own = project ? `\n${m.projectStatus(project.info.name, project.kb.store.stats().docs, project.kb.store.stats().wiki, project.info.dir)}` : "";
 					const empty = isEmpty() && !imports.active ? `\n${m.emptyHint}` : "";
 					ctx.ui.notify(`${m.status(enabled(), docs, pages, wiki, base.root)}${own}${importing}${empty}\n${m.helpHint}`, "info");
@@ -1125,8 +1150,9 @@ export default function piKb(pi: ExtensionAPI) {
 					return;
 				}
 				case "cancel": {
+					const reading = !!imports.background;
 					const dropped = imports.cancel();
-					ctx.ui.notify(dropped ? m.cancelled(dropped) : m.cancelNone, "info");
+					ctx.ui.notify(dropped ? m.cancelled(dropped) : reading ? m.ocrStopped : m.cancelNone, "info");
 					return;
 				}
 				case "list": {

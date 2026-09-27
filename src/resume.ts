@@ -48,7 +48,7 @@ export function savePending(localDir: string, items: PendingItem[]): void {
 }
 
 /** Whether a process with this id is running (a claimed batch of a dead pi is up for grabs again). */
-function alive(pid: number): boolean {
+export function alive(pid: number): boolean {
 	try {
 		process.kill(pid, 0);
 		return true;

@@ -146,3 +146,90 @@ test("OCR data that cannot be downloaded fails the image instead of storing it e
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+/** Background work (OCR after imports) that takes until released, and says how it was stopped. */
+function slowBackground(tasks: string[]) {
+	const started: string[] = [];
+	const aborted: string[] = [];
+	const release = new Map<string, () => void>();
+	const background = (signal: AbortSignal, _note: unknown, begin: (label: string) => void) =>
+		new Promise<boolean>((resolve) => {
+			const task = tasks[0];
+			if (!task) return resolve(false);
+			begin(task);
+			started.push(task);
+			release.set(task, () => {
+				tasks.shift();
+				resolve(true);
+			});
+			// Aborted: the task stays for next time, as an OCR'd document stays waiting.
+			signal.addEventListener("abort", () => {
+				aborted.push(task);
+				resolve(true);
+			});
+		});
+	return { started, aborted, release, background };
+}
+
+test("background work runs once imports are done, and an import goes before it", async () => {
+	const imports = slowImports();
+	const bg = slowBackground(["ocr a.pdf", "ocr b.pdf"]);
+	const queue = new ImportQueue(imports.importFn, () => {}, bg.background);
+	queue.kick();
+	await imports.until(() => bg.started.length === 1);
+	assert.equal(queue.active, false, "background work is not an import");
+	assert.equal(queue.busy, true);
+	assert.equal(queue.background?.current, "ocr a.pdf");
+
+	// A new import stops the background work and goes first; the work starts over afterwards.
+	const job = queue.enqueue([{ path: "c.pdf", wiki: false }]);
+	await imports.until(() => imports.started.includes("c.pdf"));
+	assert.deepEqual(bg.aborted, ["ocr a.pdf"]);
+	assert.equal(queue.background, undefined);
+	imports.release.get("c.pdf")!();
+	await job.done;
+	await imports.until(() => bg.started.length === 2);
+	assert.deepEqual(bg.started, ["ocr a.pdf", "ocr a.pdf"]);
+	bg.release.get("ocr a.pdf")!();
+	await imports.until(() => bg.started.length === 3);
+	bg.release.get("ocr b.pdf")!();
+	await imports.until(() => !queue.busy);
+	assert.equal(queue.background, undefined);
+});
+
+test("cancel stops background work until the next import", async () => {
+	const imports = slowImports();
+	const bg = slowBackground(["ocr a.pdf"]);
+	const queue = new ImportQueue(imports.importFn, () => {}, bg.background);
+	queue.kick();
+	await imports.until(() => bg.started.length === 1);
+	assert.equal(queue.cancel(), 0, "no file was left unimported");
+	await imports.until(() => !queue.busy);
+	queue.kick();
+	await new Promise((r) => setTimeout(r, 10));
+	assert.equal(bg.started.length, 1, "kick does not undo a cancel");
+
+	const job = queue.enqueue([{ path: "d.pdf", wiki: false }]);
+	await imports.until(() => imports.started.includes("d.pdf"));
+	imports.release.get("d.pdf")!();
+	await job.done;
+	await imports.until(() => bg.started.length === 2);
+	bg.release.get("ocr a.pdf")!();
+	await imports.until(() => !queue.busy);
+});
+
+test("background work that fails unexpectedly stops instead of looping", async () => {
+	let calls = 0;
+	const queue = new ImportQueue(
+		async (item) => ({ path: item.path, status: "added" }),
+		() => {},
+		async () => {
+			calls++;
+			throw new Error("boom");
+		},
+	);
+	queue.kick();
+	await new Promise((r) => setTimeout(r, 20));
+	assert.equal(calls, 1);
+	assert.equal(queue.busy, false);
+});

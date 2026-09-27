@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+Imports are fast: PDFs are searchable by their text layer at once, and OCR adds the text inside their pictures in the background.
+
+- Measured on the user's datasheets (Apple Silicon): time until searchable went from 73 s to 0.7 s for the 162-page BMI270 datasheet, and 7.6 s to 0.1 s for a 35-page one; the 1530-page ESP32-S3 manual is searchable in 2.8 s (its OCR was not timed; many minutes). OCR had cost about 100 times the time for about 1% more text (mostly figure labels, some noise).
+- The background OCR runs the same full conversion as before, so the final text is unchanged. It runs when no import waits, one document at a time; a new import stops it and goes first. The status bar shows `🔍 reading pictures <file> 0:40`, `/kb status` counts the documents still waiting, and the web page shows a progress line. `/kb cancel` pauses it until the next import.
+- The waiting state is kept in `docs/<id>.json` (`"ocr": "pending"`) and in the index, so OCR that pi did not finish resumes when pi starts again. A claim file in `ocr-claims/` keeps two pi windows from reading the same document. A copy of the folder elsewhere picks up the OCR'd text on sync; where the original is missing (project clones), the text layer counts as final there.
+- Semantic indexing skips documents waiting for OCR, so their text is embedded once, after OCR, instead of twice.
+- `kb_search` tells the model which documents are still waiting for OCR, so a figure label it cannot find yet is not reported as missing from the knowledge base.
+- Scans (PDFs with almost no text layer), images and Office files are OCR'd during import as before. `/kb reread` still reads a document in full, pictures and all.
+
 ## v0.6.0 — 2026-09-26
 
 Collections: group your global knowledge base by topic, and choose per project what it sees.

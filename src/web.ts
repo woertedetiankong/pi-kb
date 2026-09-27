@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 import { type WebApp, type WebBinary, type WebLanguage, type WebRequest, webError } from "./hub.ts";
 import { type AddResult, contentId, type KnowledgeBase, sourcePath } from "./kb.ts";
-import type { ImportItem, ImportJob, ImportStatus } from "./queue.ts";
+import type { BackgroundStatus, ImportItem, ImportJob, ImportStatus } from "./queue.ts";
 import { ask, AskError, listModels, type ModelContext } from "./ask.ts";
 import { type KbLocation, LocationError, type SemanticConfig } from "./config.ts";
 import { apiKeyEnv, folderSize, localModelDirs, removeLocalModel, runtimeInstalled } from "./semantic/providers.ts";
@@ -37,7 +37,7 @@ export interface KbWebHost {
 	enqueue(item: ImportItem): ImportJob;
 	/** Files queued or being converted, not in the knowledge base yet. */
 	queued(): ImportItem[];
-	importStatus(): ImportStatus & { active: boolean };
+	importStatus(): ImportStatus & { active: boolean; background?: BackgroundStatus };
 	/** Switch to the local model, installing its runtime first when needed (same as /kb semantic local). */
 	useLocal(): Promise<boolean>;
 	/** The runtime install in progress (last npm output line) or the last failure. */
@@ -136,7 +136,9 @@ export class KbWebApp implements WebApp {
 					const current = imports.current ? basename(imports.current) : undefined;
 					// The global knowledge base's collections, and which ones the project pi works in uses (null: all).
 					const shelves = { list: lib.shelfList(), using: lib.shelves ?? null, here: this.host.here() ?? null };
-					return { enabled: this.host.enabled(), root: kb.root, ...stats, project, semantic, imports: { ...imports, current }, shelves };
+					// PDFs searchable by their text layer whose pictures OCR is still reading.
+					const ocr = { waiting: lib.ocrPending().length, current: imports.background?.current };
+					return { enabled: this.host.enabled(), root: kb.root, ...stats, project, semantic, imports: { ...imports, current }, ocr, shelves };
 				}
 				case "GET /docs":
 					// Notes carry their tags, so the page can browse by tag.

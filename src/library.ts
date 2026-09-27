@@ -337,6 +337,20 @@ export class Library {
 		return this.need(id).kb.reread(id, options);
 	}
 
+	/** OCR the pictures of the next document waiting for it (see KnowledgeBase.ocrNext); undefined when none waits. */
+	async ocrNext(options?: Parameters<KnowledgeBase["ocrNext"]>[0]): Promise<AddResult | undefined> {
+		for (const [, kb] of this.scopes) {
+			const result = await kb.ocrNext(options);
+			if (result) return result;
+		}
+		return undefined;
+	}
+
+	/** Documents searchable by their text layer whose pictures are still to be read by OCR. */
+	ocrPending(): ScopedDoc[] {
+		return this.scopes.flatMap(([scope, kb]) => kb.ocrPending().map((d) => ({ ...d, scope })));
+	}
+
 	originalFile(id: string) {
 		return this.need(id).kb.originalFile(id);
 	}

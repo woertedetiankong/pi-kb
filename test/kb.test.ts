@@ -64,6 +64,13 @@ test("OCRs Chinese text in images", async () => {
 
 	// A drawing with a few OCR'd labels: page reads report the share and hide the line too.
 	const outline = await kb.addFile(join(import.meta.dirname, "../scripts/model-check/corpus/xr100-outline.pdf"));
+	// Imported by its text layer at once; OCR reads the drawing's labels afterwards.
+	assert.deepEqual(kb.read(outline.doc?.id ?? "", "1").ocr, [], "text layer only at first");
+	assert.deepEqual(kb.ocrPending().map((d) => d.id), [outline.doc?.id]);
+	const ocr = await kb.ocrNext();
+	assert.equal(ocr?.status, "updated", ocr?.message);
+	assert.deepEqual(kb.ocrPending(), []);
+	assert.equal(await kb.ocrNext(), undefined, "nothing left to read");
 	const page = kb.read(outline.doc?.id ?? "", "1");
 	assert.doesNotMatch(page.text, /kb:ocr/);
 	assert.equal(page.ocr[0]?.page, 1);

@@ -4,8 +4,9 @@ import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { chunkPages } from "./chunk.ts";
 import { configStamp, defaultMinScore, type KbConfig, loadConfig, saveConfig } from "./config.ts";
-import { type ConvertedPage, Converter, type OcrShare, type PageImage, isMarkdown, normalizeText, sourceKind } from "./convert.ts";
+import { type ConvertedPage, Converter, hasTextLayer, type OcrShare, type PageImage, isMarkdown, normalizeText, sourceKind } from "./convert.ts";
 import { type Note, normalizeShelves, normalizeTags, now, parseNote, renderNote, slugify, today, withShelves } from "./notes.ts";
+import { alive } from "./resume.ts";
 import { fuse } from "./search.ts";
 import { type IndexerStatus, SemanticIndexer } from "./semantic/indexer.ts";
 import { createProvider, type EmbeddingProvider } from "./semantic/providers.ts";
@@ -237,6 +238,7 @@ export class KnowledgeBase {
 	}
 
 	close(): void {
+		this.closed = true;
 		this.indexer.stop();
 		this.converter.close();
 		this.store.close();
@@ -312,9 +314,9 @@ export class KnowledgeBase {
 				return { path, status: "exists", doc: existing };
 			}
 
-			const result = await this.convertFile(path, options);
+			const result = await this.convertFile(path, { ...options, deferOcr: true });
 			if ("status" in result) return result;
-			const { converted, text } = result;
+			const { converted, text, ocrLater } = result;
 
 			const name = basename(path);
 			const source = options.source ?? path;
@@ -340,6 +342,7 @@ export class KnowledgeBase {
 				added_at: new Date().toISOString(),
 			};
 			this.store.putDoc(doc, chunkPages(converted.pages));
+			this.store.setOcrPending(id, ocrLater);
 			// A new version stays on the shelves of the one it replaces.
 			this.store.setShelves(id, this.canonicalShelves([...(options.shelves ?? []), ...replaced.flatMap((d) => this.store.shelvesOf(d.id))]));
 			this.writeManifest(doc);
@@ -450,8 +453,22 @@ export class KnowledgeBase {
 	 */
 	private async convertFile(
 		path: string,
-		options: { signal?: AbortSignal; onNote?: (note: "ocr_download" | undefined) => void },
-	): Promise<{ converted: Awaited<ReturnType<Converter["convert"]>>; text: string } | AddResult> {
+		options: {
+			signal?: AbortSignal;
+			onNote?: (note: "ocr_download" | undefined) => void;
+			/**
+			 * A PDF with a text layer: take that now and leave OCR of its pictures for later (ocrLater), since
+			 * OCR takes about 100 times as long (a 162-page datasheet: 0.7 s against 73 s) for about 1% more text.
+			 */
+			deferOcr?: boolean;
+		},
+	): Promise<{ converted: Awaited<ReturnType<Converter["convert"]>>; text: string; ocrLater: boolean } | AddResult> {
+		if (options.deferOcr && sourceKind(path) === "pdf") {
+			const layer = await this.converter.readText(path, options.signal);
+			if (options.signal?.aborted) return { path, status: "skipped", reason: "cancelled", message: "import cancelled" };
+			// A scan has no text of its own: nothing would be searchable before OCR, so OCR it now.
+			if (hasTextLayer(layer.pages)) return { converted: layer, text: layer.pages.map((p) => p.markdown).join(""), ocrLater: true };
+		}
 		// The first OCR downloads Tesseract data (about 40 MB); say so while it happens instead of looking stuck.
 		const converted = await this.converter.convert(path, options.signal, (downloading) =>
 			options.onNote?.(downloading ? "ocr_download" : undefined),
@@ -466,7 +483,109 @@ export class KnowledgeBase {
 			}
 			return { path, status: "failed", reason: "no_text", message: "no text could be extracted" };
 		}
-		return { converted, text };
+		return { converted, text, ocrLater: false };
+	}
+
+	/**
+	 * Read the pictures of the next document imported by its text layer alone (see convertFile) with OCR,
+	 * replacing its text with the full conversion, as an import without that shortcut would have made it.
+	 * Undefined when no document waits for OCR (or the ones that do are being read by another pi).
+	 * Aborting leaves the document waiting, to be read again from the start next time.
+	 */
+	async ocrNext(
+		options: { signal?: AbortSignal; onNote?: (note: "ocr_download" | undefined) => void; onStart?: (doc: DocRecord) => void } = {},
+	): Promise<AddResult | undefined> {
+		for (const doc of this.store.ocrPending()) {
+			if (options.signal?.aborted) return undefined;
+			const file = this.originalPath(doc);
+			// Imported on another computer that did not share the original: its text layer is all there is here.
+			if (!file) {
+				this.store.setOcrPending(doc.id, false);
+				void this.indexer.kick();
+				continue;
+			}
+			const claim = this.claimOcr(doc.id);
+			if (!claim) continue;
+			const stopped = (): AddResult => ({ path: file, status: "skipped", reason: "cancelled", doc, message: "OCR stopped" });
+			try {
+				options.onStart?.(doc);
+				const converted = await this.converter.convert(file, options.signal, (downloading) =>
+					options.onNote?.(downloading ? "ocr_download" : undefined),
+				);
+				if (options.signal?.aborted || this.closed) return stopped();
+				// Removed, or read again with /kb reread, meanwhile: nothing left to do.
+				const current = this.store.getDoc(doc.id);
+				if (!current || !this.store.isOcrPending(doc.id)) return stopped();
+				const text = converted.pages.map((p) => p.markdown).join("");
+				let updated = current;
+				if (text.replace(/```\w*/g, "").trim()) {
+					writeFileSync(join(this.root, current.path), renderConverted(basename(file), converted.pages));
+					updated = { ...current, pages: converted.pages.some((p) => p.page !== null) ? converted.pages.length : null, chars: text.length };
+					this.store.setOcrPending(doc.id, false);
+					this.store.putDoc(updated, chunkPages(converted.pages));
+				} else this.store.setOcrPending(doc.id, false);
+				this.writeManifest(updated);
+				void this.indexer.kick();
+				return { path: file, status: "updated", doc: updated };
+			} catch (error) {
+				// Removed meanwhile (its original went with it), or read again: nothing to settle.
+				if (options.signal?.aborted || this.closed || !this.store.isOcrPending(doc.id)) return stopped();
+				// Keep the text layer rather than trying again at every start.
+				this.store.setOcrPending(doc.id, false);
+				this.writeManifest(doc);
+				void this.indexer.kick();
+				return { path: file, status: "failed", doc, message: error instanceof Error ? error.message : String(error) };
+			} finally {
+				this.releaseOcr(doc.id, claim);
+			}
+		}
+		return undefined;
+	}
+
+	/** Documents whose pictures are still to be read by OCR. */
+	ocrPending(): DocRecord[] {
+		return this.store.ocrPending();
+	}
+
+	private closed = false;
+
+	private claimFile(id: string): string {
+		return join(this.localDir, "ocr-claims", id);
+	}
+
+	/**
+	 * Take a document to OCR, so two pi windows on one knowledge base don't both read it. A claim is
+	 * a file holding its owner's pid; a dead owner's claim, or this process's own (a pi that reloaded
+	 * while reading it), is taken over. Returns the claim's token, or undefined when another pi has it.
+	 */
+	private claimOcr(id: string): string | undefined {
+		const file = this.claimFile(id);
+		const token = `${process.pid}-${Math.random().toString(36).slice(2, 10)}`;
+		mkdirSync(dirname(file), { recursive: true });
+		try {
+			writeFileSync(file, token, { flag: "wx" });
+			return token;
+		} catch {
+			// claimed before: see whose it is
+		}
+		let owner = 0;
+		try {
+			owner = Number(readFileSync(file, "utf8").split("-")[0]);
+		} catch {
+			// released meanwhile
+		}
+		if (owner && owner !== process.pid && alive(owner)) return undefined;
+		writeFileSync(file, token);
+		return token;
+	}
+
+	/** Give a claim back, unless someone has taken it over since. */
+	private releaseOcr(id: string, token: string): void {
+		try {
+			if (readFileSync(this.claimFile(id), "utf8") === token) rmSync(this.claimFile(id), { force: true });
+		} catch {
+			// gone already
+		}
 	}
 
 	/**
@@ -517,6 +636,8 @@ export class KnowledgeBase {
 			const paged = converted.pages.some((p) => p.page !== null);
 			const updated: DocRecord = { ...doc, kind: converted.kind, pages: paged ? converted.pages.length : null, chars: text.length };
 			this.store.putDoc(updated, chunkPages(converted.pages));
+			// Read in full, pictures and all: nothing left for OCR to add.
+			this.store.setOcrPending(id, false);
 			this.writeManifest(updated);
 			void this.indexer.kick();
 			return { path: file, status: "updated", doc: updated };
@@ -624,8 +745,10 @@ export class KnowledgeBase {
 		// Forward slashes, so a folder shared between Windows and macOS reads the same. The shelves come
 		// from the index, so rewriting a manifest (a rename, a reread) keeps them.
 		const shelves = this.store.shelvesOf(doc.id);
-		const { shelves: _, ...fields } = doc as DocRecord & { shelves?: string[] };
-		const record = { ...fields, path: doc.path.split(sep).join("/"), ...(shelves.length ? { shelves } : {}) };
+		const { shelves: _, ocr: __, ...fields } = doc as DocRecord & { shelves?: string[]; ocr?: string };
+		// "ocr": "pending" tells a copy of this folder elsewhere (with the original) to finish the OCR.
+		const ocr = this.store.isOcrPending(doc.id) ? { ocr: "pending" } : {};
+		const record = { ...fields, path: doc.path.split(sep).join("/"), ...(shelves.length ? { shelves } : {}), ...ocr };
 		writeFileSync(this.manifestFile(doc.id), `${JSON.stringify(record, null, 2)}\n`);
 	}
 
@@ -656,12 +779,16 @@ export class KnowledgeBase {
 			const file = join(this.root, record.path);
 			if (!existsSync(file)) continue; // the text has not arrived yet (sync in progress)
 			seen.add(record.id);
-			const { shelves, ...fields } = record as DocRecord & { shelves?: string[] };
+			const { shelves, ocr, ...fields } = record as DocRecord & { shelves?: string[]; ocr?: string };
 			const doc: DocRecord = { ...fields, collection: "docs", path: record.path.split("/").join(sep) };
 			this.syncShelves(doc.id, shelves);
+			// Waiting for OCR only where the original is, to be read; elsewhere the text layer is what there is.
+			const pending = ocr === "pending" && !!this.originalPath(doc);
 			const known = this.store.getDoc(record.id);
-			if (!known) {
+			// New here, or its text changed elsewhere (OCR finished, read again).
+			if (!known || known.chars !== doc.chars || this.store.isOcrPending(doc.id) !== pending) {
 				this.store.putDoc(doc, chunkPages(pagesOf(readFileSync(file, "utf8"))));
+				this.store.setOcrPending(doc.id, pending);
 				updated++;
 			} else if (known.title !== doc.title) {
 				this.store.renameDoc(doc.id, doc.title);
