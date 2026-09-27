@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Semantic search is easy to find and to turn on: one button where it helps, one command in the terminal.
+
+- Web page: "Turn on semantic search" under search results when keyword search found fewer than three hits, and in the overview while it is off. It opens a short dialog in plain words: what it does (Chinese finds English material, other wordings are found), that it runs locally and costs nothing, what is downloaded (about 1.1 GB once, or nothing when the model is there) and about how long indexing what you have takes (from the number of chunks, at the 3.5 chunks/s measured on a 24 GB Mac). "Turn on" starts the local model; progress shows where the hint was, and when indexing is done the current search runs again by meaning. The online API stays in Settings, one link away.
+- Terminal: the tip after the first import and under an empty `/kb search` recommends one command, `/kb semantic local`, and says what it costs, instead of weighing local against online.
+- Measured: `BMI270 供电电压范围` found nothing with keywords only; after turning semantic search on from that search (indexing 447 chunks took about 2.5 minutes), its first hit is p.12, the specification table with the supply voltage.
+- Search snippets of documents imported before v0.6.2 no longer show LiteParse's picture links.
 - Tests run on every push and pull request on Linux, macOS and Windows, with Node 22 and 24 (GitHub Actions). The first Windows run found two test problems, both in the tests: one deleted a folder with its index still open (Windows refuses), and one checked macOS drag-and-drop escapes without saying so. pi-kb itself passed all 142 other tests on Windows.
 
 ## v0.6.3 — 2026-09-26

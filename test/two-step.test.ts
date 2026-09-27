@@ -135,3 +135,13 @@ test("pictures on a page are marked [figure], not linked to image files that do 
 	assert.doesNotMatch(kb.read(doc!.id).text, /img_p1_1/);
 	kb.remove(doc!.id);
 });
+
+test("snippets of documents indexed before [figure] do not show picture links", async () => {
+	const { doc } = await kb.addFile(outline);
+	// As an index built by an earlier version holds it.
+	kb.store.putDoc(doc!, [{ page: 1, heading: "", content: "Board outline ![](img_p1_1.png) XR-100 dimensions" }]);
+	const [hit] = kb.search("XR-100 dimensions");
+	assert.equal(hit.snippet.includes("img_p1_1"), false, hit.snippet);
+	assert.equal([...kb.store.chunks([hit.chunk]).values()][0].snippet, "Board outline XR-100 dimensions");
+	kb.remove(doc!.id);
+});

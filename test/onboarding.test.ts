@@ -74,7 +74,7 @@ after(async () => {
 });
 
 const welcome = /Knowledge base ready\. Add your documents with \/kb add/;
-const tip = /semantic search is off/i;
+const tip = /\/kb semantic local/;
 
 test("an empty knowledge base says how to start, once", async () => {
 	await fire("session_start");

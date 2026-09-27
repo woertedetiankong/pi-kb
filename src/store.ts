@@ -8,6 +8,12 @@ import { VECTOR_SCHEMA } from "./semantic/vectors.ts";
 
 const require = createRequire(import.meta.url);
 
+/**
+ * LiteParse's picture links, still in the index of documents imported before they became "[figure]"
+ * (see markFigures): left out of snippets, where they read as garbage.
+ */
+const PICTURE_LINK = /!\[[^\]\n]*\]\(img_p\d+_\d+\.[a-z]+\)/g;
+
 /** Load node:sqlite without printing its ExperimentalWarning into the pi terminal. */
 function loadSqlite(): typeof import("node:sqlite") {
 	const emit = process.emitWarning;
@@ -261,7 +267,7 @@ export class Store {
 				| { rowid: number; doc_id: string; page: number | null; title: string; heading: string; content: string; collection: Collection }
 				| undefined;
 			if (!r) continue;
-			const text = r.content.replace(/\s+/g, " ").trim();
+			const text = r.content.replace(PICTURE_LINK, "").replace(/\s+/g, " ").trim();
 			out.set(rowid, {
 				chunk: r.rowid,
 				docId: r.doc_id,
@@ -349,7 +355,7 @@ export class Store {
 				collection: row.collection,
 				page: row.page,
 				heading: row.heading,
-				snippet: snippet(plan, row.content),
+				snippet: snippet(plan, row.content.replace(PICTURE_LINK, "")),
 				score,
 			}));
 	}

@@ -72,6 +72,8 @@ The flags `pi --kb off` / `--kb on` apply to this run only.
 
 By default only keyword search is used. With semantic search on you can ask in plain language ("how many volts can the chip take at most" finds the page that says "absolute maximum rating 4.0V"), and Chinese and English find each other. Keyword and semantic results are merged by rank (RRF); results found only by meaning are marked "semantic", and the agent checks them with `kb_read` before citing.
 
+**The easiest way to turn it on**: on the web page, click "Turn on semantic search" under search results when there are few, or in the overview. It says what gets downloaded and about how long indexing what you have takes; once you confirm, it turns on locally, shows progress in place and searches again by meaning when done. `/kb semantic local` in the terminal does the same. On a Mac with 24 GB of memory the local model embeds about 3.5 chunks a second: a 162-page datasheet in about 2 minutes.
+
 Two ways, pick one. Turn it on with the commands below in pi, or on the web page (`/kb web`) under "Settings" in the sidebar, where you can also enter the endpoint and key and set mirrors. Both edit the same settings, and other pi windows follow within a few seconds:
 
 | | Online API `/kb semantic api` | Local model `/kb semantic local` |
