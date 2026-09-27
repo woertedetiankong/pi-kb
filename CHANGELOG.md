@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.6.2 — 2026-09-26
 
 - Pictures on PDF pages show as `[figure]` instead of LiteParse's `![](img_p12_1.png)`, a link to an image file that was never written. On the web page it is a "Figure · View page" button that opens the original at that page; the agent is told it marks a picture worth viewing with `kb_read view: true`. Documents converted before show the marker too when read, without converting again. The marker is kept out of the search index, so searching "figure", "p12" or "png" no longer finds every picture. Checked with 1488 heading queries over the four sticks3 datasheets and the ESP32-S3 manual (keyword search): the right page first 1392 times before and after, in the top 8 1480 → 1481.
 - Web page: while OCR reads pictures in the background, the progress line shows how long the current document has taken (ticking every second) and how many more are waiting. Each waiting document carries a tag in the list ("reading pictures" on the current one, "pictures waiting" on the rest), and its page has a "Text in pictures" row; the page reloads the document when its OCR is done. The page checks the status every 2 s while importing or reading pictures, every 10 s otherwise.
