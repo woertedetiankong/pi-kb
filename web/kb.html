@@ -126,6 +126,11 @@ button.tag:hover, .wikilink:hover { text-decoration: underline; }
 .nav.dim .name, .nav.dim .ico { opacity: .55; }
 .side-use { padding: 4px 10px 2px; font-size: 12px; color: var(--faint); overflow-wrap: anywhere; }
 .side-use button, .shelf-edit { color: var(--accent-text); font-size: 12px; margin-left: 4px; }
+/* What is in no collection is not a collection: every project sees it, whatever it uses. */
+.nav.shelf-none { margin-top: 4px; border-top: 1px dashed var(--line-strong); border-radius: 0 0 7px 7px; padding-top: 7px; }
+.nav.shelf-none .name { color: var(--muted); }
+.nav.shelf-none.on .name { color: var(--text); }
+.nav.shelf-none small { display: block; font-size: 11px; font-weight: 400; color: var(--faint); overflow: hidden; text-overflow: ellipsis; }
 .shelf { font-size: 11px; border-radius: 4px; padding: 0 6px; background: var(--user); color: var(--muted); }
 .target select { width: 100%; margin-top: 6px; font: inherit; font-size: 12.5px; padding: 3px 6px; border: 1px solid var(--line-strong); border-radius: 7px; background: var(--panel); color: var(--text); }
 .use-list { display: grid; gap: 6px; margin: 8px 0 4px 22px; }
@@ -253,6 +258,8 @@ dialog.dlg::backdrop { background: rgba(0,0,0,.35); }
   aside { flex-direction: row; flex-wrap: wrap; padding: 6px 8px; border-right: 0; border-bottom: 1px solid var(--line); }
   aside .nav { width: auto; }
   .nav-label, .side-foot { display: none; }
+  .nav.shelf-none { margin-top: 0; border-top: 0; border-radius: 7px; padding-top: 6px; }
+  .nav.shelf-none small { display: none; }
   .app.detail section.preview { inset: 0; width: 100vw; }
 }
 </style>
@@ -391,7 +398,7 @@ const T = {
     notesImported: n => `${n} 个 Markdown 文件已作为笔记导入`, asDocs: "改为资料导入",
     docsTip: "资料：导入的 PDF、图片、手册等，别人写的参考材料。只读，引用时带页码",
     shelvesLabel: "资料集", shelfNone: "未分组",
-    shelvesStart: "给全局库按主题分组，每个项目只看自己用的资料集。在全局库资料的页面点「资料集 · 修改」；或者把「新资料放到」设为全局，再选「放进资料集」。", shelfNoneTip: "不属于任何资料集：所有项目都能看到",
+    shelvesStart: "给全局库按主题分组，每个项目只看自己用的资料集。在全局库资料的页面点「资料集 · 修改」；或者把「新资料放到」设为全局，再选「放进资料集」。", shelfNoneTip: "不属于任何资料集：所有项目都能看到", shelfNoneNote: "所有项目都能看到",
     shelfUnusedTip: "本项目没有使用这个资料集：在这里 agent 默认不会搜它，除非你让它去查",
     shelfUsing: names => names === null ? "本项目使用：全部资料集" : names.length ? `本项目使用：${names.join("、")}` : "本项目只用未分组的内容",
     shelfEdit: "修改", shelfFact: "资料集", shelfFactNone: "未分组（所有项目都能看到）",
@@ -438,7 +445,7 @@ const T = {
     semanticHit: "语义相近", semanticHitTip: "意思相关，但不一定包含你搜索的词",
     semOff: "语义检索未开启：只按关键词搜索。开启后可以用自然语言提问，中英文也能互相搜到。",
     semWaiting: "语义检索已开启，导入资料后会自动建立索引",
-    semIndexing: (d, t) => `语义检索：正在建立索引 ${d}/${t}`, semReady: t => `语义检索已开启：${t} 个片段`, semDownload: p => `语义检索：正在下载模型 ${p}%`,
+    semIndexing: (d, t) => `语义检索：正在建立索引 ${d}/${t}`, semPaused: (d, t) => `语义检索：正在建立索引 ${d}/${t}，识别图片文字时暂停`, semReady: t => `语义检索已开启：${t} 个片段`, semDownload: p => `语义检索：正在下载模型 ${p}%`,
     semError: "语义检索出错，暂时只按关键词搜索。打开设置查看原因。",
     semInstalling: "语义检索：正在安装本机模型运行时…", semInstallFailed: "本机模型运行时安装失败，打开设置查看原因。",
     settings: "设置", semSetup: "设置", semTurnOn: "开启语义搜索",
@@ -500,7 +507,7 @@ const T = {
     notesImported: n => `${pl(n, "Markdown file")} imported as notes`, asDocs: "Import as documents instead",
     docsTip: "Documents: imported PDFs, images, manuals and other reference material. Read-only, cited by page",
     shelvesLabel: "Collections", shelfNone: "No collection",
-    shelvesStart: "Group your global knowledge base by topic, so each project sees only its own collections. Use \u201cChange\u201d in a global document\u2019s Collections row, or set \u201cNew material goes to\u201d to global and pick a Collection.", shelfNoneTip: "In no collection: every project sees these",
+    shelvesStart: "Group your global knowledge base by topic, so each project sees only its own collections. Use \u201cChange\u201d in a global document\u2019s Collections row, or set \u201cNew material goes to\u201d to global and pick a Collection.", shelfNoneTip: "In no collection: every project sees these", shelfNoneNote: "Every project sees these",
     shelfUnusedTip: "This project does not use this collection: the agent here does not search it unless you ask",
     shelfUsing: names => names === null ? "This project uses: all collections" : names.length ? `This project uses: ${names.join(", ")}` : "This project uses only what is in no collection",
     shelfEdit: "Change", shelfFact: "Collections", shelfFactNone: "none (every project sees it)",
@@ -547,7 +554,7 @@ const T = {
     semanticHit: "semantic", semanticHitTip: "Related in meaning; may not contain your words",
     semOff: "Semantic search is off, so only keywords match. Turn it on to ask in natural language and search across Chinese and English.",
     semWaiting: "Semantic search is on; documents are indexed automatically once imported",
-    semIndexing: (d, t) => `Semantic search: indexing ${d}/${t}`, semReady: t => `Semantic search on: ${t} chunks`, semDownload: p => `Semantic search: downloading the model ${p}%`,
+    semIndexing: (d, t) => `Semantic search: indexing ${d}/${t}`, semPaused: (d, t) => `Semantic search: indexing ${d}/${t}, paused while text in pictures is read`, semReady: t => `Semantic search on: ${t} chunks`, semDownload: p => `Semantic search: downloading the model ${p}%`,
     semError: "Semantic search failed, so only keywords match for now. Open the settings to see why.",
     semInstalling: "Semantic search: installing the local model runtime…", semInstallFailed: "Installing the local model runtime failed. Open the settings to see why.",
     settings: "Settings", semSetup: "Settings", semTurnOn: "Turn on semantic search",
@@ -773,16 +780,23 @@ function renderSide() {
 }
 
 const shelfInfo = () => state.status?.shelves ?? { list: [], using: null, here: null };
-/** The global knowledge base's collections, what is in none, and which ones this project uses. */
+/** The global knowledge base's collections, which ones this project uses, and what is in none. */
 function sideShelves() {
   const { list, using, here } = shelfInfo();
-  // Shown before there are any, so the page says how to start.
-  const nav = (view, name, cnt, tip, dim) => `<button class="nav${dim ? " dim" : ""}${state.view === view && !state.hits ? " on" : ""}" data-view="${esc(view)}" title="${esc(tip)}"><span class="ico">▣</span><span class="name">${esc(name)}</span><span class="cnt">${cnt}</span></button>`;
+  const on = view => state.view === view && !state.hits ? " on" : "";
+  const nav = (view, name, cnt, tip, dim) => `<button class="nav${dim ? " dim" : ""}${on(view)}" data-view="${esc(view)}" title="${esc(tip)}"><span class="ico">▣</span><span class="name">${esc(name)}</span><span class="cnt">${cnt}</span></button>`;
   const none = state.docs.filter(d => d.scope === "global" && !d.shelves?.length).length;
+  // Not a collection but what every project sees besides its collections, so it comes after the
+  // project's choice and looks different. With no collections it would repeat the global view, and
+  // empty it has nothing to show (unless it is the view open now).
+  const noneRow = (list.length && none) || state.view === "shelf:"
+    ? `<button class="nav shelf-none${on("shelf:")}" data-view="shelf:" title="${esc(T.shelfNoneTip)}"><span class="ico">○</span><span class="name">${esc(T.shelfNone)}<small>${esc(T.shelfNoneNote)}</small></span><span class="cnt">${none}</span></button>`
+    : "";
+  // Shown before there are any, so the page says how to start.
   return `<div class="nav-label">${esc(T.shelvesLabel)}</div>
     ${list.map(s => nav("shelf:" + s.name, s.name, s.docs + s.notes, s.used ? s.name : T.shelfUnusedTip, !s.used)).join("")}
-    ${nav("shelf:", T.shelfNone, none, T.shelfNoneTip)}
-    ${!list.length ? `<div class="side-use">${esc(T.shelvesStart)}</div>` : here ? `<div class="side-use">${esc(T.shelfUsing(using))}<button id="useEdit">${esc(T.shelfEdit)}</button></div>` : ""}`;
+    ${!list.length ? `<div class="side-use">${esc(T.shelvesStart)}</div>` : here ? `<div class="side-use">${esc(T.shelfUsing(using))}<button id="useEdit">${esc(T.shelfEdit)}</button></div>` : ""}
+    ${noneRow}`;
 }
 /** Where new global documents go: a collection, none, or a new one. */
 let uploadShelf = "";
@@ -971,7 +985,7 @@ function semanticLine(sem) {
   if (!sem || sem.provider === "off") return T.semOff;
   if (sem.state === "error") return T.semError;
   if (sem.download != null) return T.semDownload(Math.round(sem.download));
-  if (sem.done < sem.total) return T.semIndexing(sem.done, sem.total);
+  if (sem.done < sem.total) return (sem.waiting === "reading" ? T.semPaused : T.semIndexing)(sem.done, sem.total);
   // Nothing to index yet: "0 chunks" reads like something went wrong.
   return sem.total ? T.semReady(sem.total) : T.semWaiting;
 }

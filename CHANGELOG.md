@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+Semantic indexing with the local model no longer fills the CPU together with OCR, and several pi windows no longer index the same chunks.
+
+- The local model (about half of the cores) and OCR (about as many) take turns instead of running at once: indexing pauses between batches while any pi on the computer reads a file with OCR, and background OCR starts its next document only once no local-model indexing is going on. Imports never wait. The status bar shows `🧠 120/600 ⏸` and the web page "paused while text in pictures is read" while indexing waits. Measured on a 10-core M5 with the BMI270 datasheet plus 137 other chunks: seconds with the CPU at 90% or more went from 21 to 7–11 (OCR's own peaks, which LiteParse does not let us limit), all done in about 4¼ minutes instead of 3½.
+- One pi window indexes each knowledge base (a claim file per knowledge base under `embed-claims/`, like the OCR claims); the others show its progress, load no model for it (2–3 GB each) and take over when it closes. Two windows on one knowledge base embedded 1.23× its chunks before, exactly 1× now.
+- Checked live with two pi windows on one knowledge base (BMI270 datasheet in one, three Markdown files in the other): the second window's indexing waited (`⏸`, 0% CPU) while the first read pictures, then one window embedded all 581 chunks while the other showed its progress at 0% CPU and about 170 MB. This also found an OCR run that read a document a second time when another window had finished it meanwhile; OCR now checks again after taking its turn.
+- Checked and left alone: capping the model's threads (2 threads: 2 cores, 35% slower) and background priority on macOS (2–5× slower, it runs on the efficiency cores).
+
 ## v0.6.4 — 2026-09-26
 
 Semantic search is easy to find and to turn on: one button where it helps, one command in the terminal.

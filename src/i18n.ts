@@ -186,6 +186,7 @@ const en = {
 	usageLang: "Usage: /kb lang zh | en | auto",
 	semanticBadge: {
 		indexing: (done: number, total: number) => ` · 🧠 ${done}/${total}`,
+		paused: (done: number, total: number) => ` · 🧠 ${done}/${total} ⏸`,
 		download: (pct: number) => ` · 🧠 ↓${pct}%`,
 		error: " · 🧠 ⚠",
 		ready: " · 🧠",
@@ -442,6 +443,7 @@ const zh: Messages = {
 	usageLang: "用法：/kb lang zh | en | auto",
 	semanticBadge: {
 		indexing: (done, total) => ` · 🧠 ${done}/${total}`,
+		paused: (done, total) => ` · 🧠 ${done}/${total} ⏸`,
 		download: (pct) => ` · 🧠 ↓${pct}%`,
 		error: " · 🧠 ⚠",
 		ready: " · 🧠",

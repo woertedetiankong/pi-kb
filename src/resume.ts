@@ -1,5 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
+import { alive } from "./claims.ts";
 import type { ImportItem } from "./queue.ts";
 
 /**
@@ -45,16 +46,6 @@ export function savePending(localDir: string, items: PendingItem[]): void {
 	});
 	writeFileSync(join(dir, "items.json"), `${JSON.stringify(saved, null, 2)}\n`);
 	renameSync(dir, join(pendingRoot(localDir), name));
-}
-
-/** Whether a process with this id is running (a claimed batch of a dead pi is up for grabs again). */
-export function alive(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (error) {
-		return (error as NodeJS.ErrnoException).code === "EPERM";
-	}
 }
 
 /** Take every saved batch for this pi; another pi starting at the same time gets none of them. */

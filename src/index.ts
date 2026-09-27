@@ -483,12 +483,13 @@ export default function piKb(pi: ExtensionAPI) {
 		return t().importBadge(st.done + 1, st.total, basename(st.current), since(st.startedAt)) + (st.note ? t().importNotes[st.note] : "");
 	};
 
-	/** " · 🧠 120/600" while indexing, " · 🧠" when ready, nothing when semantic search is off. */
+	/** " · 🧠 120/600" while indexing (⏸ while it waits for OCR), " · 🧠" when ready, nothing when semantic search is off. */
 	const semanticBadge = () => {
 		const st = open().indexer.status, badge = t().semanticBadge;
 		if (st.state === "off") return "";
 		if (st.state === "error") return badge.error;
 		if (st.download) return badge.download(Math.round(st.download.progress));
+		if (st.waiting === "reading" && st.done < st.total) return badge.paused(st.done, st.total);
 		if (st.state === "indexing" || st.done < st.total) return badge.indexing(st.done, st.total);
 		return badge.ready;
 	};

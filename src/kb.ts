@@ -6,9 +6,9 @@ import { chunkPages } from "./chunk.ts";
 import { configStamp, defaultMinScore, type KbConfig, loadConfig, saveConfig } from "./config.ts";
 import { type ConvertedPage, Converter, hasTextLayer, isMarkdown, markFigures, normalizeText, type OcrShare, type PageImage, sourceKind } from "./convert.ts";
 import { type Note, normalizeShelves, normalizeTags, now, parseNote, renderNote, slugify, today, withShelves } from "./notes.ts";
-import { alive } from "./resume.ts";
+import { anyClaimed, busy, claim, pause, release } from "./claims.ts";
 import { fuse } from "./search.ts";
-import { type IndexerStatus, SemanticIndexer } from "./semantic/indexer.ts";
+import { type IndexerStatus, isLocalClaim, SemanticIndexer } from "./semantic/indexer.ts";
 import { createProvider, type EmbeddingProvider } from "./semantic/providers.ts";
 import { VectorIndex } from "./semantic/vectors.ts";
 import { type Collection, type DocRecord, type SearchHit, type ShelfFilter, Store } from "./store.ts";
@@ -89,6 +89,10 @@ export const contentId = (bytes: Buffer) => `k-${sha(bytes).slice(0, 12)}`;
 const wikiId = (root: string, file: string, project: boolean) =>
 	`w-${sha(`${project ? "project:" : ""}${relative(root, file).split(sep).join("/")}`).slice(0, 12)}`;
 
+/** Marks of the child processes reading files with OCR on this computer (see markBusy). */
+const readingDir = (localDir: string) => join(localDir, "reading");
+/** Which pi embeds each knowledge base (see SemanticIndexer). */
+const embedClaimDir = (localDir: string) => join(localDir, "embed-claims");
 /**
  * The search index for a content folder. The default layout keeps it in the folder (kb.db, as
  * before); a folder elsewhere gets one under this machine's indexes/, keyed by its path.
@@ -187,9 +191,14 @@ export class KnowledgeBase {
 			ocrLanguage: this.config.ocrLanguage,
 			tessdataDir: process.env.PI_KB_TESSDATA || join(localDir, "tessdata"),
 			ocrServerUrl: this.config.ocrServerUrl,
+			readingDir: readingDir(localDir),
 		});
 		this.vectors = new VectorIndex(this.store.db);
-		this.indexer = new SemanticIndexer(this.vectors, (status) => this.onSemantic?.(status));
+		this.indexer = new SemanticIndexer(this.vectors, (status) => this.onSemantic?.(status), {
+			claimDir: embedClaimDir(localDir),
+			key: sha(indexFile(localDir, this.root)).slice(0, 12),
+			holdOff: () => busy(readingDir(localDir)),
+		});
 		this.applySemantic();
 	}
 
@@ -504,8 +513,16 @@ export class KnowledgeBase {
 				void this.indexer.kick();
 				continue;
 			}
-			const claim = this.claimOcr(doc.id);
-			if (!claim) continue;
+			// Embedding with a local model goes first: each takes about half of the cores, and together
+			// they leave none for anything else. (A document being read is finished first; see SemanticIndexer.)
+			while (anyClaimed(embedClaimDir(this.localDir), isLocalClaim)) if (!(await pause(1000, options.signal))) return undefined;
+			const token = this.claimOcr(doc.id);
+			if (!token) continue;
+			// Read by another pi while this one waited its turn: the list above is from before.
+			if (!this.store.isOcrPending(doc.id)) {
+				release(this.claimFile(doc.id), token);
+				continue;
+			}
 			const stopped = (): AddResult => ({ path: file, status: "skipped", reason: "cancelled", doc, message: "OCR stopped" });
 			try {
 				options.onStart?.(doc);
@@ -536,7 +553,7 @@ export class KnowledgeBase {
 				void this.indexer.kick();
 				return { path: file, status: "failed", doc, message: error instanceof Error ? error.message : String(error) };
 			} finally {
-				this.releaseOcr(doc.id, claim);
+				release(this.claimFile(doc.id), token);
 			}
 		}
 		return undefined;
@@ -553,39 +570,9 @@ export class KnowledgeBase {
 		return join(this.localDir, "ocr-claims", id);
 	}
 
-	/**
-	 * Take a document to OCR, so two pi windows on one knowledge base don't both read it. A claim is
-	 * a file holding its owner's pid; a dead owner's claim, or this process's own (a pi that reloaded
-	 * while reading it), is taken over. Returns the claim's token, or undefined when another pi has it.
-	 */
+	/** Take a document to OCR, so two pi windows on one knowledge base don't both read it (see claim()). */
 	private claimOcr(id: string): string | undefined {
-		const file = this.claimFile(id);
-		const token = `${process.pid}-${Math.random().toString(36).slice(2, 10)}`;
-		mkdirSync(dirname(file), { recursive: true });
-		try {
-			writeFileSync(file, token, { flag: "wx" });
-			return token;
-		} catch {
-			// claimed before: see whose it is
-		}
-		let owner = 0;
-		try {
-			owner = Number(readFileSync(file, "utf8").split("-")[0]);
-		} catch {
-			// released meanwhile
-		}
-		if (owner && owner !== process.pid && alive(owner)) return undefined;
-		writeFileSync(file, token);
-		return token;
-	}
-
-	/** Give a claim back, unless someone has taken it over since. */
-	private releaseOcr(id: string, token: string): void {
-		try {
-			if (readFileSync(this.claimFile(id), "utf8") === token) rmSync(this.claimFile(id), { force: true });
-		} catch {
-			// gone already
-		}
+		return claim(this.claimFile(id));
 	}
 
 	/**

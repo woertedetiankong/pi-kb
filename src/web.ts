@@ -130,10 +130,10 @@ export class KbWebApp implements WebApp {
 				case "GET /status": {
 					const { project: own, ...stats } = lib.stats();
 					const project = lib.project ? { name: lib.project.info.name, dir: lib.project.info.dir, ...own } : undefined;
-					const { state, done, total, download, problem } = kb.indexer.status;
+					const { state, done, total, download, problem, waiting } = kb.indexer.status;
 					// Chunks in every knowledge base here, so the page can say how long turning semantic search on takes.
 					const chunks = lib.scopes.reduce((n, [, base]) => n + base.vectors.progress("").total, 0);
-					const semantic = { provider: kb.config.semantic.provider, state, done, total, chunks, download: download?.progress, problem, ...this.host.localSetup() };
+					const semantic = { provider: kb.config.semantic.provider, state, done, total, chunks, download: download?.progress, problem, waiting, ...this.host.localSetup() };
 					const imports = this.host.importStatus();
 					const current = imports.current ? basename(imports.current) : undefined;
 					// The global knowledge base's collections, and which ones the project pi works in uses (null: all).

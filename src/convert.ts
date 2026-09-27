@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { markBusy } from "./claims.ts";
 
 /** One page of converted Markdown. `page` is the 1-based physical page, or null for unpaged sources. */
 export interface ConvertedPage {
@@ -104,6 +105,8 @@ export interface ConvertOptions {
 	/** Where Tesseract language data is cached; LiteParse downloads missing languages here. */
 	tessdataDir: string;
 	ocrServerUrl?: string;
+	/** Where conversions that run OCR mark themselves, so semantic indexing waits for them (see markBusy). */
+	readingDir?: string;
 }
 
 const TESSDATA_URL = "https://github.com/tesseract-ocr/tessdata_best/raw/main";
@@ -171,17 +174,20 @@ function runParse(
 	children: Set<ChildProcess>,
 	signal?: AbortSignal,
 	screenshot?: number[],
+	busyDir?: string,
 ) {
 	signal?.throwIfAborted();
 	return new Promise<WorkerOk>((resolve, reject) => {
 		const child = spawn(process.execPath, [WORKER], { stdio: ["ignore", "ignore", "pipe", "ipc"], windowsHide: true });
 		children.add(child);
+		const unmark = busyDir && child.pid ? markBusy(busyDir, child.pid) : undefined;
 		let settled = false;
 		let stderr = "";
 		const finish = (error?: Error, reply?: WorkerOk) => {
 			if (settled) return;
 			settled = true;
 			children.delete(child);
+			unmark?.();
 			signal?.removeEventListener("abort", abort);
 			child.kill();
 			if (error) reject(error);
@@ -329,7 +335,8 @@ export class Converter {
 
 	private async run(path: string, config: Record<string, unknown>, signal?: AbortSignal, screenshot?: number[]): Promise<WorkerOk> {
 		try {
-			return await runParse(path, config, this.children, signal, screenshot);
+			// OCR takes every core it can get: other heavy work waits for it (see KnowledgeBase).
+			return await runParse(path, config, this.children, signal, screenshot, config.ocrEnabled ? this.options.readingDir : undefined);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			if (/LibreOffice is not installed/i.test(message)) {
