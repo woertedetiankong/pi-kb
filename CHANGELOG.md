@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.6.5 — 2026-09-27
 
 Semantic indexing with the local model no longer fills the CPU together with OCR, and several pi windows no longer index the same chunks.
 
