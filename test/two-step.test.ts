@@ -121,3 +121,17 @@ test("a copy of the folder follows: waiting where the original is, updated once 
 		kb.remove(id);
 	}
 });
+
+test("pictures on a page are marked [figure], not linked to image files that do not exist", async () => {
+	const { markFigures } = await import("../src/convert.ts");
+	assert.equal(markFigures("Block diagram\n\n![](img_p12_1.png)\n\nText"), "Block diagram\n\n[figure]\n\nText");
+	assert.equal(markFigures("See ![board](docs/board.jpg)"), "See ![board](docs/board.jpg)", "the user's own images stay");
+
+	// A document converted before: its stored text still has the links, reads show the marker.
+	const { doc } = await kb.addFile(outline);
+	const file = join(root, doc!.path);
+	writeFileSync(file, readFileSync(file, "utf8").replace("<!-- kb:page 1 -->\n", "<!-- kb:page 1 -->\n![](img_p1_1.png)\n\n"));
+	assert.match(kb.read(doc!.id, "1").text, /^\[figure\]$/m);
+	assert.doesNotMatch(kb.read(doc!.id).text, /img_p1_1/);
+	kb.remove(doc!.id);
+});

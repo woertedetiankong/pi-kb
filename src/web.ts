@@ -137,12 +137,16 @@ export class KbWebApp implements WebApp {
 					// The global knowledge base's collections, and which ones the project pi works in uses (null: all).
 					const shelves = { list: lib.shelfList(), using: lib.shelves ?? null, here: this.host.here() ?? null };
 					// PDFs searchable by their text layer whose pictures OCR is still reading.
-					const ocr = { waiting: lib.ocrPending().length, current: imports.background?.current };
+					const ocr = { waiting: lib.ocrPending().length, current: imports.background?.current, startedAt: imports.background?.startedAt };
 					return { enabled: this.host.enabled(), root: kb.root, ...stats, project, semantic, imports: { ...imports, current }, ocr, shelves };
 				}
-				case "GET /docs":
-					// Notes carry their tags, so the page can browse by tag.
-					return { docs: lib.listDocs().map((d) => (d.collection === "wiki" ? { ...d, tags: lib.noteTags(d) } : d)) };
+				case "GET /docs": {
+					// Notes carry their tags, so the page can browse by tag; PDFs still waiting for OCR say so.
+					const waiting = new Set(lib.ocrPending().map((d) => d.id));
+					return {
+						docs: lib.listDocs().map((d) => (d.collection === "wiki" ? { ...d, tags: lib.noteTags(d) } : waiting.has(d.id) ? { ...d, ocrPending: true } : d)),
+					};
+				}
 				case "GET /search": {
 					const q = (req.query.get("q") ?? "").trim();
 					const scope = req.query.get("scope");
@@ -152,7 +156,7 @@ export class KbWebApp implements WebApp {
 				case "GET /doc": {
 					const { doc, text, scope } = lib.read(id);
 					const shelves = scope === "global" ? lib.global.store.shelvesOf(id) : [];
-					if (doc.collection !== "wiki") return { doc, text, scope, shelves };
+					if (doc.collection !== "wiki") return { doc, text, scope, shelves, ocrPending: lib.ocrPending().some((d) => d.id === id) };
 					// Other apps (pi-learn) read `text` as material, so a note's front matter goes separately;
 					// `raw` is the whole file, for editing.
 					const raw = lib.noteText(id);

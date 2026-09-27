@@ -667,7 +667,7 @@ export default function piKb(pi: ExtensionAPI) {
 			"- Open more context with kb_read (id and pages from the search result) before relying on a snippet for exact values.",
 			...(seesImages(ctx)
 				? [
-						"- The text of a PDF or scan loses figures: diagrams, schematics, pinouts, timing charts, photos, and sometimes table layout. When the answer may be in one (the text mentions a figure, or looks garbled or incomplete where a table or drawing should be), call kb_read with view: true for those pages to see them.",
+						"- The text of a PDF or scan loses figures: diagrams, schematics, pinouts, timing charts, photos, and sometimes table layout. When the answer may be in one (the text mentions a figure or shows [figure] where a picture is, or looks garbled or incomplete where a table or drawing should be), call kb_read with view: true for those pages to see them.",
 					]
 				: []),
 			"- Cite what you use exactly as kb_search prints it, e.g. [manual.pdf p.12]: just the bracketed part, without section names or ids, next to the facts that came from that source. If the knowledge base has nothing relevant, say so and never invent a citation.",

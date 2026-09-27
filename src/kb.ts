@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { chunkPages } from "./chunk.ts";
 import { configStamp, defaultMinScore, type KbConfig, loadConfig, saveConfig } from "./config.ts";
-import { type ConvertedPage, Converter, hasTextLayer, type OcrShare, type PageImage, isMarkdown, normalizeText, sourceKind } from "./convert.ts";
+import { type ConvertedPage, Converter, hasTextLayer, isMarkdown, markFigures, normalizeText, type OcrShare, type PageImage, sourceKind } from "./convert.ts";
 import { type Note, normalizeShelves, normalizeTags, now, parseNote, renderNote, slugify, today, withShelves } from "./notes.ts";
 import { alive } from "./resume.ts";
 import { fuse } from "./search.ts";
@@ -1048,7 +1048,9 @@ export class KnowledgeBase {
 	read(id: string, pages?: string): { doc: DocRecord; text: string; ocr: PageOcr[] } {
 		const doc = this.store.getDoc(id);
 		if (!doc) throw new Error(`No knowledge base document with id ${id}`);
-		const markdown = readFileSync(join(this.root, doc.path), "utf8");
+		// Documents converted before figures were marked still have LiteParse's picture links.
+		const raw = readFileSync(join(this.root, doc.path), "utf8");
+		const markdown = doc.collection === "docs" && doc.kind !== "text" ? markFigures(raw) : raw;
 		const ocrOf = (parts: ConvertedPage[]) => parts.flatMap((p) => (p.ocr ? [{ page: p.page, ...p.ocr }] : []));
 		if (!pages?.trim()) return { doc, text: markdown.replace(OCR_MARKS, ""), ocr: ocrOf(pagesOf(markdown)) };
 		const { from, to } = pageRange(doc, pages);

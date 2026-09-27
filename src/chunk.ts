@@ -16,7 +16,9 @@ const HEADING = /^#{1,6}\s+(.+?)\s*#*$/;
 export function chunkPages(pages: ConvertedPage[], maxChars = 1200): Chunk[] {
 	const chunks: Chunk[] = [];
 	let heading = "";
-	for (const { page, markdown } of pages) {
+	for (const { page, markdown: text } of pages) {
+		// "[figure]" (see markFigures) is for readers; searching "figure" should not find every picture.
+		const markdown = text.replace(/^\[figure\]$/gm, "");
 		let buffer: string[] = [];
 		let size = 0;
 		let bufferHeading = heading;

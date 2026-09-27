@@ -372,3 +372,18 @@ test("shared hub: a reload (every app leaves while serving) restarts on the same
 		rmSync(agentDir, { recursive: true, force: true });
 	}
 });
+
+test("PDFs waiting for OCR are marked in the list and on their page until it is done", async () => {
+	const { doc } = await kb.addFile(join(import.meta.dirname, "..", "scripts", "model-check", "corpus", "xr100-outline.pdf"));
+	const id = doc!.id;
+	const listed = async () => (await (await call("/api/kb/docs")).json()).docs.find((d: { id: string }) => d.id === id);
+	assert.equal((await listed()).ocrPending, true);
+	assert.equal((await (await call(`/api/kb/doc?id=${id}`)).json()).ocrPending, true);
+	const { ocr } = await (await call("/api/kb/status")).json();
+	assert.ok(ocr.waiting >= 1, "the page can say how many wait");
+
+	await kb.ocrNext();
+	assert.equal((await listed()).ocrPending, undefined);
+	assert.equal((await (await call(`/api/kb/doc?id=${id}`)).json()).ocrPending, false);
+	kb.remove(id);
+});

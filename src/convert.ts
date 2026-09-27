@@ -74,6 +74,19 @@ export function normalizeText(text: string): string {
 		.trim();
 }
 
+/** LiteParse's stand-in for a picture on a PDF page: a link to an image file that is never written. */
+const PICTURE = /!\[[^\]\n]*\]\(img_p\d+_\d+\.[a-z]+\)/g;
+
+/**
+ * Put "[figure]" where a PDF page has a picture. LiteParse writes a Markdown image link to a file that
+ * does not exist; the marker keeps what it tells (a figure is here, worth viewing the page for) without
+ * a broken link, and without text like "img_p12_1.png" that searches for "p12" would match.
+ * Only LiteParse's own links: images in the user's Markdown files are kept as they are.
+ */
+export function markFigures(text: string): string {
+	return text.replace(PICTURE, "[figure]");
+}
+
 function htmlToText(html: string): string {
 	return html
 		.replace(/<(script|style)[\s\S]*?<\/\1>/gi, "")
@@ -254,7 +267,7 @@ export class Converter {
 		const kind = sourceKind(path);
 		if (kind !== "pdf") throw new Error(`Only PDFs have a text layer to read on its own: ${extname(path) || path}`);
 		const result = await this.run(path, { outputFormat: "markdown", ocrEnabled: false, continueOnPageError: true, maxPages: 5000, quiet: true }, signal);
-		return { kind, pages: (result.pages ?? []).map((p) => ({ page: p.pageNum, markdown: normalizeText(p.markdown) })) };
+		return { kind, pages: (result.pages ?? []).map((p) => ({ page: p.pageNum, markdown: markFigures(normalizeText(p.markdown)) })) };
 	}
 
 	/**
@@ -300,7 +313,7 @@ export class Converter {
 		}
 		const pages = (result.pages ?? []).map((p) => ({
 			page: kind === "image" ? null : p.pageNum,
-			markdown: normalizeText(p.markdown),
+			markdown: markFigures(normalizeText(p.markdown)),
 			...(p.ocr.chars ? { ocr: p.ocr } : {}),
 		}));
 		return { kind, pages };

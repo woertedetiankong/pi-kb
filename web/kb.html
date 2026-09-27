@@ -98,6 +98,8 @@ main { overflow-y: auto; border-right: 1px solid var(--line); }
 .cite { color: var(--accent-text); font-weight: 600; }
 .sem { font-size: 11px; font-weight: 600; border-radius: 4px; padding: 0 6px; background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
 .sem-line { font-size: 13px; color: var(--muted); margin: 0 0 14px; }
+.ocr-wait { font-size: 11px; font-weight: 600; border-radius: 4px; padding: 0 6px; background: color-mix(in srgb, var(--warn) 15%, transparent); color: var(--warn); }
+.ocr-wait.now { background: var(--accent-soft); color: var(--accent-text); }
 .ask-model { height: 32px; max-width: 170px; border: 1px solid var(--line-strong); border-radius: 7px; padding: 0 6px; font: inherit; font-size: 12.5px; background: var(--panel); color: var(--muted); outline: none; margin-left: -8px; }
 .ask-model:focus { border-color: var(--accent); }
 .answer { margin: 4px 0 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); box-shadow: var(--shadow); }
@@ -157,6 +159,9 @@ section.preview { overflow-y: auto; background: var(--panel); }
 .page-mark::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 .page-mark button { color: var(--accent-text); font-size: 12px; }
 .page-mark.hit { color: var(--accent-text); font-weight: 600; }
+.fig { margin: 8px 0; font-size: 12.5px; color: var(--muted); }
+.fig button { color: var(--accent-text); font-size: 12.5px; border: 1px dashed var(--line-strong); border-radius: 6px; padding: 4px 10px; }
+.fig button:hover { border-color: var(--accent); }
 .md { font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; }
 .md h1, .md h2, .md h3, .md h4 { line-height: 1.35; margin: 20px 0 8px; }
 .md h1 { font-size: 18px; } .md h2 { font-size: 16px; } .md h3, .md h4 { font-size: 14.5px; }
@@ -393,7 +398,10 @@ const T = {
     rereadConfirm: t => `用现在的 OCR 设置重新识别“${t}”？新识别出的文字会替换现在的；完成之前照常可以搜索。`, rereadDone: t => `已重新识别“${t}”`,
     askFew: "结果不多？让 AI 换几种说法、用中英文再找找", askFewBtn: "✨ 用 AI 找找看",
     importing: (i, n, name) => `正在导入 ${i}/${n}：${name}`,
-    ocrRunning: name => `正在后台识别图片中的文字：${name}（正文已经可以搜索）`,
+    ocrRunning: (name, more) => `正在后台识别图片文字：${name} {time}${more ? `，还有 ${more} 份在等` : ""}（正文已可搜索）`,
+    ocrWait: "等待识别图片", ocrWaitNow: "正在识别图片",
+    ocrWaitTip: "正文已经可以搜索；图片里的文字（图中标注、扫描页）正在后台识别，完成后自动加入",
+    ocrFact: "图片文字", ocrFactText: "正在后台识别，完成后图中的标注也能搜到",
     importNotes: { ocr_download: "首次使用 OCR，正在下载语言包（约 40MB，只需一次）" },
     sending: (i, n, name) => `正在上传 ${i}/${n}：${name}`,
     replacedN: n => `替换了 ${n} 个旧版本`,
@@ -402,7 +410,7 @@ const T = {
     imported: (a, e, s, f) => `新增 ${a}，已存在 ${e}，跳过 ${s}，失败 ${f}`,
     reasons: { not_found: "文件不存在", unsupported: "不支持的文件类型", no_text: "没有提取到文字", ocr_unavailable: "没有识别出文字：OCR 语言包没能从 GitHub 下载，检查网络后重新导入这个文件即可", not_markdown: "只有 Markdown 可以作为笔记", needs_libreoffice: "Office 文件需要安装 LibreOffice", cancelled: "已取消", skippedByUser: "你选择了跳过", in_project: "已在本项目的知识库里", in_global: "已在你的全局知识库里（要共享给团队，点“移到项目库”）", no_original: "原文件不在这台电脑上（项目知识库默认不通过 git 共享原文件）", },
     type: "类型", pageCount: "页数", source: "来源", added: "导入时间", id: "ID", tags: "标签", updated: "更新", created: "创建", project: "项目",
-    openOriginal: "查看原文件", viewPage: "看原页", page: n => `第 ${n} 页`, remove: "删除", edit: "编辑", save: "保存", cancel: "取消", back: "← 返回",
+    openOriginal: "查看原文件", viewPage: "看原页", figure: "图", figureTip: "这里有一张图，文字里没有它的内容，点开看原页", page: n => `第 ${n} 页`, remove: "删除", edit: "编辑", save: "保存", cancel: "取消", back: "← 返回",
     confirmRemoveDoc: t => `删除“${t}”？知识库里保存的副本也会删除。`, confirmRemoveNote: t => `删除笔记“${t}”？笔记文件会被删除。`,
     removed: "已删除", saved: "已保存",
     noteTitle: "标题", noteTags: "标签（用逗号分隔，可不填）", noteBody: "内容（Markdown）", importNotesLink: "或导入 Markdown 文件",
@@ -491,7 +499,10 @@ const T = {
     rereadConfirm: t => `Read "${t}" again with the current OCR settings? The new text replaces the current one; searching works as usual meanwhile.`, rereadDone: t => `Read "${t}" again`,
     askFew: "Few results? Let AI search with other wordings, in Chinese and English", askFewBtn: "✨ Ask AI",
     importing: (i, n, name) => `Importing ${i}/${n}: ${name}`,
-    ocrRunning: name => `Reading text in pictures: ${name} (its other text is searchable already)`,
+    ocrRunning: (name, more) => `Reading text in pictures: ${name} {time}${more ? `, ${more} more waiting` : ""} (the rest is searchable)`,
+    ocrWait: "pictures waiting", ocrWaitNow: "reading pictures",
+    ocrWaitTip: "Its text is searchable already; the text inside its pictures (figure labels, scanned pages) is being read in the background and added when done",
+    ocrFact: "Text in pictures", ocrFactText: "Being read in the background; figure labels become searchable when done",
     importNotes: { ocr_download: "First OCR: downloading language data (about 40 MB, once)" },
     sending: (i, n, name) => `Uploading ${i}/${n}: ${name}`,
     replacedN: n => `replaced ${pl(n, "old version")}`,
@@ -500,7 +511,7 @@ const T = {
     imported: (a, e, s, f) => `Added ${a}, already present ${e}, skipped ${s}, failed ${f}`,
     reasons: { not_found: "file not found", unsupported: "unsupported file type", no_text: "no text could be extracted", ocr_unavailable: "no text recognised: the OCR language data could not be downloaded from GitHub; check the network and import the file again", not_markdown: "only Markdown can become a note", needs_libreoffice: "Office files need LibreOffice", cancelled: "cancelled", skippedByUser: "skipped by you", in_project: "already in this project's knowledge base", in_global: "already in your global knowledge base (to share it with the team, use “Move to project”)", no_original: "the original file is not on this computer (a project knowledge base does not share originals through git by default)", },
     type: "Type", pageCount: "Pages", source: "Source", added: "Imported", id: "ID", tags: "Tags", updated: "Updated", created: "Created", project: "Project",
-    openOriginal: "Open original", viewPage: "View page", page: n => `Page ${n}`, remove: "Delete", edit: "Edit", save: "Save", cancel: "Cancel", back: "← Back",
+    openOriginal: "Open original", viewPage: "View page", figure: "Figure", figureTip: "A picture is here; the text leaves it out. Open the page to see it", page: n => `Page ${n}`, remove: "Delete", edit: "Edit", save: "Save", cancel: "Cancel", back: "← Back",
     confirmRemoveDoc: t => `Delete "${t}"? Its stored copy is deleted too.`, confirmRemoveNote: t => `Delete the note "${t}"? The note file is deleted.`,
     removed: "Deleted", saved: "Saved",
     noteTitle: "Title", noteTags: "Tags (comma separated, optional)", noteBody: "Content (Markdown)", importNotesLink: "or import Markdown files",
@@ -598,7 +609,7 @@ function markdown(text, { pdf, hitPage, links } = {}) {
   const inl = s => inline(s, { links });
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
   const out = [];
-  let i = 0;
+  let i = 0, page = null;
   const para = [];
   // Keep single line breaks: notes are usually written one fact per line.
   const flush = () => { if (para.length) { out.push(`<p>${para.map(inl).join("<br>")}</p>`); para.length = 0; } };
@@ -607,11 +618,17 @@ function markdown(text, { pdf, hitPage, links } = {}) {
     let m;
     if ((m = /^<!-- kb:page (\d+) -->$/.exec(line))) {
       flush();
-      const n = Number(m[1]);
+      const n = page = Number(m[1]);
       out.push(`<div class="page-mark${n === hitPage ? " hit" : ""}" id="p-${n}">${esc(T.page(n))}${pdf ? ` <button data-page="${n}">${esc(T.viewPage)} ↗</button>` : ""}</div>`);
       i++; continue;
     }
     if (/^<!-- kb:(source .*|ocr \d+\/\d+) -->$/.test(line)) { i++; continue; }
+    // A picture the text leaves out (see markFigures): open the page to see it.
+    if (line.trim() === "[figure]") {
+      flush();
+      out.push(`<div class="fig">${pdf && page ? `<button data-page="${page}" title="${esc(T.figureTip)}">🖼 ${esc(T.figure)} · ${esc(T.viewPage)} ↗</button>` : `🖼 ${esc(T.figure)}`}</div>`);
+      i++; continue;
+    }
     if (/^```/.test(line)) {
       flush();
       const code = [];
@@ -776,9 +793,21 @@ function card(d, extra = "") {
   return `<button class="card${state.selected === d.id ? " on" : ""}" data-id="${esc(d.id)}">
     <div class="row1">${scopeTag(d.scope)}<span class="kind${k === "note" ? " note" : ""}">${esc(T.kinds[k] ?? k)}</span><span class="title">${esc(d.title)}</span>${(d.shelves || []).map(n => `<span class="shelf">${esc(n)}</span>`).join("")}<span class="time num">${esc(fmtDate(d.added_at))}</span></div>
     ${extra}
-    <div class="meta">${d.pages ? `<span>${esc(T.pages(d.pages))}</span>` : ""}<span class="num">${esc(d.id)}</span></div>
+    <div class="meta">${d.pages ? `<span>${esc(T.pages(d.pages))}</span>` : ""}${d.ocrPending ? ocrTag(d) : ""}<span class="num">${esc(d.id)}</span></div>
   </button>`;
 }
+
+/** "reading pictures" on the document OCR works on now, "pictures waiting" on the others. */
+function ocrTag(d) {
+  const now = state.status?.ocr?.current === d.title;
+  return `<span class="ocr-wait${now ? " now" : ""}" title="${esc(T.ocrWaitTip)}">${esc(now ? T.ocrWaitNow : T.ocrWait)}</span>`;
+}
+
+/** "1:05" since a time in ms. */
+const elapsed = since => {
+  const s = Math.max(0, Math.floor((Date.now() - (since ?? Date.now())) / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
 
 /** The AI answer card: question, answer with clickable [n] citations, and the cited sources. */
 function answerCard() {
@@ -800,9 +829,11 @@ const importingText = im => T.importing(im.done + 1, im.total, im.current) + (im
 
 function renderList() {
   const im = state.status?.imports;
-  const ocr = state.status?.ocr?.current;
-  const busy = state.uploading || (im?.active && im.current ? importingText(im) : ocr ? T.ocrRunning(ocr) : "");
-  const progress = busy ? `<div class="progress"><span class="spin"></span>${esc(busy)}</div>` : "";
+  const ocr = state.status?.ocr;
+  const busy = state.uploading || (im?.active && im.current ? importingText(im) : "");
+  // After imports: OCR reading pictures, with how long it has taken so far (ticks every second).
+  const progress = busy ? `<div class="progress"><span class="spin"></span>${esc(busy)}</div>`
+    : ocr?.current ? `<div class="progress"><span class="spin"></span>${esc(T.ocrRunning(ocr.current, Math.max(0, ocr.waiting - 1))).replace("{time}", `<span class="num" data-since="${ocr.startedAt ?? Date.now()}">${elapsed(ocr.startedAt)}</span>`)}</div>` : "";
   if (state.hits) {
     const hits = state.hits;
     const body = hits.length
@@ -894,6 +925,7 @@ async function renderPreview() {
       <dt>${esc(T.added)}</dt><dd>${esc(fmtDate(doc.added_at))}</dd>
       <dt>${esc(T.source)}</dt><dd>${esc(doc.source.replace(/^upload:/, ""))}</dd>
       <dt>${esc(T.id)}</dt><dd class="num">${esc(doc.id)}</dd>
+      ${state.doc.ocrPending ? `<dt>${esc(T.ocrFact)}</dt><dd>${esc(T.ocrFactText)}</dd>` : ""}
       ${(f => f ? `<dt>${esc(f[0])}</dt><dd>${f[1]}</dd>` : "")(shelfFact())}
     </dl>
     <div class="actions"><button class="btn" id="openOriginal" data-page="${state.focusPage ?? ""}">${esc(T.openOriginal)} ↗</button>${["pdf", "image", "office"].includes(doc.kind) ? `<button class="btn" id="rereadDoc" title="${esc(T.rereadTip)}">${esc(T.reread)}</button>` : ""}${doc.kind === "text" && isMarkdown(doc.source) ? `<button class="btn" id="convertDoc" title="${esc(T.toNoteTip)}">${esc(T.toNote)}</button>` : ""}${moveButton()}<button class="btn danger" id="removeDoc">${esc(T.remove)}</button></div>
@@ -967,6 +999,8 @@ async function refresh() {
     let changed = false;
     if (status) { etags.status = status.etag; state.status = status; changed = true; }
     if (docs) { etags.docs = docs.etag; state.docs = docs.docs; changed = true; }
+    // The open document's OCR finished: load its new text (and drop the "being read" row).
+    if (docs && state.doc?.ocrPending && !state.docs.find(d => d.id === state.selected)?.ocrPending) { state.doc = null; renderPreview(); }
     if (changed) { renderHeader(); renderSide(); renderList(); if (!state.selected) renderPreview(); }
   } catch (e) { toast(e.message); }
 }
@@ -1188,7 +1222,7 @@ $("preview").addEventListener("click", async e => {
   if (b.dataset.note) return select(b.dataset.note);
   if (b.dataset.tag) { showView("tag:" + b.dataset.tag); $("app").classList.remove("detail"); return; }
   if (b.id === "openOriginal") return openOriginal(id, Number(b.dataset.page) || null);
-  if (b.dataset.page && b.closest(".page-mark")) return openOriginal(id, Number(b.dataset.page));
+  if (b.dataset.page && b.closest(".page-mark, .fig")) return openOriginal(id, Number(b.dataset.page));
   if (b.id === "editNote") { state.editing = true; renderPreview(); return; }
   if (b.id === "moveDoc" && doc) {
     const to = b.dataset.to;
@@ -1438,7 +1472,13 @@ refresh().then(() => {
   if (link.get("q")) { state.q = link.get("q"); $("q").value = state.q; search(); }
   if (link.get("doc")) select(link.get("doc"), Number(link.get("page")) || null);
 });
-setInterval(() => { if (!document.hidden) refresh(); }, 10000);
+// Every 10 s, or every 2 s while importing or reading pictures (unchanged answers cost a 304).
+let polls = 0;
+setInterval(() => {
+  const working = state.status?.imports?.active || state.status?.ocr?.current;
+  if (!document.hidden && (working || ++polls % 5 === 0)) refresh();
+}, 2000);
+setInterval(() => document.querySelectorAll("[data-since]").forEach(el => { el.textContent = elapsed(Number(el.dataset.since)); }), 1000);
 window.addEventListener("focus", () => { refresh(); loadModels(); });
 loadModels();
 </script>

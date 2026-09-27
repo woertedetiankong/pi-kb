@@ -284,6 +284,7 @@ To keep everything in one folder, index and models included (on an external disk
 - English function words like how / the, Chinese question words like 怎么、如何、什么, and lone Chinese characters (such as 用) are ignored.
 - With several terms, more than half must match: with two terms both must appear, unless the other term is on another page of the same document (so "Python 列表排序" does not match a page just because it mentions Python).
 - English matches at word starts (`compact` matches `compaction`, `pi` does not match `api`), and plurals match singulars (`shortcuts` → `shortcut`).
+- Pictures on PDF pages are marked `[figure]` in the text (LiteParse writes a link to an image file that does not exist, `![](img_p12_1.png)`); the web page shows a "Figure · View page" button, and the agent knows a picture is there to view with `kb_read view: true`. The marker is not indexed for search.
 - On import, spaces OCR inserts between Chinese characters and Markdown escapes (`CTRL\_REG` → `CTRL_REG`) are removed so the original terms can be found.
 
 ### Known limitations
