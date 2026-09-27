@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.6.1 — 2026-09-26
 
 Imports are fast: PDFs are searchable by their text layer at once, and OCR adds the text inside their pictures in the background.
 
