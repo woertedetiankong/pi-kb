@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Tests run on every push and pull request on Linux, macOS and Windows, with Node 22 and 24 (GitHub Actions). The first Windows run found two test problems, both in the tests: one deleted a folder with its index still open (Windows refuses), and one checked macOS drag-and-drop escapes without saying so. pi-kb itself passed all 142 other tests on Windows.
+
 ## v0.6.3 — 2026-09-26
 
 You can see when the knowledge base helps: its tools show a one-line summary in pi's terminal instead of raw arguments and text.

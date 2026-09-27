@@ -6,7 +6,7 @@
 
 ## 安装
 
-需要 Node.js 22.19+ 和 pi 0.87 或更新版本。macOS 上日常使用；Linux 上全部自动测试通过；Windows 支持但还没有在真机上测过，遇到问题请提 issue。
+需要 Node.js 22.19+ 和 pi 0.87 或更新版本。macOS 上日常使用。每次提交都会在 Linux、macOS 和 Windows（Node 22 和 24）上跑全部自动测试（[GitHub Actions](https://github.com/woertedetiankong/pi-kb/actions)）；Windows 上的 pi 界面还没有人工试过，遇到问题请提 issue。
 
 ```bash
 # 从 GitHub 安装（写入 ~/.pi/agent/settings.json，所有项目都能用）

@@ -6,7 +6,7 @@ A personal knowledge base for [pi](https://pi.dev): add PDFs, images (scans incl
 
 ## Install
 
-Requires Node.js 22.19+ and pi 0.87 or later. Used daily on macOS; the full test suite passes on Linux; Windows is supported but not yet tried on a real machine, so please open an issue if something breaks.
+Requires Node.js 22.19+ and pi 0.87 or later. Used daily on macOS. Every push runs the full test suite on Linux, macOS and Windows with Node 22 and 24 ([GitHub Actions](https://github.com/woertedetiankong/pi-kb/actions)); pi's interface on Windows has not been tried by hand yet, so please open an issue if something breaks.
 
 ```bash
 # Install from GitHub (written to ~/.pi/agent/settings.json, available in every project)
