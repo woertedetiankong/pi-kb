@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.6.4 — 2026-09-26
 
 Semantic search is easy to find and to turn on: one button where it helps, one command in the terminal.
 
