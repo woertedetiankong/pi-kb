@@ -68,6 +68,10 @@ test("a project sees what is in no collection plus its own collections; one coll
 	assert.deepEqual(await found(new Library(kb, undefined, [])), new Set([ids.general, ids.pref]), "none chosen: only what is in no collection");
 	assert.deepEqual(await found(new Library(kb, undefined, ["ESP32"]), { shelf: "STM32" }), new Set([ids.stm, ids.both]), "asked for STM32: only STM32, even here");
 
+	const listed = (lib: Library, options: { shelf?: string } = {}) => new Set(lib.visibleDocs(options).map((d) => d.id));
+	assert.deepEqual(listed(new Library(kb, undefined, ["ESP32"])), esp, "kb_list shows what kb_search can find");
+	assert.deepEqual(listed(new Library(kb, undefined, ["ESP32"]), { shelf: "STM32" }), new Set([ids.stm, ids.both]));
+
 	const catalog = new Library(kb, undefined, ["ESP32"]).catalog();
 	assert.match(catalog, /^3 document\(s\); 2 wiki note\(s\)\.\n1 more on shelves this project does not use/);
 	assert.doesNotMatch(catalog, /stm32f1/);

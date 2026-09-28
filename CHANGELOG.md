@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+The agent can list what is in the knowledge base.
+
+- New `kb_list` tool: every document and note by title, with pages, date added and id, optionally only those whose title or file path contains a word. Over 100 items it pages and opens with counts per collection and source folder. It reads the index only: no search, no semantic model.
+- Why: the system prompt lists only the 15 newest documents, so "what files are in my knowledge base?" made the model guess with searches. With 42 documents, gpt-6-sol made 1–9 tool calls and named 13–42 of the titles (4 runs), twice by reading the knowledge base's internal files with the shell. With a local semantic model, every one of those searches used the model, and the first one loaded it (about 1.6 GB). With `kb_list`: one call in all 8 runs (Chinese and English), and each answer gave all 42 titles or the right counts with an offer of the full list. "Do I have ESP32 documents?" is one `kb_list` with `match`.
+- The catalog in the system prompt says how many documents it leaves out and points to `kb_list`.
+- Model check: new `list-contents` scenario; 36/36 runs passed with gpt-6-sol, and `kb_list` was never used for content questions.
+
 ## v0.6.5 — 2026-09-27
 
 Semantic indexing with the local model no longer fills the CPU together with OCR, and several pi windows no longer index the same chunks.

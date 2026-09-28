@@ -13,18 +13,19 @@ import { sharedHub } from "./hub.ts";
 import type { SearchHit } from "./store.ts";
 import { KbWebApp } from "./web.ts";
 import { importScope, Library, type Scope } from "./library.ts";
+import { formatList, matching } from "./list.ts";
 import { findProjectKb, initProjectKb, type ProjectKb, projectRootFor } from "./project.ts";
 import { initQuestions, parseQuestions, questionsFile, readQuestions, runEval, summaryRows, writeReport } from "./eval.ts";
 import { folderSize, installRuntime, localModelDirs, removeLocalModel, runtimeInstalled } from "./semantic/providers.ts";
 import { type ImportJob, ImportQueue } from "./queue.ts";
 import { NUDGE_TYPE, noteNudge, nudgeText } from "./nudge.ts";
 import { claimPending, dropBatch, type PendingBatch, savePending } from "./resume.ts";
-import { type AddSummary, addCall, addResult, type HitSummary, noteCall, noteResult, readCall, readResult, searchCall, searchResult } from "./render.ts";
+import { type AddSummary, addCall, addResult, type HitSummary, listCall, listResult, noteCall, noteResult, readCall, readResult, searchCall, searchResult } from "./render.ts";
 
 /** What pi passes a tool renderer (the type is not exported by name). */
 type ToolRenderContext = Parameters<NonNullable<ToolDefinition["renderCall"]>>[2];
 
-const TOOLS = ["kb_search", "kb_read", "kb_add", "kb_note"];
+const TOOLS = ["kb_search", "kb_list", "kb_read", "kb_add", "kb_note"];
 const READ_LIMIT = 30_000;
 /** kb_read view: pages rendered per call. Each page image costs roughly 1.5k tokens or more. */
 const VIEW_LIMIT = 4;
@@ -692,6 +693,7 @@ export default function piKb(pi: ExtensionAPI) {
 			"The user's personal knowledge base is enabled. It holds imported documents (PDF, images, Markdown, text) and wiki notes of past experience.",
 			"- When a question may be answered by the user's documents, datasheets, notes or earlier lessons, call kb_search first with short keywords; try synonyms or the other language if nothing matches.",
 			"- Open more context with kb_read (id and pages from the search result) before relying on a snippet for exact values.",
+			"- When the user asks what the knowledge base holds, or whether a file is in it, call kb_list rather than searching: the catalog below shows only recent documents.",
 			...(seesImages(ctx)
 				? [
 						"- The text of a PDF or scan loses figures: diagrams, schematics, pinouts, timing charts, photos, and sometimes table layout. When the answer may be in one (the text mentions a figure or shows [figure] where a picture is, or looks garbled or incomplete where a table or drawing should be), call kb_read with view: true for those pages to see them.",
@@ -791,6 +793,42 @@ export default function piKb(pi: ExtensionAPI) {
 				const details = result.details as { hits?: HitSummary[]; pending?: string[] } | undefined;
 				return searchResult(theme, t(), details?.hits ?? [], details?.pending?.length ?? 0, options.expanded);
 			}),
+	});
+
+	pi.registerTool({
+		name: "kb_list",
+		label: "KB List",
+		description:
+			"List the documents and wiki notes in the user's knowledge base by title, with pages, date added and id. Use it when the user asks what the knowledge base holds, whether a file is in it, or what they imported; not for questions about the content (use kb_search).",
+		promptSnippet: "List the documents and notes in the user's knowledge base",
+		parameters: Type.Object({
+			match: Type.Optional(Type.String({ description: "Only titles or file paths containing this text, e.g. 'esp32' or '.pdf'" })),
+			scope: Type.Optional(
+				Type.Union([Type.Literal("all"), Type.Literal("docs"), Type.Literal("wiki")], { description: "Only documents (docs) or only notes (wiki); default all" }),
+			),
+			shelf: Type.Optional(Type.String({ description: "Only this collection of the user's global knowledge base (names are in the system prompt)" })),
+			offset: Type.Optional(Type.Integer({ minimum: 0, description: "Continue a long list from here" })),
+		}),
+		async execute(_id, params) {
+			const library = lib();
+			const collection = params.scope && params.scope !== "all" ? params.scope : undefined;
+			const known = library.shelfList();
+			const shelf = params.shelf?.trim() ? known.find((s) => s.name.toLowerCase() === params.shelf!.trim().toLowerCase())?.name : undefined;
+			if (params.shelf?.trim() && !shelf) {
+				const text = `No collection named "${params.shelf}". ${known.length ? `The collections are: ${known.map((s) => s.name).join(", ")}.` : "The knowledge base has no collections."}`;
+				return { content: [{ type: "text", text }], details: { docs: 0, notes: 0 } };
+			}
+			const docs = library.visibleDocs({ collection, shelf });
+			let text = formatList(docs, { match: params.match, offset: params.offset, scoped: !!project });
+			const pending = imports.pending();
+			if (pending.length) text += `\n\nAlso ${pending.length} file(s) still being imported, not listed yet: ${pending.slice(0, 5).map((p) => basename(p)).join(", ")}${pending.length > 5 ? ", …" : ""}.`;
+			const shown = matching(docs, params.match);
+			const count = shown.filter((d) => d.collection === "docs").length;
+			return { content: [{ type: "text", text }], details: { docs: count, notes: shown.length - count } };
+		},
+		renderCall: (args, theme, context) => line(listCall(theme, t(), args), context),
+		renderResult: (result, options, theme, context) =>
+			resultLine(result, options, theme, context, () => listResult(theme, t(), result.details as { docs?: number; notes?: number } | undefined)),
 	});
 
 	pi.registerTool({

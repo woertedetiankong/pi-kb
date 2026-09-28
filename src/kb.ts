@@ -1101,6 +1101,7 @@ export class KnowledgeBase {
 		if (recent.length) {
 			lines.push("Recent documents:");
 			for (const doc of recent) lines.push(`- ${doc.title}${doc.pages ? `, ${doc.pages} pages` : ""} (${doc.id})`);
+			if (docs > recent.length) lines.push(`- …and ${docs - recent.length} more; kb_list lists them all.`);
 		}
 		return lines.join("\n");
 	}

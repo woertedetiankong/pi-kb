@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { messages } from "../src/i18n.ts";
-import { addResult, plainSnippet, readCall, readResult, searchCall, searchResult, type Style } from "../src/render.ts";
+import { addResult, listCall, listResult, plainSnippet, readCall, readResult, searchCall, searchResult, type Style } from "../src/render.ts";
 
 /** No colors: what the user reads. */
 const plain: Style = { fg: (_c, text) => text, bold: (text) => text };
@@ -43,4 +43,12 @@ test("an import says what happened to the files", () => {
 test("snippets lose Markdown marks in the terminal", () => {
 	assert.equal(plainSnippet("###### Primary Interface By **default**, the device"), "Primary Interface By default, the device");
 	assert.equal(plainSnippet("| Address | Name | |---|---|---| | 0x7E | CMD | | |"), "| Address | Name | 0x7E | CMD |");
+});
+
+test("a list says what it narrowed to and how much is there", () => {
+	assert.equal(listCall(plain, en, {}), "📚 KB list");
+	assert.equal(listCall(plain, en, { match: "esp32", scope: "docs", offset: 100 }), '📚 KB list "esp32" · documents only · from #101');
+	assert.equal(listResult(plain, en, { docs: 42, notes: 1 }), "42 documents · 1 note");
+	assert.equal(listResult(plain, zh, { docs: 0, notes: 3 }), "3 条笔记");
+	assert.equal(listResult(plain, en, { docs: 0, notes: 0 }), "nothing listed");
 });

@@ -265,6 +265,14 @@ export class Library {
 		);
 	}
 
+	/** What kb_search can find here: the project's shelves of the global knowledge base, or the one asked for. */
+	visibleDocs(options: { collection?: Collection; shelf?: string } = {}): ScopedDoc[] {
+		const filter = this.globalFilter(options.shelf);
+		const seen = filter && this.global.store.visibleIds(filter);
+		// One shelf asked for: that is in the global knowledge base only, as in find().
+		return this.listDocs(options.collection).filter((d) => (d.scope === "project" ? options.shelf === undefined : !seen || seen.has(d.id)));
+	}
+
 	/** The global knowledge base's shelves with their sizes, and whether this project uses each. */
 	shelfList(): { name: string; docs: number; notes: number; used: boolean }[] {
 		return this.global.store.shelfCounts().map((s) => ({ ...s, used: !this.shelves || this.shelves.some((u) => u.toLowerCase() === s.name.toLowerCase()) }));

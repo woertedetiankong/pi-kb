@@ -81,6 +81,22 @@ export function searchResult(s: Style, m: Messages, hits: HitSummary[], pending:
 	return text;
 }
 
+export function listCall(s: Style, m: Messages, args: { match?: string; scope?: string; shelf?: string; offset?: number }): string {
+	const extra = [
+		args.scope === "docs" ? m.toolOnlyDocs : args.scope === "wiki" ? m.toolOnlyNotes : "",
+		args.shelf ? m.toolShelf(args.shelf) : "",
+		args.offset ? m.toolFrom(args.offset + 1) : "",
+	].filter(Boolean);
+	return `${head(s, m, m.toolList)}${args.match?.trim() ? ` ${s.fg("accent", `"${clip(args.match.trim(), 80)}"`)}` : ""}${extra.length ? s.fg("dim", ` · ${extra.join(" · ")}`) : ""}`;
+}
+
+/** "42 documents · 1 note". */
+export function listResult(s: Style, m: Messages, details: { docs?: number; notes?: number } | undefined): string {
+	if (!details) return "";
+	const { docs = 0, notes = 0 } = details;
+	return docs || notes ? s.fg("success", m.toolListed(docs, notes)) : s.fg("warning", m.toolListedNone);
+}
+
 export function readCall(s: Style, m: Messages, args: { id?: string; pages?: string; view?: boolean }, title?: string): string {
 	const pages = args.pages?.trim() ? ` ${m.toolPageRange(args.pages.trim())}` : "";
 	return `${head(s, m, m.toolRead)} ${s.fg("accent", title ?? args.id ?? "")}${s.fg("dim", pages)}${args.view ? s.fg("dim", ` · ${m.toolWithPictures}`) : ""}`;

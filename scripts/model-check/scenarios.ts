@@ -190,6 +190,16 @@ export const scenarios: Scenario[] = [
 		noteMode: "append",
 	},
 	{
+		id: "list-contents",
+		about: "What is in the knowledge base: one kb_list call and every title, no searching or shell digging",
+		prompt: "知识库里有哪些文件？",
+		search: "forbidden",
+		note: "forbidden",
+		requireTools: ["kb_list"],
+		forbidTools: ["bash"],
+		answer: /^(?=[\s\S]*xr100-manual)(?=[\s\S]*xr100-outline)(?=[\s\S]*orbit-runbook)(?=[\s\S]*yf20-faq)(?=[\s\S]*tmux)(?=[\s\S]*themes)(?=[\s\S]*keybindings)(?=[\s\S]*SPI 时钟分频踩坑)/,
+	},
+	{
 		id: "routine-question",
 		about: "Short factual lookup: answer and cite, no note",
 		prompt: "How do I roll back Orbit?",
