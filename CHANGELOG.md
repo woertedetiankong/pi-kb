@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.7.1 — 2026-09-28
 
 Questions about parts the knowledge base does not have are answered as such, and Find with AI knows what the knowledge base holds.
 
