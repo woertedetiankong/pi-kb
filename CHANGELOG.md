@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+Questions about parts the knowledge base does not have are answered as such, and Find with AI knows what the knowledge base holds.
+
+- Part numbers nothing mentions: a question naming a part (a word that starts with a letter and has a digit, four characters or more: NX-999, ESP32-P4, STM32F103) that no document or note mentions, in any spelling (ESP32C3 = ESP32-C3, any case), gets a note first. The agent's `kb_search` result tells the model the results are about other things and not to give their values for that part; `/kb search`, the terminal row ("nothing mentions NX-999"), the web search and AI search lists say it too, and AI answers are told. Before, "NX-999 maximum supply voltage" listed the NX-104 datasheet first. On the 104 scale-test questions: all 4 unknown parts flagged, none of the 96 answerable questions, 0.2 ms per question. Checked in Chrome: the answer said the knowledge base has nothing on NX-999 and that the other parts' values do not apply to it.
+- Find with AI (and AI answers) tell the planner what the knowledge base holds: collections and titles, titles differing only in numbers as one line (`nx-#-datasheet ×300`), without file extensions and README names, at most about 1,500 tokens (4,578 characters for the 682 scale-test items; DeepSeek caches it, so a search sends about 250 new tokens). It also keeps each search in one language, since mixed ones ("themes 主题 自定义") match nothing. Everyday-wording questions found first: 16 → 20 of 24 (DeepSeek flash), 11 → 19 (v4-pro); all 96: 85 → 85 and 83 → 91. Flash put the right NX datasheet but another of its pages first a few more times (it now also searches by title).
+
 ## v0.7.0 — 2026-09-28
 
 AI does the rewording instead of semantic search: the web page's search box finds with AI, like pi-sessions, and semantic search is no longer pushed.

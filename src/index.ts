@@ -764,9 +764,16 @@ export default function piKb(pi: ExtensionAPI) {
 				return { content: [{ type: "text", text }], details: { hits: [], pending: [] } };
 			}
 			const hits = await library.find(params.query, { limit: params.limit, collection: scope, shelf });
-			let text = hits.length
+			// A part the knowledge base never mentions: its results are about other parts, with other values.
+			const missing = library.unmentioned(params.query);
+			const unknown = missing.length
+				? `Note: nothing in the knowledge base mentions ${missing.join(", ")}. ${hits.length ? "The results below are about other things; do not give their values as those of " + missing.join(", ") + ". " : ""}Tell the user the knowledge base has nothing on ${missing.length > 1 ? "them" : "it"} (use kb_list to show what similar items it has).\n\n`
+				: "";
+			let text = unknown + (hits.length
 				? formatHits(hits, MODEL, !!project)
-				: "No matches. Search matches words: try fewer or different keywords, synonyms, the wording a manual would use, or the other language (documents are often in English when the user writes Chinese).";
+				: unknown
+					? ""
+					: "No matches. Search matches words: try fewer or different keywords, synonyms, the wording a manual would use, or the other language (documents are often in English when the user writes Chinese).");
 			// Files still importing are not searchable yet; without this the model tells the user the knowledge base lacks them.
 			const pending = imports.pending();
 			if (pending.length) {
@@ -779,13 +786,13 @@ export default function piKb(pi: ExtensionAPI) {
 				const names = reading.slice(0, 5).map((d) => d.title).join(", ") + (reading.length > 5 ? ", …" : "");
 				text += `\n\nNote: text inside pictures (figure labels, scanned pages) of ${reading.length} document(s) is still being read by OCR (${names}); their other text is searchable. If something that would be in a figure is missing, ${seesImages(ctx) ? "look at the page with kb_read view: true, or " : ""}say the pictures are still being read.`;
 			}
-			return { content: [{ type: "text", text }], details: { hits, pending } };
+			return { content: [{ type: "text", text }], details: { hits, pending, missing } };
 		},
 		renderCall: (args, theme, context) => line(searchCall(theme, t(), args), context),
 		renderResult: (result, options, theme, context) =>
 			resultLine(result, options, theme, context, () => {
-				const details = result.details as { hits?: HitSummary[]; pending?: string[] } | undefined;
-				return searchResult(theme, t(), details?.hits ?? [], details?.pending?.length ?? 0, options.expanded);
+				const details = result.details as { hits?: HitSummary[]; pending?: string[]; missing?: string[] } | undefined;
+				return searchResult(theme, t(), details?.hits ?? [], details?.pending?.length ?? 0, options.expanded, details?.missing);
 			}),
 	});
 
@@ -1271,7 +1278,9 @@ export default function piKb(pi: ExtensionAPI) {
 					}
 					const hits = await lib().find(query, { limit: 10 });
 					const none = `${m.noMatches}\n\n${m.noMatchesHint}`;
-					show(ctx, m.searchTitle(hits.length, query), hits.length ? formatHits(hits, m, !!project) : none);
+					const missing = lib().unmentioned(query);
+					const unknown = missing.length ? `${m.notMentioned(missing.join(", "), hits.length > 0)}\n\n` : "";
+					show(ctx, m.searchTitle(hits.length, query), unknown + (hits.length ? formatHits(hits, m, !!project) : none));
 					return;
 				}
 				case "remove": {

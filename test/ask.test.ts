@@ -128,3 +128,12 @@ test("answering from an AI search list reuses its searches instead of planning a
 	assert.deepEqual(r.queries, ["CTRL_REG 复位值"], "junk dropped");
 	assert.equal(r.sources[0]?.title, "xr100-manual.pdf");
 });
+
+test("an answer about a part nothing mentions is told so, and the search list says it", async () => {
+	const calls: { system: string; text: string }[] = [];
+	await ask(new Library(kb), fakeModel('{"queries":["CTRL_REG"]}', () => "no [1]", calls), "XR-999 CTRL_REG 复位值", new AbortController().signal);
+	assert.match(calls[1].text, /Nothing in the knowledge base mentions XR-999/);
+	const found = await aiSearch(new Library(kb), fakeModel('{"queries":["CTRL_REG"]}', () => ""), "XR-999 CTRL_REG", new AbortController().signal);
+	assert.deepEqual(found.missing, ["XR-999"]);
+	assert.ok(found.hits.length, "other parts' results are still listed");
+});

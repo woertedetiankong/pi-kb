@@ -40,6 +40,8 @@ export interface AskSource {
 }
 export interface SearchResult {
 	hits: ScopedHit[];
+	/** Part numbers in the question that nothing in the knowledge base mentions. */
+	missing: string[];
 	/** The searches that were run, without the question itself. */
 	queries: string[];
 	/** "provider/id" of the model that planned them. */
@@ -58,19 +60,22 @@ export interface AskResult {
 }
 
 export const MAX_PASSAGES = 8;
+/** What the planner is told the knowledge base holds, at most (about 1,500 tokens). */
+const CONTENTS_CHARS = 5000;
 /** Results in a "Find with AI" list. */
 export const MAX_RESULTS = 20;
 const PASSAGE_CHARS = 1500;
 const QUESTION_CHARS = 500;
 
 const PLAN = `You turn a user's question into searches over their knowledge base (datasheets, manuals, runbooks and notes, in Chinese and English).
+The message lists what the knowledge base holds (collections and titles), then the question. Use the titles to read the question the way these documents would (which product, tool or part it is about) and to pick the names and words they use; the titles are not answers, and a question may be about something they do not name.
 The search engine matches keywords (substring match; part numbers, register names and error codes work best) and, when enabled, meaning.
 Output only JSON, no code fences: {"queries":["...", "..."]}
 - 2 to 4 short queries of 1-4 key terms each, most specific first: exact part numbers, identifiers, error codes and technical nouns from the question.
 - Separate terms with spaces and split Chinese compounds into words ("最大 电压", not "最大电压"). Every term of a query should appear in the passage you hope to find, so leave out vague words.
 - When the question is colloquial, include one query in the wording a datasheet or manual would use (e.g. "怎么把它弄回刚买来的样子" → "恢复 出厂 设置").
 - When the question names a product, part or service and asks something broad about it (what it supports, which errors it has), include one query with just that name.
-- Add one query in the other language (Chinese ↔ English) when the documents might use it.
+- Add one query in the other language (Chinese ↔ English) when the documents might use it. Keep each query in one language: a document is in Chinese or in English, and a query matches only if most of its terms are on the page.
 - Leave out question words and filler ("what", "how", "怎么", "是多少").`;
 
 const ANSWER = `You answer questions using only the numbered passages from the user's knowledge base.
@@ -192,9 +197,38 @@ export function citedNumbers(answer: string, count: number): number[] {
 
 const clean = (question: string) => question.replace(/\s+/g, " ").trim().slice(0, QUESTION_CHARS);
 
+/**
+ * What the knowledge base holds, for the planner: collections and titles. Titles that differ only in
+ * numbers are one line ("nx-#-datasheet.pdf ×300 (nx-101-datasheet.pdf … nx-400-datasheet.pdf)").
+ */
+export function contents(lib: Library, max = CONTENTS_CHARS): string {
+	const docs = lib.visibleDocs();
+	const groups = new Map<string, string[]>();
+	// File extensions and README/CHANGELOG file names say nothing about the topic.
+	const short = (title: string) => title.replace(/\/(?:README|readme|CHANGELOG|index)\.(?:md|markdown)$/, "").replace(/\.(?:md|markdown|mdx|txt|pdf)$/i, "");
+	for (const title of [...new Set(docs.map((d) => short(d.title)))].sort((a, b) => a.localeCompare(b))) {
+		const key = title.replace(/\d+/g, "#");
+		groups.set(key, [...(groups.get(key) ?? []), title]);
+	}
+	const lines = [...groups].map(([key, titles]) => (titles.length > 3 ? `${key} ×${titles.length} (${titles[0]} … ${titles.at(-1)})` : titles.join("; ")));
+	let list = "";
+	let shown = 0;
+	for (const line of lines) {
+		if (list.length + line.length + 2 > max) break;
+		list += (list ? "; " : "") + line;
+		shown++;
+	}
+	const shelves = lib.shelfList().filter((s) => s.used).map((s) => s.name);
+	return [
+		`${docs.length} documents and notes.`,
+		shelves.length ? `Collections: ${shelves.join(", ")}.` : "",
+		`Titles: ${list}${shown < lines.length ? `; … and more` : ""}`,
+	].filter(Boolean).join("\n");
+}
+
 /** The model's searches for a question, the question itself first. Reasoning models think before the JSON. */
-async function plan(ctx: ModelContext, model: Model, question: string, signal: AbortSignal) {
-	const reply = await complete(ctx, model, PLAN, question, signal, 1000);
+async function plan(lib: Library, ctx: ModelContext, model: Model, question: string, signal: AbortSignal) {
+	const reply = await complete(ctx, model, PLAN, `Knowledge base:\n${contents(lib)}\n\nQuestion: ${question}`, signal, 1000);
 	return { queries: parseQueries(reply.text, question), input: reply.input, output: reply.output };
 }
 
@@ -202,9 +236,9 @@ async function plan(ctx: ModelContext, model: Model, question: string, signal: A
 export async function aiSearch(lib: Library, ctx: ModelContext | undefined, rawQuestion: string, signal: AbortSignal, pick?: string): Promise<SearchResult> {
 	const model = resolveModel(ctx, pick);
 	if (!ctx) throw new AskError("no_model", 409);
-	const planned = await plan(ctx, model, clean(rawQuestion), signal);
+	const planned = await plan(lib, ctx, model, clean(rawQuestion), signal);
 	const hits = await retrieve(lib, planned.queries, MAX_RESULTS);
-	return { hits, queries: planned.queries.slice(1), model: modelKey(model), usage: { input: planned.input, output: planned.output } };
+	return { hits, missing: lib.unmentioned(rawQuestion), queries: planned.queries.slice(1), model: modelKey(model), usage: { input: planned.input, output: planned.output } };
 }
 
 /**
@@ -217,7 +251,7 @@ export async function ask(lib: Library, ctx: ModelContext | undefined, rawQuesti
 	const question = clean(rawQuestion);
 	const planned = searches?.length
 		? { queries: withQuestion(searches, question), input: 0, output: 0 }
-		: await plan(ctx, model, question, signal);
+		: await plan(lib, ctx, model, question, signal);
 	const queries = planned.queries;
 	const passages = await gather(lib, queries);
 	let answer: { text: string; input: number; output: number };
@@ -227,7 +261,10 @@ export async function ask(lib: Library, ctx: ModelContext | undefined, rawQuesti
 		const material = passages
 			.map((p) => `[${p.n}] ${p.title}${p.page ? ` p.${p.page}` : ""}${p.heading ? ` § ${p.heading}` : ""}\n${p.text}`)
 			.join("\n\n");
-		answer = await complete(ctx, model, ANSWER, `Question: ${question}\n\nPassages:\n\n${material}`, signal, 1500);
+		// A part nothing mentions: the passages are about other parts, whose values would be wrong.
+		const missing = lib.unmentioned(question);
+		const warning = missing.length ? `\n\nNothing in the knowledge base mentions ${missing.join(", ")}: say so, and do not give another item's values as its.` : "";
+		answer = await complete(ctx, model, ANSWER, `Question: ${question}${warning}\n\nPassages:\n\n${material}`, signal, 1500);
 	}
 	// Keep only the sources the answer cites, renumbered in the order they are first cited.
 	const used = citedNumbers(answer.text, passages.length);

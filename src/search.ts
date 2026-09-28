@@ -151,3 +151,27 @@ export function fuse(keyword: number[], semantic: number[], k = 60): Fused[] {
 	add(semantic, "semantic");
 	return [...out.values()].sort((a, b) => b.score - a.score);
 }
+
+/**
+ * Part numbers and similar identifiers in a question: a letter first, at least two letters and a
+ * digit, four characters or more ("NX-999", "ESP32-P4", "STM32F103", "BMI270"; not "I2C", "p12",
+ * "0x41" or "3.3V"). A question about one the knowledge base never mentions gets results about
+ * other parts, whose values must not be taken for it.
+ */
+export function partNumbers(text: string): string[] {
+	const found = text.match(/(?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9]*(?:[-_][A-Za-z0-9]+)*/g) ?? [];
+	return [...new Set(found.filter((t) => t.length >= 4 && /\d/.test(t) && (t.match(/[A-Za-z]/g) ?? []).length >= 2))];
+}
+
+/**
+ * How a part number may be written: as typed, without separators, and with a hyphen or space at
+ * each letter-digit boundary ("ESP32C3" is also "ESP32-C3" and "ESP32 C3").
+ */
+export function partSpellings(part: string): string[] {
+	const bare = part.replace(/[-_\s]/g, "");
+	const out = new Set([part, bare]);
+	for (let i = 1; i < bare.length; i++) {
+		if (/\d/.test(bare[i - 1]) !== /\d/.test(bare[i])) for (const sep of ["-", " "]) out.add(bare.slice(0, i) + sep + bare.slice(i));
+	}
+	return [...out].filter((s) => [...s].length >= 3);
+}

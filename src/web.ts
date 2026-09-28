@@ -153,7 +153,7 @@ export class KbWebApp implements WebApp {
 					const q = (req.query.get("q") ?? "").trim();
 					const scope = req.query.get("scope");
 					const collection: Collection | undefined = scope === "docs" || scope === "wiki" ? scope : undefined;
-					return { hits: q ? await lib.find(q, { limit: 30, collection }) : [] };
+					return { hits: q ? await lib.find(q, { limit: 30, collection }) : [], missing: q ? lib.unmentioned(q) : [] };
 				}
 				case "GET /doc": {
 					const { doc, text, scope } = lib.read(id);

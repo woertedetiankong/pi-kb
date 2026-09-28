@@ -55,10 +55,14 @@ export function searchCall(s: Style, m: Messages, args: { query?: string; scope?
 	return `${head(s, m, m.toolSearch)} ${s.fg("accent", `"${clip(args.query ?? "", 80)}"`)}${extra.length ? s.fg("dim", ` · ${extra.join(" · ")}`) : ""}`;
 }
 
-/** "3 hits · manual.pdf p.12, 14 · note "SPI" · +1 more", then one line per hit when expanded. */
-export function searchResult(s: Style, m: Messages, hits: HitSummary[], pending: number, expanded: boolean): string {
+/**
+ * "3 hits · manual.pdf p.12, 14 · note "SPI" · +1 more", then one line per hit when expanded.
+ * `missing`: part numbers nothing mentions, said first ("nothing mentions NX-999 · 8 hits …").
+ */
+export function searchResult(s: Style, m: Messages, hits: HitSummary[], pending: number, expanded: boolean, missing: string[] = []): string {
 	const waiting = pending ? s.fg("dim", ` · ${m.toolImporting(pending)}`) : "";
-	if (!hits.length) return s.fg("warning", m.toolNoHits) + waiting;
+	const unknown = missing.length ? `${s.fg("warning", m.toolMissing(missing.join(", ")))}${s.fg("dim", " · ")}` : "";
+	if (!hits.length) return unknown ? s.fg("warning", m.toolMissing(missing.join(", "))) + waiting : s.fg("warning", m.toolNoHits) + waiting;
 	// One entry per document or note, in rank order, with its pages.
 	const groups = new Map<string, { hit: HitSummary; pages: number[] }>();
 	for (const hit of hits) {
@@ -71,7 +75,7 @@ export function searchResult(s: Style, m: Messages, hits: HitSummary[], pending:
 		hit.collection === "wiki" ? m.toolNote(hit.title) : `${hit.title}${pages.length ? ` ${m.toolPages(pageRuns(pages))}` : ""}`,
 	);
 	const more = entries.length > SHOWN ? s.fg("dim", ` · ${m.toolMore(entries.length - SHOWN)}`) : "";
-	let text = `${s.fg("success", m.toolHits(hits.length))} ${s.fg("dim", "·")} ${entries.slice(0, SHOWN).join(s.fg("dim", " · "))}${more}${waiting}`;
+	let text = `${unknown}${s.fg("success", m.toolHits(hits.length))} ${s.fg("dim", "·")} ${entries.slice(0, SHOWN).join(s.fg("dim", " · "))}${more}${waiting}`;
 	if (expanded) {
 		for (const hit of hits) {
 			const cite = hit.page ? `[${hit.title} p.${hit.page}]` : `[${hit.title}]`;

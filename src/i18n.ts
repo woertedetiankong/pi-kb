@@ -45,6 +45,7 @@ const en = {
 	toolShelf: (name: string) => `collection ${name}`,
 	toolHits: (n: number) => plural(n, "hit"),
 	toolNoHits: "no matches",
+	toolMissing: (parts: string) => `nothing mentions ${parts}`,
 	toolNote: (title: string) => `note "${title}"`,
 	toolPages: (runs: string[]) => `p.${runs.join(", ")}`,
 	toolPageRange: (range: string) => `p.${range}`,
@@ -142,6 +143,7 @@ const en = {
 	usageSearch: "Usage: /kb search <query>",
 	searchTitle: (n: number, q: string) => `📚 ${plural(n, "result")} for "${q}"`,
 	noMatches: "No matches.",
+	notMentioned: (parts: string, others: boolean) => `Nothing in the knowledge base mentions ${parts}.${others ? " The results below are about other things." : ""}`,
 	welcome:
 		"📚 Knowledge base ready. Add your documents with /kb add <file or folder> (PDFs, images, Markdown; dragging files in works), or drop them on the page from /kb web. Then just ask: pi searches them and cites the page.",
 	emptyHint: "Nothing here yet: add documents with /kb add <file or folder>, or drop them on the page from /kb web.",
@@ -308,6 +310,7 @@ const zh: Messages = {
 	toolShelf: (name) => `资料集 ${name}`,
 	toolHits: (n) => `${n} 条结果`,
 	toolNoHits: "没有找到",
+	toolMissing: (parts) => `没有资料提到 ${parts}`,
 	toolNote: (title) => `笔记「${title}」`,
 	toolPages: (pages) => `第 ${pages.join("、")} 页`,
 	toolPageRange: (range) => `第 ${range} 页`,
@@ -402,6 +405,7 @@ const zh: Messages = {
 	usageSearch: "用法：/kb search <关键词>",
 	searchTitle: (n, q) => `📚 “${q}” 共 ${n} 条结果`,
 	noMatches: "没有找到匹配内容。",
+	notMentioned: (parts, others) => `知识库里没有任何资料提到 ${parts}。${others ? "下面的结果是别的内容，数值不能套用。" : ""}`,
 	welcome:
 		"📚 知识库已就绪。用 /kb add <文件或文件夹> 添加资料（PDF、图片、Markdown，也可以直接把文件拖进终端），或在 /kb web 打开的网页上拖入文件。之后直接提问即可：pi 会检索资料并注明页码。",
 	emptyHint: "知识库还是空的：用 /kb add <文件或文件夹> 添加资料，或在 /kb web 打开的网页上拖入文件。",

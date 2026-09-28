@@ -292,6 +292,12 @@ export class Store {
 		return out;
 	}
 
+	/** Whether any document or note mentions one of these spellings (title, heading or text; any case). */
+	mentions(spellings: string[]): boolean {
+		const match = spellings.filter((s) => [...s].length >= 3).map((s) => `"${s.replace(/"/g, '""')}"`).join(" OR ");
+		return !!match && !!this.db.prepare("SELECT 1 FROM chunks WHERE chunks MATCH ? LIMIT 1").get(match);
+	}
+
 	search(query: string, options: { limit?: number; collection?: Collection; shelves?: ShelfFilter } = {}): SearchHit[] {
 		const plan = planQuery(query);
 		if (!plan.terms.length) return [];

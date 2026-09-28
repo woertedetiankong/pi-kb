@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { type AddResult, contentId, type KnowledgeBase, pathsOutside } from "./kb.ts";
 import { parseNote, titleSimilarity, wikiLinks } from "./notes.ts";
 import type { ProjectKb } from "./project.ts";
+import { partNumbers, partSpellings } from "./search.ts";
 import type { Collection, DocRecord, SearchHit, ShelfFilter } from "./store.ts";
 
 /**
@@ -133,6 +134,14 @@ export class Library {
 	/** Semantic search only, merged the same way (for evaluation). */
 	findSemantic(query: string, options: SearchOptions = {}): Promise<ScopedHit[]> {
 		return this.merge(options, (kb, limit, shelves) => kb.findSemantic(query, { ...options, limit, shelves }));
+	}
+
+	/**
+	 * Part numbers in `text` that nothing in either knowledge base mentions, whatever the project's
+	 * shelves: results for a question about one are about other parts.
+	 */
+	unmentioned(text: string): string[] {
+		return partNumbers(text).filter((part) => !this.scopes.some(([, kb]) => kb.store.mentions(partSpellings(part))));
 	}
 
 	/** Whether semantic search can answer in either knowledge base. */

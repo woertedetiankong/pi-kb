@@ -142,6 +142,7 @@ button.tag:hover, .wikilink:hover { text-decoration: underline; }
 .hint-line button { color: var(--accent-text); font-size: 12.5px; margin-left: 4px; }
 .list-head .ai-exit { margin-left: auto; color: var(--accent-text); font-size: 12.5px; }
 .ai-searched { margin: 10px 20px 0; font-size: 12px; color: var(--faint); }
+.warn-line.unknown { margin: 10px 20px 0; }
 .similar { margin: 0 0 12px; padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); font-size: 13px; }
 .similar button { display: block; color: var(--accent-text); font-size: 13px; padding: 2px 0; text-align: left; }
 .empty { padding: 60px 24px; text-align: center; color: var(--faint); }
@@ -444,6 +445,7 @@ const T = {
     tagView: t => `#${t}`,
     linkMissing: "没有这条笔记", similarNotes: "已有相似的笔记，可以打开它追加内容：", saveAnyway: "仍然新建",
     ask: "✨ 用 AI 找", askTip: "用右侧选择的模型（默认跟随 pi）把问题换成几组关键词（中英文、资料里的说法）再搜，结果按相关度排好。会把问题发给该模型的服务商，每次 1 次模型请求。快捷键 Shift+Enter",
+    notMentioned: (parts, others) => `知识库里没有任何资料提到 ${parts}。${others ? "下面的结果是别的内容，数值不能套用。" : ""}`,
     aiTitle: "✨ AI 搜索", aiExit: "✕ 退出 AI 搜索", aiThinking: m => `正在让 ${m} 把问题换成几组关键词…`, aiNone: "AI 换了几种说法也没有找到相关内容。", aiAnswer: "让 AI 根据这些结果回答",
     askEmpty: "先在搜索框里输入一个问题", askTitle: "AI 回答", askLoading: "正在查资料并组织回答…", askNone: "知识库里没有找到和这个问题相关的内容。",
     askSources: "出处", askSearched: q => `检索词：${q}`, askCheck: "AI 回答可能有误，重要数值请点开出处核对。",
@@ -546,6 +548,7 @@ const T = {
     tagView: t => `#${t}`,
     linkMissing: "No such note", similarNotes: "Similar notes already exist; open one to add to it:", saveAnyway: "Save as new anyway",
     ask: "✨ Find with AI", askTip: "Uses the model chosen on the right (pi's by default) to turn the question into a few searches (Chinese and English, the documents' own wording) and ranks what they find. Sends the question to that model's provider; one model request per search. Shortcut: Shift+Enter",
+    notMentioned: (parts, others) => `Nothing in the knowledge base mentions ${parts}.${others ? " The results below are about other things; their values do not apply." : ""}`,
     aiTitle: "✨ AI search", aiExit: "✕ Exit AI search", aiThinking: m => `Asking ${m} to turn the question into searches…`, aiNone: "Nothing found, even with the AI's other wordings.", aiAnswer: "Have AI answer from these results",
     askEmpty: "Type a question in the search box first", askTitle: "AI answer", askLoading: "Reading the knowledge base and writing an answer…", askNone: "Nothing in the knowledge base relates to this question.",
     askSources: "Sources", askSearched: q => `Searched: ${q}`, askCheck: "AI answers can be wrong; open the sources to check important values.",
@@ -861,7 +864,7 @@ function renderList() {
       : state.answer?.question === state.q.trim() ? "" : `<div class="empty">${esc(T.noHits(state.q))}<br><small>${esc(T.noHitsHint)}</small></div>`;
     // Few hits: AI searches again with other wordings in both languages (Chinese questions, English datasheets).
     const askFew = hits.length < 3 && state.answer?.question !== state.q.trim() ? `<div class="hint-line">${esc(T.askFew)}<button id="askFew">${esc(T.askFewBtn)} →</button></div>` : "";
-    $("list").innerHTML = `<div class="list-head"><h2>${esc(state.q)}</h2><span class="sub">${esc(T.results(hits.length))}</span>${progress}</div><div class="group">${answerCard()}${body}</div>${askFew}`;
+    $("list").innerHTML = `<div class="list-head"><h2>${esc(state.q)}</h2><span class="sub">${esc(T.results(hits.length))}</span>${progress}</div>${unknownLine(state.missing, hits.length)}<div class="group">${answerCard()}${body}</div>${askFew}`;
     return;
   }
   const docs = visibleDocs();
@@ -899,7 +902,12 @@ function renderAi(progress) {
   const answer = r.hits.length && state.answer?.question !== a.question ? `<div class="hint-line"><button id="aiAnswer">${esc(T.aiAnswer)} →</button></div>` : "";
   const words = [a.question, ...r.queries].join(" ");
   const body = r.hits.length ? r.hits.map(h => hitCard(h, words)).join("") : `<div class="empty">${esc(T.aiNone)}</div>`;
-  $("list").innerHTML = `${head(r.hits.length)}${searched}${answer}<div class="group">${answerCard()}${body}</div>`;
+  $("list").innerHTML = `${head(r.hits.length)}${unknownLine(r.missing, r.hits.length)}${searched}${answer}<div class="group">${answerCard()}${body}</div>`;
+}
+
+/** Part numbers nothing mentions: the results are about other parts, whose values do not apply. */
+function unknownLine(missing, n) {
+  return missing?.length ? `<p class="warn-line unknown">${esc(T.notMentioned(missing.join(", "), n > 0))}</p>` : "";
 }
 
 /** The open item's collections with a button to change them; global items only (a project's own have none). */
@@ -1043,8 +1051,8 @@ async function search() {
   const q = state.q.trim();
   if (!q) { state.hits = null; renderSide(); renderList(); return; }
   try {
-    const { hits } = await api("/search?q=" + encodeURIComponent(q));
-    if (q === state.q.trim()) { state.hits = hits; renderSide(); renderList(); }
+    const { hits, missing } = await api("/search?q=" + encodeURIComponent(q));
+    if (q === state.q.trim()) { state.hits = hits; state.missing = missing || []; renderSide(); renderList(); }
   } catch (e) { toast(e.message); }
 }
 function select(id, page) {
