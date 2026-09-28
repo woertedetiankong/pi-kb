@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.7.0 — 2026-09-28
 
 AI does the rewording instead of semantic search: the web page's search box finds with AI, like pi-sessions, and semantic search is no longer pushed.
 
