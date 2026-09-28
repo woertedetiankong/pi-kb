@@ -317,6 +317,10 @@ test("ask: an empty question is refused, and a missing model is reported by code
 	assert.equal(res.status, 409);
 	assert.equal((await res.json()).error, "no_model", "the page words it in its own language");
 	assert.deepEqual(await (await call("/api/kb/models")).json(), { models: [] }, "no model list while pi has no session");
+	assert.equal((await post("/api/kb/ai-search", { question: "" })).status, 400);
+	const find = await post("/api/kb/ai-search", { question: "XR-100 电压" });
+	assert.equal(find.status, 409);
+	assert.equal((await find.json()).error, "no_model");
 });
 
 test("location: shown with its source; a refused move is reported by code", async () => {

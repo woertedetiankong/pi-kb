@@ -4,7 +4,7 @@ import { basename, extname, join } from "node:path";
 import { type WebApp, type WebBinary, type WebLanguage, type WebRequest, webError } from "./hub.ts";
 import { type AddResult, contentId, type KnowledgeBase, sourcePath } from "./kb.ts";
 import type { BackgroundStatus, ImportItem, ImportJob, ImportStatus } from "./queue.ts";
-import { ask, AskError, listModels, type ModelContext } from "./ask.ts";
+import { aiSearch, ask, AskError, listModels, type ModelContext } from "./ask.ts";
 import { type KbLocation, LocationError, type SemanticConfig } from "./config.ts";
 import { apiKeyEnv, folderSize, localModelDirs, removeLocalModel, runtimeInstalled } from "./semantic/providers.ts";
 import type { Library, Scope } from "./library.ts";
@@ -317,13 +317,18 @@ export class KbWebApp implements WebApp {
 				}
 				case "GET /models":
 					return listModels(this.host.model());
+				case "POST /ai-search":
 				case "POST /ask": {
 					const body = await req.json();
 					const question = typeof body.question === "string" ? body.question.trim() : "";
 					if (!question) throw webError(400, "question is empty");
 					const model = typeof body.model === "string" && body.model ? body.model : undefined;
+					// Answering from a "Find with AI" list: the searches it was made from.
+					const searches = Array.isArray(body.searches) ? body.searches.filter((q: unknown): q is string => typeof q === "string").slice(0, 4) : undefined;
 					try {
-						return await ask(lib, this.host.model(), question, req.signal, model);
+						return route === "POST /ai-search"
+							? await aiSearch(lib, this.host.model(), question, req.signal, model)
+							: await ask(lib, this.host.model(), question, req.signal, model, searches);
 					} catch (error) {
 						// The page words these in its own language: "<problem>" or "<problem>: <detail>".
 						if (error instanceof AskError) throw webError(error.status, error.message === error.problem ? error.problem : `${error.problem}: ${error.message}`);

@@ -140,6 +140,8 @@ button.tag:hover, .wikilink:hover { text-decoration: underline; }
 .side-tags .cnt { font: 11px var(--mono); color: var(--faint); margin-left: 2px; }
 .hint-line { margin: 10px 20px; padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); font-size: 12.5px; color: var(--muted); }
 .hint-line button { color: var(--accent-text); font-size: 12.5px; margin-left: 4px; }
+.list-head .ai-exit { margin-left: auto; color: var(--accent-text); font-size: 12.5px; }
+.ai-searched { margin: 10px 20px 0; font-size: 12px; color: var(--faint); }
 .quick { margin: 0 0 14px; padding-left: 18px; line-height: 1.7; }
 .quick li { margin: 4px 0; }
 .similar { margin: 0 0 12px; padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); font-size: 13px; }
@@ -413,7 +415,7 @@ const T = {
     converted: { docs: t => `“${t}”已改为资料`, wiki: t => `“${t}”已改为笔记` },
     reread: "重新识别", rereadTip: "用现在的 OCR 设置重新识别这份资料（比如改了识别语言或 OCR 服务之后）",
     rereadConfirm: t => `用现在的 OCR 设置重新识别“${t}”？新识别出的文字会替换现在的；完成之前照常可以搜索。`, rereadDone: t => `已重新识别“${t}”`,
-    askFew: "结果不多？让 AI 换几种说法、用中英文再找找", askFewBtn: "✨ 用 AI 找找看",
+    askFew: "结果不多？让 AI 把问题换成几组关键词（中英文、资料里的说法）再找", askFewBtn: "✨ 用 AI 找",
     importing: (i, n, name) => `正在导入 ${i}/${n}：${name}`,
     ocrRunning: (name, more) => `正在后台识别图片文字：${name} {time}${more ? `，还有 ${more} 份在等` : ""}（正文已可搜索）`,
     ocrWait: "等待识别图片", ocrWaitNow: "正在识别图片",
@@ -457,13 +459,14 @@ const T = {
     quickTime: min => `你现在的资料建索引大约需要 ${min} 分钟，期间照常使用。`,
     quickTimeNone: "现在还没有资料，导入后会自动建索引。",
     quickStarted: "正在开启语义搜索，进度会显示出来", quickDone: "语义搜索已就绪",
-    tagView: t => `#${t}`, searchKeywordsOnly: "语义搜索没开，只按字面匹配：中文搜不到英文资料（反过来也一样），换个说法也可能搜不到。",
+    tagView: t => `#${t}`,
     linkMissing: "没有这条笔记", similarNotes: "已有相似的笔记，可以打开它追加内容：", saveAnyway: "仍然新建",
-    ask: "✨ 问 AI", askTip: "用 pi 当前的模型，根据知识库回答搜索框里的问题，并标出出处",
+    ask: "✨ 用 AI 找", askTip: "用右侧选择的模型（默认跟随 pi）把问题换成几组关键词（中英文、资料里的说法）再搜，结果按相关度排好。会把问题发给该模型的服务商，每次 1 次模型请求。快捷键 Shift+Enter",
+    aiTitle: "✨ AI 搜索", aiExit: "✕ 退出 AI 搜索", aiThinking: m => `正在让 ${m} 把问题换成几组关键词…`, aiNone: "AI 换了几种说法也没有找到相关内容。", aiAnswer: "让 AI 根据这些结果回答",
     askEmpty: "先在搜索框里输入一个问题", askTitle: "AI 回答", askLoading: "正在查资料并组织回答…", askNone: "知识库里没有找到和这个问题相关的内容。",
     askSources: "出处", askSearched: q => `检索词：${q}`, askCheck: "AI 回答可能有误，重要数值请点开出处核对。",
-    askProblems: { no_model: "pi 还没有可用的模型，或正在切换会话。在 pi 里用 /model 选一个模型后再试。", model_missing: "找不到这个模型，请在「问 AI」旁边重新选择", model_no_auth: id => `模型 ${id} 还没有配置登录或 API Key`, model_failed: d => `模型调用失败：${d}` },
-    askModel: "问 AI 用的模型", followPi: m => `跟随 pi${m ? `（${m}）` : ""}`, answeredBy: m => `由 ${m} 回答。`,
+    askProblems: { no_model: "pi 还没有可用的模型，或正在切换会话。在 pi 里用 /model 选一个模型后再试。", model_missing: "找不到这个模型，请在「用 AI 找」旁边重新选择", model_no_auth: id => `模型 ${id} 还没有配置登录或 API Key`, model_failed: d => `模型调用失败：${d}` },
+    askModel: "AI 搜索和回答用的模型", followPi: m => `跟随 pi${m ? `（${m}）` : ""}`, answeredBy: m => `由 ${m} 回答。`,
     ocrTitle: "文字识别（OCR）", ocrHint: "导入扫描版 PDF 和图片时用来识别文字。修改后对之后导入的文件生效；已导入的资料，在它的页面上点「重新识别」即可。",
     ocrLanguage: "识别语言", ocrServer: "OCR 服务地址（可不填）", ocrServerHint: "不填则用内置的 Tesseract。填入 PaddleOCR 等服务的地址后改用它，中文扫描件的识别效果好很多。",
     ocrLangs: { "eng+chi_sim": "简体中文 + 英文", "eng+chi_tra": "繁体中文 + 英文", "eng+chi_sim+chi_tra": "简体 + 繁体 + 英文", eng: "仅英文", "eng+chi_sim+jpn": "简体中文 + 日文 + 英文" },
@@ -522,7 +525,7 @@ const T = {
     converted: { docs: t => `“${t}” is now a document`, wiki: t => `“${t}” is now a note` },
     reread: "Read again", rereadTip: "Read this document again with the current OCR settings (e.g. after changing the OCR language or server)",
     rereadConfirm: t => `Read "${t}" again with the current OCR settings? The new text replaces the current one; searching works as usual meanwhile.`, rereadDone: t => `Read "${t}" again`,
-    askFew: "Few results? Let AI search with other wordings, in Chinese and English", askFewBtn: "✨ Ask AI",
+    askFew: "Few results? Let AI search again with other wordings, in Chinese and English", askFewBtn: "✨ Find with AI",
     importing: (i, n, name) => `Importing ${i}/${n}: ${name}`,
     ocrRunning: (name, more) => `Reading text in pictures: ${name} {time}${more ? `, ${more} more waiting` : ""} (the rest is searchable)`,
     ocrWait: "pictures waiting", ocrWaitNow: "reading pictures",
@@ -566,13 +569,14 @@ const T = {
     quickTime: min => `Indexing what you have takes about ${min} min; keep working meanwhile.`,
     quickTimeNone: "Nothing is imported yet; imports are indexed automatically.",
     quickStarted: "Turning on semantic search; progress shows here", quickDone: "Semantic search is ready",
-    tagView: t => `#${t}`, searchKeywordsOnly: "Semantic search is off, so only the exact words match: Chinese won't find English material (or the other way round), and other wording may be missed.",
+    tagView: t => `#${t}`,
     linkMissing: "No such note", similarNotes: "Similar notes already exist; open one to add to it:", saveAnyway: "Save as new anyway",
-    ask: "✨ Ask AI", askTip: "Answer the question in the search box from the knowledge base with pi's current model, citing sources",
+    ask: "✨ Find with AI", askTip: "Uses the model chosen on the right (pi's by default) to turn the question into a few searches (Chinese and English, the documents' own wording) and ranks what they find. Sends the question to that model's provider; one model request per search. Shortcut: Shift+Enter",
+    aiTitle: "✨ AI search", aiExit: "✕ Exit AI search", aiThinking: m => `Asking ${m} to turn the question into searches…`, aiNone: "Nothing found, even with the AI's other wordings.", aiAnswer: "Have AI answer from these results",
     askEmpty: "Type a question in the search box first", askTitle: "AI answer", askLoading: "Reading the knowledge base and writing an answer…", askNone: "Nothing in the knowledge base relates to this question.",
     askSources: "Sources", askSearched: q => `Searched: ${q}`, askCheck: "AI answers can be wrong; open the sources to check important values.",
-    askProblems: { no_model: "pi has no model available, or is switching sessions. Pick one with /model in pi and try again.", model_missing: "That model no longer exists; pick another one next to Ask AI", model_no_auth: id => `Model ${id} has no login or API key configured`, model_failed: d => `The model call failed: ${d}` },
-    askModel: "Model for Ask AI", followPi: m => `Follow pi${m ? ` (${m})` : ""}`, answeredBy: m => `Answered by ${m}.`,
+    askProblems: { no_model: "pi has no model available, or is switching sessions. Pick one with /model in pi and try again.", model_missing: "That model no longer exists; pick another one next to Find with AI", model_no_auth: id => `Model ${id} has no login or API key configured`, model_failed: d => `The model call failed: ${d}` },
+    askModel: "Model for AI search and answers", followPi: m => `Follow pi${m ? ` (${m})` : ""}`, answeredBy: m => `Answered by ${m}.`,
     ocrTitle: "Text recognition (OCR)", ocrHint: "Reads text from scanned PDFs and images when you import them. Changes apply to files imported from now on; for a document already imported, click “Read again” on its page.",
     ocrLanguage: "Languages", ocrServer: "OCR server (optional)", ocrServerHint: "Empty uses the built-in Tesseract. Enter the address of a service such as PaddleOCR to use it instead; it reads Chinese scans much better.",
     ocrLangs: { "eng+chi_sim": "English + Simplified Chinese", "eng+chi_tra": "English + Traditional Chinese", "eng+chi_sim+chi_tra": "English + Simplified + Traditional Chinese", eng: "English only", "eng+chi_sim+jpn": "English + Simplified Chinese + Japanese" },
@@ -874,25 +878,16 @@ function renderList() {
   // After imports: OCR reading pictures, with how long it has taken so far (ticks every second).
   const progress = busy ? `<div class="progress"><span class="spin"></span>${esc(busy)}</div>`
     : ocr?.current ? `<div class="progress"><span class="spin"></span>${esc(T.ocrRunning(ocr.current, Math.max(0, ocr.waiting - 1))).replace("{time}", `<span class="num" data-since="${ocr.startedAt ?? Date.now()}">${elapsed(ocr.startedAt)}</span>`)}</div>` : "";
+  if (state.ai) return renderAi(progress);
   if (state.hits) {
     const hits = state.hits;
     const body = hits.length
-      ? hits.map(h => {
-          const cite = h.page ? `${h.title} · ${T.page(h.page)}` : h.title;
-          return `<button class="card${state.selected === h.docId && state.focusPage === h.page ? " on" : ""}" data-id="${esc(h.docId)}" data-page="${h.page ?? ""}">
-            <div class="row1">${scopeTag(h.scope)}<span class="kind${h.collection === "wiki" ? " note" : ""}">${esc(h.collection === "wiki" ? T.kinds.note : T.docs)}</span><span class="title cite">${esc(cite)}</span></div>
-            <div class="summary">${highlight(h.snippet, state.q)}</div>
-            ${h.heading || h.match === "semantic" ? `<div class="meta">${h.match === "semantic" ? `<span class="sem" title="${esc(T.semanticHitTip)}">${esc(T.semanticHit)}</span>` : ""}${h.heading ? `§ ${esc(h.heading)}` : ""}</div>` : ""}
-          </button>`;
-        }).join("")
+      ? hits.map(h => hitCard(h, state.q)).join("")
       // Next to an answer to this same question, "no results" would read as a contradiction.
       : state.answer?.question === state.q.trim() ? "" : `<div class="empty">${esc(T.noHits(state.q))}<br><small>${esc(T.noHitsHint)}</small></div>`;
-    // Few hits with keywords only: say why (bilingual material needs semantic search to cross languages).
-    const sem = state.status?.semantic;
-    // Keywords only and few hits: offer semantic search in one click; once turned on, its progress in the same place.
-    const hint = state.semTurningOn ? `<div class="hint-line"><span class="spin"></span>${esc(semanticLine(sem))}</div>`
-      : hits.length < 3 && sem?.provider === "off" ? `<div class="hint-line">${esc(T.searchKeywordsOnly)}<button id="semQuickOpen">${esc(T.semTurnOn)} →</button></div>` : "";
-    // Few hits: the AI answer searches with several wordings in both languages. Not once it has answered this question.
+    // Semantic search being turned on from the settings: its progress here.
+    const hint = state.semTurningOn ? `<div class="hint-line"><span class="spin"></span>${esc(semanticLine(state.status?.semantic))}</div>` : "";
+    // Few hits: AI searches again with other wordings in both languages (Chinese questions, English datasheets).
     const askFew = hits.length < 3 && state.answer?.question !== state.q.trim() ? `<div class="hint-line">${esc(T.askFew)}<button id="askFew">${esc(T.askFewBtn)} →</button></div>` : "";
     $("list").innerHTML = `<div class="list-head"><h2>${esc(state.q)}</h2><span class="sub">${esc(T.results(hits.length))}</span>${progress}</div><div class="group">${answerCard()}${body}</div>${askFew}${hint}`;
     return;
@@ -908,6 +903,31 @@ function renderList() {
     : busy ? `<div class="empty">${esc(T.emptyImporting)}</div>`
     : `<div class="empty"><b>${esc(T.empty)}</b><br>${esc(T.emptyHint)}<br><button class="btn primary" id="emptyUpload">${esc(T.upload)}</button></div>`;
   $("list").innerHTML = `<div class="list-head"><h2>${esc(title)}</h2><span class="sub">${esc(T.items(docs.length))}</span>${progress}</div><div class="group">${answerCard()}${docs.length ? docs.map(d => card(d)).join("") : empty}</div>`;
+}
+
+/** One search result: where it is (document and page, or note) and the matching text, `words` marked. */
+function hitCard(h, words) {
+  const cite = h.page ? `${h.title} · ${T.page(h.page)}` : h.title;
+  return `<button class="card${state.selected === h.docId && state.focusPage === h.page ? " on" : ""}" data-id="${esc(h.docId)}" data-page="${h.page ?? ""}">
+    <div class="row1">${scopeTag(h.scope)}<span class="kind${h.collection === "wiki" ? " note" : ""}">${esc(h.collection === "wiki" ? T.kinds.note : T.docs)}</span><span class="title cite">${esc(cite)}</span></div>
+    <div class="summary">${highlight(h.snippet, words)}</div>
+    ${h.heading || h.match === "semantic" ? `<div class="meta">${h.match === "semantic" ? `<span class="sem" title="${esc(T.semanticHitTip)}">${esc(T.semanticHit)}</span>` : ""}${h.heading ? `§ ${esc(h.heading)}` : ""}</div>` : ""}
+  </button>`;
+}
+
+/** "Find with AI": the searches the model made up, what they found, and an offer to answer from it. */
+function renderAi(progress) {
+  const a = state.ai;
+  const head = n => `<div class="list-head"><h2>${esc(T.aiTitle)}</h2><span class="sub">${n === undefined ? "" : esc(T.results(n))}</span>${progress}<button class="ai-exit" id="aiExit">${esc(T.aiExit)}</button></div>`;
+  if (a.loading) { $("list").innerHTML = `${head()}<div class="hint-line"><span class="spin"></span>${esc(T.aiThinking(modelName(models.pick || models.current)))}</div>`; return; }
+  if (a.error) { $("list").innerHTML = `${head()}<div class="empty">${esc(a.error)}</div>`; return; }
+  const r = a.result;
+  const searched = r.queries.length ? `<p class="ai-searched">${esc(T.askSearched(r.queries.join(" · ")))}</p>` : "";
+  // Once asked, the answer card takes the button's place.
+  const answer = r.hits.length && state.answer?.question !== a.question ? `<div class="hint-line"><button id="aiAnswer">${esc(T.aiAnswer)} →</button></div>` : "";
+  const words = [a.question, ...r.queries].join(" ");
+  const body = r.hits.length ? r.hits.map(h => hitCard(h, words)).join("") : `<div class="empty">${esc(T.aiNone)}</div>`;
+  $("list").innerHTML = `${head(r.hits.length)}${searched}${answer}<div class="group">${answerCard()}${body}</div>`;
 }
 
 /** The open item's collections with a button to change them; global items only (a project's own have none). */
@@ -1144,8 +1164,16 @@ async function upload(files, note) {
 }
 
 // ---- events ----
-$("q").addEventListener("input", e => { state.q = e.target.value; clearTimeout(search.t); search.t = setTimeout(search, 200); });
+$("q").addEventListener("input", e => {
+  state.q = e.target.value;
+  if (state.ai) { aiAbort?.abort(); askAbort?.abort(); state.ai = null; state.answer = null; }
+  clearTimeout(search.t); search.t = setTimeout(search, 200);
+});
+$("q").addEventListener("keydown", e => {
+  if (e.key === "Enter" && e.shiftKey && !e.isComposing) { e.preventDefault(); aiFind(); }
+});
 document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && document.activeElement === $("q") && state.ai) { exitAi(); return; }
   if (e.key === "/" && !/INPUT|TEXTAREA/.test(document.activeElement?.tagName ?? "")) { e.preventDefault(); $("q").focus(); }
   if (e.key === "Escape" && document.activeElement === $("q")) { $("q").value = ""; state.q = ""; search(); }
 });
@@ -1157,32 +1185,59 @@ $("enabledSeg").addEventListener("click", async e => {
 $("upload").addEventListener("click", () => $("files").click());
 
 // ---- ask the knowledge base ----
+/** A request to the model through pi; null when cancelled, else the reply or an error in the page's words. */
+async function aiPost(path, body, signal) {
+  const res = await fetch("/api/kb" + path, { method: "POST", signal, headers: { "x-token": TOKEN, "content-type": "application/json" }, body: JSON.stringify({ ...body, model: models.pick || undefined }) });
+  const data = await res.json().catch(() => ({}));
+  if (res.ok) return data;
+  const [problem, ...detail] = String(data.error || `HTTP ${res.status}`).split(": ");
+  if (problem === "cancelled") return null;
+  const say = T.askProblems[problem];
+  throw new Error(typeof say === "function" ? say(detail.join(": ")) : say || data.error);
+}
+const aiError = e => e.message === "Failed to fetch" ? T.offline : e.message;
+
+/** Answer a question; `searches` are those of the AI search list it answers from (no second planning). */
 let askAbort = null;
-async function askAi() {
-  const question = state.q.trim();
+async function askAi(question = state.q.trim(), searches) {
   if (!question) { toast(T.askEmpty); $("q").focus(); return; }
   askAbort?.abort();
   const abort = askAbort = new AbortController();
   state.answer = { question, loading: true };
   renderList();
   try {
-    const res = await fetch("/api/kb/ask", { method: "POST", signal: abort.signal, headers: { "x-token": TOKEN, "content-type": "application/json" }, body: JSON.stringify({ question, model: models.pick || undefined }) });
-    const data = await res.json().catch(() => ({}));
+    const data = await aiPost("/ask", { question, searches }, abort.signal);
     if (abort !== askAbort) return;
-    if (!res.ok) {
-      const [problem, ...detail] = String(data.error || `HTTP ${res.status}`).split(": ");
-      if (problem === "cancelled") { state.answer = null; renderList(); return; }
-      const say = T.askProblems[problem];
-      throw new Error(typeof say === "function" ? say(detail.join(": ")) : say || data.error);
-    }
-    state.answer = { question, result: data };
+    state.answer = data ? { question, result: data } : null;
   } catch (e) {
     if (abort.signal.aborted) return;
-    state.answer = { question, error: e.message === "Failed to fetch" ? T.offline : e.message };
+    state.answer = { question, error: aiError(e) };
   }
   renderList();
 }
-$("askBtn").addEventListener("click", askAi);
+
+/** Find with AI: the model turns the question into searches; the list shows what they found. */
+let aiAbort = null;
+async function aiFind() {
+  const question = state.q.trim();
+  if (!question) { toast(T.askEmpty); $("q").focus(); return; }
+  aiAbort?.abort(); askAbort?.abort();
+  const abort = aiAbort = new AbortController();
+  state.answer = null;
+  state.ai = { question, loading: true };
+  renderList();
+  try {
+    const data = await aiPost("/ai-search", { question }, abort.signal);
+    if (abort !== aiAbort) return;
+    state.ai = data ? { question, result: data } : null;
+  } catch (e) {
+    if (abort.signal.aborted) return;
+    state.ai = { question, error: aiError(e) };
+  }
+  renderList();
+}
+function exitAi() { aiAbort?.abort(); askAbort?.abort(); state.ai = null; state.answer = null; renderList(); }
+$("askBtn").addEventListener("click", aiFind);
 
 // Model for Ask AI: "" follows pi's current model; a pick is remembered in this browser.
 const models = { list: [], current: "", pick: "" };
@@ -1205,7 +1260,7 @@ $("askModel").addEventListener("change", e => {
 $("files").addEventListener("change", e => { upload(e.target.files); e.target.value = ""; });
 $("noteFiles").addEventListener("change", e => { $("newNote").close(); upload(e.target.files, true); e.target.value = ""; });
 
-function showView(view) { state.view = view; state.hits = null; state.q = ""; $("q").value = ""; renderSide(); renderList(); }
+function showView(view) { if (state.ai) exitAi(); state.view = view; state.hits = null; state.q = ""; $("q").value = ""; renderSide(); renderList(); }
 $("side").addEventListener("click", async e => {
   const b = e.target.closest("button"); if (!b) return;
   if (b.dataset.view) return showView(b.dataset.view);
@@ -1252,7 +1307,9 @@ $("list").addEventListener("click", e => {
   if (e.target.closest("#emptyUpload")) return $("files").click();
   if (e.target.closest("#askClose")) { askAbort?.abort(); state.answer = null; renderList(); return; }
   if (e.target.closest("#semQuickOpen")) return openQuick();
-  if (e.target.closest("#askFew")) return askAi();
+  if (e.target.closest("#askFew")) return aiFind();
+  if (e.target.closest("#aiExit")) return exitAi();
+  if (e.target.closest("#aiAnswer")) return askAi(state.ai.question, state.ai.result.queries);
   const ref = e.target.closest("[data-ref]");
   if (ref && state.answer?.result) { const s = state.answer.result.sources[ref.dataset.ref - 1]; if (s) select(s.docId, s.page); return; }
   const c = e.target.closest(".card"); if (!c) return;
@@ -1325,6 +1382,7 @@ $("preview").addEventListener("click", async e => {
       await api("/remove", { body: { id } });
       state.selected = null; state.doc = null; $("app").classList.remove("detail");
       if (state.hits) state.hits = state.hits.filter(h => h.docId !== id);
+      if (state.ai?.result) state.ai.result.hits = state.ai.result.hits.filter(h => h.docId !== id);
       etags = {}; await refresh(); renderPreview(); toast(T.removed);
     } catch (err) { toast(err.message); }
   }

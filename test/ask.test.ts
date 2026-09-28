@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
-import { ask, AskError, citedNumbers, listModels, type ModelContext, parseQueries } from "../src/ask.ts";
+import { aiSearch, ask, AskError, citedNumbers, listModels, type ModelContext, parseQueries } from "../src/ask.ts";
 import { KnowledgeBase } from "../src/kb.ts";
 import { Library } from "../src/library.ts";
 
@@ -105,4 +105,26 @@ test("the page can pick another model; unknown or unconfigured models are refuse
 	await refused("gone/model", "model_missing");
 	await refused("nonsense", "model_missing");
 	await refused("test/locked", "model_no_auth");
+});
+
+test("find with AI: one planning call, the searches' keyword hits merged, the question's own words too", async () => {
+	const calls: { system: string; text: string }[] = [];
+	// The question alone finds nothing (English words, Chinese manual); the planned Chinese search does.
+	const r = await aiSearch(new Library(kb), fakeModel('{"queries":["CTRL_REG 复位值"]}', () => "unused", calls), "reset value of the control register", new AbortController().signal);
+	assert.equal(calls.length, 1, "no answering call");
+	assert.deepEqual(r.queries, ["CTRL_REG 复位值"]);
+	assert.equal(r.model, "test/fake");
+	assert.ok(r.hits.length, "the planned search found something");
+	assert.ok(r.hits.every((h) => h.match !== "semantic"));
+	assert.equal(r.hits[0].title, "xr100-manual.pdf");
+	await assert.rejects(aiSearch(new Library(kb), undefined, "x", new AbortController().signal), (e: unknown) => e instanceof AskError && e.problem === "no_model");
+});
+
+test("answering from an AI search list reuses its searches instead of planning again", async () => {
+	const calls: { system: string; text: string }[] = [];
+	const r = await ask(new Library(kb), fakeModel("never asked", () => "0x00 [1]", calls), "reset value of the control register", new AbortController().signal, undefined, ["CTRL_REG 复位值", 42 as unknown as string]);
+	assert.equal(calls.length, 1, "only the answering call");
+	assert.match(calls[0].text, /xr100-manual\.pdf/);
+	assert.deepEqual(r.queries, ["CTRL_REG 复位值"], "junk dropped");
+	assert.equal(r.sources[0]?.title, "xr100-manual.pdf");
 });

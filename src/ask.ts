@@ -3,8 +3,15 @@ import type { Library, Scope, ScopedHit } from "./library.ts";
 import type { Collection } from "./store.ts";
 
 /**
- * "Ask the knowledge base" on the web page: plan a few searches, retrieve passages, and have the
- * model answer only from them, citing [n]. One planning call and one answering call per question.
+ * AI on the web page. "Find with AI": the model turns a question into a few keyword searches (both
+ * languages, the documents' own wording) and their results are merged, one model call. "Answer":
+ * the model answers only from the passages those searches found, citing [n], one more call.
+ *
+ * The searches run on keywords only. Measured on 96 questions over 682 documents and notes: keyword
+ * search alone found the right page first for 55, with semantic search 69, with the model's
+ * searches 83-85, and with the model's searches plus semantic search 65-67 (close-in-meaning
+ * results from every search push the right one down). Semantic search is kept for when the
+ * keyword searches find nothing.
  */
 
 export type ModelContext = Pick<ExtensionContext, "model" | "modelRegistry">;
@@ -31,6 +38,14 @@ export interface AskSource {
 	collection: Collection;
 	scope: Scope;
 }
+export interface SearchResult {
+	hits: ScopedHit[];
+	/** The searches that were run, without the question itself. */
+	queries: string[];
+	/** "provider/id" of the model that planned them. */
+	model: string;
+	usage?: { input: number; output: number };
+}
 export interface AskResult {
 	answer: string;
 	/** Only the passages the answer cites, in citation order. */
@@ -43,6 +58,8 @@ export interface AskResult {
 }
 
 export const MAX_PASSAGES = 8;
+/** Results in a "Find with AI" list. */
+export const MAX_RESULTS = 20;
 const PASSAGE_CHARS = 1500;
 const QUESTION_CHARS = 500;
 
@@ -111,28 +128,43 @@ export function parseQueries(raw: string, question: string): string[] {
 	} catch {
 		// Use the question alone.
 	}
-	const clean = (Array.isArray(queries) ? queries : [])
+	return withQuestion(Array.isArray(queries) ? queries : [], question);
+}
+
+/** The question itself, then up to 4 tidy searches. The question runs too: its own words may match. */
+function withQuestion(searches: unknown[], question: string): string[] {
+	const tidy = searches
 		.filter((q): q is string => typeof q === "string")
 		.map((q) => q.replace(/\s+/g, " ").trim().slice(0, 80))
 		.filter(Boolean);
-	// The question itself always runs too: it carries the meaning for semantic search.
-	return [...new Set([question, ...clean.slice(0, 4)])];
+	return [...new Set([question, ...tidy.slice(0, 4)])];
 }
 
-/** Passages for the answer: every query's hits (project and global) merged by reciprocal rank, best first. */
-export async function gather(lib: Library, queries: string[], limit = MAX_PASSAGES) {
+/**
+ * Every query's keyword hits (project and global) merged by reciprocal rank, best first; by meaning
+ * only when no keyword search found anything and semantic search is on.
+ */
+export async function retrieve(lib: Library, queries: string[], limit: number): Promise<ScopedHit[]> {
 	// Chunk numbers are per knowledge base.
 	const key = (hit: ScopedHit) => `${hit.scope}:${hit.chunk}`;
-	const scores = new Map<string, number>();
-	const hits = new Map<string, ScopedHit>();
-	for (const query of queries) {
-		const found = await lib.find(query, { limit: 10 });
-		found.forEach((hit, rank) => {
-			scores.set(key(hit), (scores.get(key(hit)) ?? 0) + 1 / (60 + rank));
-			if (!hits.has(key(hit))) hits.set(key(hit), hit);
-		});
-	}
-	const best = [...scores.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([k]) => hits.get(k)!);
+	const merge = async (search: (query: string) => Promise<ScopedHit[]>) => {
+		const scores = new Map<string, number>();
+		const hits = new Map<string, ScopedHit>();
+		for (const query of queries) {
+			(await search(query)).forEach((hit, rank) => {
+				scores.set(key(hit), (scores.get(key(hit)) ?? 0) + 1 / (60 + rank));
+				if (!hits.has(key(hit))) hits.set(key(hit), hit);
+			});
+		}
+		return [...scores.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([k]) => hits.get(k)!);
+	};
+	const found = await merge((query) => lib.search(query, { limit: 10 }));
+	return found.length || !lib.semanticReady() ? found : merge((query) => lib.find(query, { limit: 10 }));
+}
+
+/** Passages for the answer: what the searches found, with the text around each hit. */
+export async function gather(lib: Library, queries: string[], limit = MAX_PASSAGES) {
+	const best = await retrieve(lib, queries, limit);
 	const texts = lib.chunkTexts(best);
 	return best.map((hit, i) => ({
 		n: i + 1,
@@ -158,12 +190,35 @@ export function citedNumbers(answer: string, count: number): number[] {
 	return seen;
 }
 
-export async function ask(lib: Library, ctx: ModelContext | undefined, rawQuestion: string, signal: AbortSignal, pick?: string): Promise<AskResult> {
+const clean = (question: string) => question.replace(/\s+/g, " ").trim().slice(0, QUESTION_CHARS);
+
+/** The model's searches for a question, the question itself first. Reasoning models think before the JSON. */
+async function plan(ctx: ModelContext, model: Model, question: string, signal: AbortSignal) {
+	const reply = await complete(ctx, model, PLAN, question, signal, 1000);
+	return { queries: parseQueries(reply.text, question), input: reply.input, output: reply.output };
+}
+
+/** "Find with AI": one model call plans the searches; their merged results come back as a list. */
+export async function aiSearch(lib: Library, ctx: ModelContext | undefined, rawQuestion: string, signal: AbortSignal, pick?: string): Promise<SearchResult> {
 	const model = resolveModel(ctx, pick);
 	if (!ctx) throw new AskError("no_model", 409);
-	const question = rawQuestion.replace(/\s+/g, " ").trim().slice(0, QUESTION_CHARS);
-	const plan = await complete(ctx, model, PLAN, question, signal, 300);
-	const queries = parseQueries(plan.text, question);
+	const planned = await plan(ctx, model, clean(rawQuestion), signal);
+	const hits = await retrieve(lib, planned.queries, MAX_RESULTS);
+	return { hits, queries: planned.queries.slice(1), model: modelKey(model), usage: { input: planned.input, output: planned.output } };
+}
+
+/**
+ * Answer a question from the knowledge base. `searches`: the ones a "Find with AI" list was made
+ * from, so the answer reads the same results and needs no planning call.
+ */
+export async function ask(lib: Library, ctx: ModelContext | undefined, rawQuestion: string, signal: AbortSignal, pick?: string, searches?: string[]): Promise<AskResult> {
+	const model = resolveModel(ctx, pick);
+	if (!ctx) throw new AskError("no_model", 409);
+	const question = clean(rawQuestion);
+	const planned = searches?.length
+		? { queries: withQuestion(searches, question), input: 0, output: 0 }
+		: await plan(ctx, model, question, signal);
+	const queries = planned.queries;
 	const passages = await gather(lib, queries);
 	let answer: { text: string; input: number; output: number };
 	if (!passages.length) {
@@ -185,5 +240,5 @@ export async function ask(lib: Library, ctx: ModelContext | undefined, rawQuesti
 		const p = passages[n - 1];
 		return { n: i + 1, docId: p.docId, title: p.title, page: p.page, collection: p.collection, scope: p.scope };
 	});
-	return { answer: text, sources, queries: queries.slice(1), model: modelKey(model), usage: { input: plan.input + answer.input, output: plan.output + answer.output } };
+	return { answer: text, sources, queries: queries.slice(1), model: modelKey(model), usage: { input: planned.input + answer.input, output: planned.output + answer.output } };
 }
