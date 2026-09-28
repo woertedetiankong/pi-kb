@@ -145,8 +145,8 @@ const en = {
 	welcome:
 		"📚 Knowledge base ready. Add your documents with /kb add <file or folder> (PDFs, images, Markdown; dragging files in works), or drop them on the page from /kb web. Then just ask: pi searches them and cites the page.",
 	emptyHint: "Nothing here yet: add documents with /kb add <file or folder>, or drop them on the page from /kb web.",
-	semanticTip:
-		"Tip: search matches the exact words only, so Chinese won't find English documents (or the other way round). Turn on semantic search with /kb semantic local to search by meaning and across languages: it runs on this computer (documents stay here), downloads about 1.1 GB once, and indexes in the background. Or click \"Turn on semantic search\" on the /kb web page.",
+	noMatchesHint:
+		"/kb search matches words, so Chinese won't find English documents (or the other way round). Try other words or the other language, or just ask pi: it searches with several wordings in both languages. On the /kb web page, \"Find with AI\" does the same.",
 	wikiNote: "note",
 	usageRemove: "Usage: /kb remove <title or id>",
 	pickTitle: (action: "remove" | "move" | "reread" | "group", shown: number, total: number) =>
@@ -405,8 +405,8 @@ const zh: Messages = {
 	welcome:
 		"📚 知识库已就绪。用 /kb add <文件或文件夹> 添加资料（PDF、图片、Markdown，也可以直接把文件拖进终端），或在 /kb web 打开的网页上拖入文件。之后直接提问即可：pi 会检索资料并注明页码。",
 	emptyHint: "知识库还是空的：用 /kb add <文件或文件夹> 添加资料，或在 /kb web 打开的网页上拖入文件。",
-	semanticTip:
-		"提示：现在只按字面搜索，中文搜不到英文资料（反过来也一样）。运行 /kb semantic local 开启语义搜索，就能按意思、跨中英文搜索：在本机运行，资料不外传；第一次下载约 1.1GB，之后在后台建索引。也可以在 /kb web 网页上点「开启语义搜索」。",
+	noMatchesHint:
+		"/kb search 按字面搜索，中文搜不到英文资料（反过来也一样）。换个词或另一种语言再试，或者直接问 pi：它会换几种说法、中英文一起搜。/kb web 网页上的「用 AI 找」也一样。",
 	wikiNote: "笔记",
 	usageRemove: "用法：/kb remove <标题或 id>",
 	importResumed: (n) => `继续导入上次 pi 关闭时没导完的 ${n} 个文件。/kb cancel 可以停止。`,

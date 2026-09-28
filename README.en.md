@@ -70,9 +70,17 @@ The flags `pi --kb off` / `--kb on` apply to this run only.
 
 ## Semantic search (optional)
 
-By default only keyword search is used. With semantic search on you can ask in plain language ("how many volts can the chip take at most" finds the page that says "absolute maximum rating 4.0V"), and Chinese and English find each other. Keyword and semantic results are merged by rank (RRF); results found only by meaning are marked "semantic", and the agent checks them with `kb_read` before citing.
+By default only keyword search is used, and that is usually enough: AI takes care of other wordings and Chinese questions about English documents. The agent in pi searches several times and switches language by itself; on the web page, use "✨ Find with AI". Measured on 682 documents and notes:
 
-**The easiest way to turn it on**: on the web page, click "Turn on semantic search" under search results when there are few, or in the overview. It says what gets downloaded and about how long indexing what you have takes; once you confirm, it turns on locally, shows progress in place and searches again by meaning when done. `/kb semantic local` in the terminal does the same. On a Mac with 24 GB of memory the local model embeds about 3.5 chunks a second: a 162-page datasheet in about 2 minutes.
+| | Keywords | Keywords + semantic |
+|---|---|---|
+| The agent in pi cited the right document (DeepSeek flash, 56 answerable questions) | 54 | 55 |
+| Average time per question | 9.8 s | 16.3 s |
+| Questions the knowledge base cannot answer: the agent said so (8) | 8 | 8 |
+
+Semantic search keeps a model of about 1.6 GB in memory, and indexing takes 2–3 GB and half the CPU, which makes computers with little memory noticeably slow. It is worth turning on only when you often search by meaning without AI (the web page's search box as you type).
+
+With it on, you can ask in plain language ("how many volts can the chip take at most" finds the page that says "absolute maximum rating 4.0V"), and Chinese and English find each other. Keyword and semantic results are merged by rank (RRF); results found only by meaning are marked "semantic", and the agent checks them with `kb_read` before citing. On a Mac with 24 GB of memory the local model embeds about 3.5 chunks a second: a 162-page datasheet in about 2 minutes.
 
 Two ways, pick one. Turn it on with the commands below in pi, or on the web page (`/kb web`) under "Settings" in the sidebar, where you can also enter the endpoint and key and set mirrors. Both edit the same settings, and other pi windows follow within a few seconds:
 
@@ -192,7 +200,7 @@ What the agent sees in a project = the project's knowledge base (if any)
 - Browse the converted text (tables and headings rendered as Markdown), create and edit notes, delete, and turn the knowledge base on or off
 - PDFs, images and Office documents have "Read again" on their page: after changing the OCR language or server, the document is converted again from its original, keeping its id, title and import date, so earlier citations still fit. It goes through the import queue; it needs the original on this computer (a project knowledge base does not commit originals by default)
 - `[[links]]` in notes open the linked note (missing ones are struck through); click a tag, or one under "Tags" in the sidebar, to see the notes with that tag
-- With semantic search off, a search with few results says why: only the exact words match, so Chinese does not find English material
+- A search with few results says why (only the words match, so Chinese does not find English material) and offers Find with AI
 - 中文 / English switch; add `?lang=en` or `?lang=zh` to a link to choose the language, `?q=<keywords>` to search directly, `?doc=<id>&page=<n>` to open a page of a document
 
 The page is served by the shared pi-web server (`src/hub.ts`). When [pi-sessions](https://github.com/woertedetiankong/pi-newsession) and [pi-learn](https://github.com/woertedetiankong/pi-learn) are installed too, they live under one address (`/sessions/`, `/kb/`, `/learn/`) with a switcher at the top, sharing the access token in `~/.pi/agent/pi-web/token`. After `/reload` the server comes back at the same address, so open pages keep working. `src/hub.ts` must stay identical in all three repositories.

@@ -590,7 +590,6 @@ export default function piKb(pi: ExtensionAPI) {
 		open().updateConfig({ tips: [...shown, tip] });
 		return true;
 	};
-	const semanticOff = () => open().config.semantic.provider === "off";
 	const isEmpty = () => {
 		const { docs, wiki } = lib().stats();
 		return docs + wiki === 0;
@@ -603,13 +602,11 @@ export default function piKb(pi: ExtensionAPI) {
 		if (!ctx || (results.some((r) => r.reason === "cancelled") && results.every((r) => r.status === "skipped"))) return;
 		const m = t();
 		const summary = summarizeAdds(results, m);
-		// After the first documents arrive, say once why a question in the other language may find nothing.
-		const tip = results.some((r) => r.status === "added") && semanticOff() && firstTime("semantic") ? `\n\n${m.semanticTip}` : "";
 		// The web page takes dropped Markdown as notes; here it stays a document unless --note says so.
 		const markdown = results.some((r) => r.status === "added" && r.doc?.collection === "docs" && isMarkdown(r.path)) ? `\n\n${m.mdAsDocuments}` : "";
 		const waiting = new Set(lib().ocrPending().map((d) => d.id));
 		const ocr = results.some((r) => r.status === "added" && r.doc && waiting.has(r.doc.id)) ? `\n\n${m.ocrLater}` : "";
-		show(ctx, m.importTitle, summary + markdown + ocr + tip);
+		show(ctx, m.importTitle, summary + markdown + ocr);
 		ctx.ui.notify(summary.split("\n")[0], results.some((r) => r.status === "failed") ? "warning" : "info");
 	};
 
@@ -769,10 +766,7 @@ export default function piKb(pi: ExtensionAPI) {
 			const hits = await library.find(params.query, { limit: params.limit, collection: scope, shelf });
 			let text = hits.length
 				? formatHits(hits, MODEL, !!project)
-				: "No matches. Try fewer or different keywords, synonyms, or the other language." +
-					(semanticOff()
-						? " Semantic search is off, so only exact words match. If the answer is likely in the knowledge base but in another language or other wording, tell the user once that they can turn on semantic search with /kb semantic."
-						: "");
+				: "No matches. Search matches words: try fewer or different keywords, synonyms, the wording a manual would use, or the other language (documents are often in English when the user writes Chinese).";
 			// Files still importing are not searchable yet; without this the model tells the user the knowledge base lacks them.
 			const pending = imports.pending();
 			if (pending.length) {
@@ -1276,7 +1270,7 @@ export default function piKb(pi: ExtensionAPI) {
 						return;
 					}
 					const hits = await lib().find(query, { limit: 10 });
-					const none = semanticOff() ? `${m.noMatches}\n\n${m.semanticTip}` : m.noMatches;
+					const none = `${m.noMatches}\n\n${m.noMatchesHint}`;
 					show(ctx, m.searchTitle(hits.length, query), hits.length ? formatHits(hits, m, !!project) : none);
 					return;
 				}

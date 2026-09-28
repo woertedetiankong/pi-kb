@@ -1,6 +1,6 @@
 /**
  * First-run hints, through the extension itself with a fake pi: the welcome on an empty knowledge
- * base, the empty hint in /kb status, the one-time semantic search tip, /kb help and completions,
+ * base, the empty hint in /kb status, no semantic search sales pitch, /kb help and completions,
  * naming what to remove by title, the Markdown-as-documents hint and /kb reread.
  */
 import assert from "node:assert/strict";
@@ -74,7 +74,7 @@ after(async () => {
 });
 
 const welcome = /Knowledge base ready\. Add your documents with \/kb add/;
-const tip = /\/kb semantic local/;
+const semanticPitch = /semantic/i;
 
 test("an empty knowledge base says how to start, once", async () => {
 	await fire("session_start");
@@ -88,14 +88,16 @@ test("an empty knowledge base says how to start, once", async () => {
 	assert.match(notes.at(-1) ?? "", /Nothing here yet: add documents with \/kb add/);
 });
 
-test("with keyword search only, an empty search says why, for the user and the agent", async () => {
+test("an empty search says what to try, for the user and the agent, without pushing semantic search", async () => {
 	await kb.handler("search nothing-like-this", ctx);
-	assert.match(widget.join("\n"), tip);
+	assert.match(widget.join("\n"), /or just ask pi: it searches with several wordings/);
+	assert.doesNotMatch(widget.join("\n"), semanticPitch);
 	const result = await tools.get("kb_search")!.execute("id", { query: "nothing-like-this" }, undefined, undefined, ctx);
-	assert.match(result.content[0].text, /Semantic search is off[\s\S]*\/kb semantic/);
+	assert.match(result.content[0].text, /the other language/);
+	assert.doesNotMatch(result.content[0].text, semanticPitch);
 });
 
-test("the first import mentions semantic search once, and the empty hint goes away", async () => {
+test("imports do not pitch semantic search, and the empty hint goes away", async () => {
 	const until = async (check: () => boolean) => {
 		while (!check()) await new Promise((r) => setTimeout(r, 5));
 	};
@@ -105,15 +107,15 @@ test("the first import mentions semantic search once, and the empty hint goes aw
 	widget = [];
 	await kb.handler("add a.md", ctx);
 	await until(() => /import/i.test(widget[0] ?? ""));
-	assert.match(widget.join("\n"), tip, "after the first import");
+	assert.doesNotMatch(widget.join("\n"), semanticPitch, "not after the first import");
 
 	widget = [];
 	await kb.handler("add b.md", ctx);
 	await until(() => /import/i.test(widget[0] ?? ""));
-	assert.doesNotMatch(widget.join("\n"), tip, "only once");
+	assert.doesNotMatch(widget.join("\n"), semanticPitch);
 
 	const saved = JSON.parse(readFileSync(join(root, "kb", "config.json"), "utf8"));
-	assert.deepEqual(saved.tips, ["welcome", "semantic"]);
+	assert.deepEqual(saved.tips, ["welcome"]);
 	await kb.handler("status", ctx);
 	assert.doesNotMatch(notes.at(-1) ?? "", /Nothing here yet/);
 });

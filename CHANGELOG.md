@@ -2,12 +2,13 @@
 
 ## Unreleased
 
-The web page's search box finds with AI, like pi-sessions; the AI answer builds on what it found.
+AI does the rewording instead of semantic search: the web page's search box finds with AI, like pi-sessions, and semantic search is no longer pushed.
 
 - "✨ Find with AI" (the button next to the search box, or Shift+Enter) replaces "Ask AI": the model turns the question into a few keyword searches (Chinese and English, the documents' own wording) and the page lists what they found as "AI search", with the searches above the list and a way out. One model call. Typing goes back to the instant word search.
 - "Have AI answer from these results" above the list writes the cited answer from those same searches (one more call, no second planning).
 - Why keyword searches: measured on 104 questions over 682 documents and notes (the scale test), the right page came first for 55 of 96 with word search, 69 with semantic search, 83-85 with the model's keyword searches (DeepSeek flash / v4-pro), and 65-67 with the model's searches plus semantic search. AI search and AI answers now search by keywords, and use semantic search only when no keyword search finds anything. The real agent in pi (DeepSeek flash, 64 questions) cited the right document 54 times with semantic search off and 55 with it on.
 - When word search finds fewer than 3 results, the hint below offers Find with AI instead of turning on semantic search.
+- Semantic search is no longer pushed. It stays in Settings and `/kb semantic` for those who want it, but nothing suggests it any more: not the tip after the first import, not an empty `/kb search` (it now suggests other words, the other language, or asking pi), not the agent's no-match result (which told the model to recommend it), and not the web page (the one-click dialog, the hint under few results and the overview line while it is off are gone; Settings says when it is worth it). Why: the real agent in pi (DeepSeek flash, only the knowledge base tools, 64 questions) cited the right document 54 times with it off and 55 with it on, gave the right value for all 20 part-number questions and said "not in the knowledge base" for all 8 unanswerable ones either way, and took 9.8 s per question instead of 16.3 s. It searched about 2.8 times per question and switched language by itself. The local model holds about 1.6 GB and indexing takes 2–3 GB and half the CPU, which is what made a Windows user's computer lag.
 - Checked in Chrome with DeepSeek flash on the scale-test knowledge base: "BMI270 加速度计量程最大是多少" found nothing by words; Find with AI searched "BMI270 accelerometer range · BMI270 量程 · …" and listed BMI270 pages first; the answer said ±16g, citing p.109 (ACC_RANGE) and p.2.
 
 ## v0.6.6 — 2026-09-28

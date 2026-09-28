@@ -142,8 +142,6 @@ button.tag:hover, .wikilink:hover { text-decoration: underline; }
 .hint-line button { color: var(--accent-text); font-size: 12.5px; margin-left: 4px; }
 .list-head .ai-exit { margin-left: auto; color: var(--accent-text); font-size: 12.5px; }
 .ai-searched { margin: 10px 20px 0; font-size: 12px; color: var(--faint); }
-.quick { margin: 0 0 14px; padding-left: 18px; line-height: 1.7; }
-.quick li { margin: 4px 0; }
 .similar { margin: 0 0 12px; padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); font-size: 13px; }
 .similar button { display: block; color: var(--accent-text); font-size: 13px; padding: 2px 0; text-align: left; }
 .empty { padding: 60px 24px; text-align: center; color: var(--faint); }
@@ -324,14 +322,6 @@ dialog.dlg::backdrop { background: rgba(0,0,0,.35); }
   </form>
 </dialog>
 
-<dialog class="dlg" id="semQuick">
-  <div class="dlg-head"><h2 data-t="quickTitle"></h2><button data-close aria-label="close">✕</button></div>
-  <form method="dialog">
-    <ul class="quick" id="quickList"></ul>
-    <div class="row"><span class="fine"><button type="button" class="link" id="quickMore" data-t="quickMore"></button></span><button class="btn" value="later" data-t="quickLater"></button><button class="btn primary" value="on" data-t="quickOn"></button></div>
-  </form>
-</dialog>
-
 <dialog class="dlg" id="semDlg">
   <div class="dlg-head"><h2 data-t="settings"></h2><button data-close aria-label="close">✕</button></div>
   <form method="dialog">
@@ -450,15 +440,7 @@ const T = {
     semIndexing: (d, t) => `语义检索：正在建立索引 ${d}/${t}`, semPaused: (d, t) => `语义检索：正在建立索引 ${d}/${t}，识别图片文字时暂停`, semReady: t => `语义检索已开启：${t} 个片段`, semDownload: p => `语义检索：正在下载模型 ${p}%`,
     semError: "语义检索出错，暂时只按关键词搜索。打开设置查看原因。",
     semInstalling: "语义检索：正在安装本机模型运行时…", semInstallFailed: "本机模型运行时安装失败，打开设置查看原因。",
-    settings: "设置", semSetup: "设置", semTurnOn: "开启语义搜索",
-    quickTitle: "开启语义搜索", quickOn: "开启", quickLater: "以后再说", quickMore: "想用在线接口？到设置里选",
-    quickWhy: "按意思搜索：中文也能搜到英文资料，换个说法也能找到。",
-    quickLocal: "在这台电脑上运行，资料内容不会外传，也不收费。",
-    quickDownload: "第一次需要下载约 1.1GB（只下载一次）；建索引时占用约 2–3GB 内存。",
-    quickDownloaded: "本机模型已经下载好了，不用再下载。",
-    quickTime: min => `你现在的资料建索引大约需要 ${min} 分钟，期间照常使用。`,
-    quickTimeNone: "现在还没有资料，导入后会自动建索引。",
-    quickStarted: "正在开启语义搜索，进度会显示出来", quickDone: "语义搜索已就绪",
+    settings: "设置", semSetup: "设置",
     tagView: t => `#${t}`,
     linkMissing: "没有这条笔记", similarNotes: "已有相似的笔记，可以打开它追加内容：", saveAnyway: "仍然新建",
     ask: "✨ 用 AI 找", askTip: "用右侧选择的模型（默认跟随 pi）把问题换成几组关键词（中英文、资料里的说法）再搜，结果按相关度排好。会把问题发给该模型的服务商，每次 1 次模型请求。快捷键 Shift+Enter",
@@ -480,7 +462,7 @@ const T = {
     locMoved: (dir, d, n) => `已切换到 ${dir}：${d} 份资料、${n} 条笔记`,
     locProblems: { location_env: "位置由环境变量 PI_KB_DIR 指定，网页上不能修改", location_busy: "正在导入文件，等导入完成后再移动", location_relative: "请填写完整路径，例如 ~/Dropbox/pi-kb 或 D:\\pi-kb", location_not_writable: d => `这个文件夹不能写入（${d}）` },
     semTitle: "语义检索", semModeOff: "关闭", semModeLocal: "本机模型", semModeApi: "在线接口",
-    semOffHint: "只按关键词搜索。不下载模型，也不向外发送任何内容。",
+    semOffHint: "只按关键词搜索，一般就够用：pi 里的 agent 和「用 AI 找」会自己换说法、中英文一起搜（测试里比开语义检索找得更准）。不下载模型，也不占内存。",
     semLocalHint: (model, installed, size) => `在这台电脑上运行 ${model}，资料内容不会外传。${installed ? `运行时已安装（本机模型共占用 ${size}）。` : "首次开启会安装运行时（约 500MB），第一次建索引时再下载模型（约 610MB）；建索引时约占用 2–3GB 内存。"}`,
     semSources: "下载源（网络受限时可填国内镜像）", semHf: "Hugging Face 镜像（可不填）", semNpm: "npm 源（可不填）",
     semApiHint: "使用兼容 OpenAI 的向量接口（OpenAI、硅基流动、Ollama 等）。所有资料和笔记的文字都会发送给这个服务。",
@@ -560,15 +542,7 @@ const T = {
     semIndexing: (d, t) => `Semantic search: indexing ${d}/${t}`, semPaused: (d, t) => `Semantic search: indexing ${d}/${t}, paused while text in pictures is read`, semReady: t => `Semantic search on: ${t} chunks`, semDownload: p => `Semantic search: downloading the model ${p}%`,
     semError: "Semantic search failed, so only keywords match for now. Open the settings to see why.",
     semInstalling: "Semantic search: installing the local model runtime…", semInstallFailed: "Installing the local model runtime failed. Open the settings to see why.",
-    settings: "Settings", semSetup: "Settings", semTurnOn: "Turn on semantic search",
-    quickTitle: "Turn on semantic search", quickOn: "Turn on", quickLater: "Not now", quickMore: "Rather use an online API? Choose it in Settings",
-    quickWhy: "Search by meaning: Chinese finds English material and the other way round, and other wordings are found too.",
-    quickLocal: "Runs on this computer: document text stays here, and it costs nothing.",
-    quickDownload: "The first time downloads about 1.1 GB (once); indexing uses about 2–3 GB of memory.",
-    quickDownloaded: "The local model is downloaded already; nothing to download.",
-    quickTime: min => `Indexing what you have takes about ${min} min; keep working meanwhile.`,
-    quickTimeNone: "Nothing is imported yet; imports are indexed automatically.",
-    quickStarted: "Turning on semantic search; progress shows here", quickDone: "Semantic search is ready",
+    settings: "Settings", semSetup: "Settings",
     tagView: t => `#${t}`,
     linkMissing: "No such note", similarNotes: "Similar notes already exist; open one to add to it:", saveAnyway: "Save as new anyway",
     ask: "✨ Find with AI", askTip: "Uses the model chosen on the right (pi's by default) to turn the question into a few searches (Chinese and English, the documents' own wording) and ranks what they find. Sends the question to that model's provider; one model request per search. Shortcut: Shift+Enter",
@@ -590,7 +564,7 @@ const T = {
     locMoved: (dir, d, n) => `Now at ${dir}: ${pl(d, "document")}, ${pl(n, "note")}`,
     locProblems: { location_env: "PI_KB_DIR sets the location, so it cannot be changed here", location_busy: "Files are being imported; move after the import finishes", location_relative: "Enter a full path, e.g. ~/Dropbox/pi-kb or D:\\pi-kb", location_not_writable: d => `This folder cannot be written (${d})` },
     semTitle: "Semantic search", semModeOff: "Off", semModeLocal: "Local model", semModeApi: "Online API",
-    semOffHint: "Keyword search only. Nothing is downloaded and nothing leaves this machine.",
+    semOffHint: "Keyword search only, which is usually enough: the agent in pi and Find with AI search with other wordings in Chinese and English themselves (more accurately than semantic search, in our tests). Nothing is downloaded and no memory is used.",
     semLocalHint: (model, installed, size) => `Runs ${model} on this computer; document text stays here. ${installed ? `The runtime is installed (the local model uses ${size} in total).` : "Turning it on installs the runtime (about 500 MB); the model (about 610 MB) downloads on first indexing, which uses about 2-3 GB of memory."}`,
     semSources: "Download sources (mirrors for restricted networks)", semHf: "Hugging Face mirror (optional)", semNpm: "npm registry (optional)",
     semApiHint: "Uses an OpenAI-compatible embeddings API (OpenAI, SiliconFlow, Ollama, ...). The text of every document and note is sent to this service.",
@@ -885,11 +859,9 @@ function renderList() {
       ? hits.map(h => hitCard(h, state.q)).join("")
       // Next to an answer to this same question, "no results" would read as a contradiction.
       : state.answer?.question === state.q.trim() ? "" : `<div class="empty">${esc(T.noHits(state.q))}<br><small>${esc(T.noHitsHint)}</small></div>`;
-    // Semantic search being turned on from the settings: its progress here.
-    const hint = state.semTurningOn ? `<div class="hint-line"><span class="spin"></span>${esc(semanticLine(state.status?.semantic))}</div>` : "";
     // Few hits: AI searches again with other wordings in both languages (Chinese questions, English datasheets).
     const askFew = hits.length < 3 && state.answer?.question !== state.q.trim() ? `<div class="hint-line">${esc(T.askFew)}<button id="askFew">${esc(T.askFewBtn)} →</button></div>` : "";
-    $("list").innerHTML = `<div class="list-head"><h2>${esc(state.q)}</h2><span class="sub">${esc(T.results(hits.length))}</span>${progress}</div><div class="group">${answerCard()}${body}</div>${askFew}${hint}`;
+    $("list").innerHTML = `<div class="list-head"><h2>${esc(state.q)}</h2><span class="sub">${esc(T.results(hits.length))}</span>${progress}</div><div class="group">${answerCard()}${body}</div>${askFew}`;
     return;
   }
   const docs = visibleDocs();
@@ -1017,7 +989,7 @@ function overview() {
     <div class="stats">${stat(st.docs, T.ovDocs)}${stat(st.pages, T.ovPages)}${stat(st.wiki, T.ovNotes)}</div>
     ${st.enabled ? "" : `<p class="warn-line">${esc(T.ovStatusOff)}</p>`}
     <p class="sem-line">📁 ${esc(st.project ? T.ovProject(st.project.name, st.project.docs, st.project.wiki) : T.ovNoProject)}</p>
-    <p class="${st.semantic?.state === "error" || st.semantic?.installError ? "warn-line" : "sem-line"}">🧠 ${esc(semanticLine(st.semantic))}${st.semantic?.provider === "off" && st.semantic?.installing == null ? `<button id="semQuickOpen">${esc(T.semTurnOn)} →</button>` : `<button id="semOpen">${esc(T.semSetup)} →</button>`}</p>
+    ${st.semantic?.provider === "off" && st.semantic?.installing == null ? "" : `<p class="${st.semantic?.state === "error" || st.semantic?.installError ? "warn-line" : "sem-line"}">🧠 ${esc(semanticLine(st.semantic))}<button id="semOpen">${esc(T.semSetup)} →</button></p>`}
     <ul class="tips">${T.ovTips.map(t => `<li>${esc(t)}</li>`).join("")}</ul></div>`;
 }
 
@@ -1065,7 +1037,6 @@ async function refresh() {
     // The open document's OCR finished: load its new text (and drop the "being read" row).
     if (docs && state.doc?.ocrPending && !state.docs.find(d => d.id === state.selected)?.ocrPending) { state.doc = null; renderPreview(); }
     if (changed) { renderHeader(); renderSide(); renderList(); if (!state.selected) renderPreview(); }
-    if (status) checkTurnedOn();
   } catch (e) { toast(e.message); }
 }
 async function search() {
@@ -1306,7 +1277,6 @@ $("useDlg").querySelector("form").addEventListener("submit", async e => {
 $("list").addEventListener("click", e => {
   if (e.target.closest("#emptyUpload")) return $("files").click();
   if (e.target.closest("#askClose")) { askAbort?.abort(); state.answer = null; renderList(); return; }
-  if (e.target.closest("#semQuickOpen")) return openQuick();
   if (e.target.closest("#askFew")) return aiFind();
   if (e.target.closest("#aiExit")) return exitAi();
   if (e.target.closest("#aiAnswer")) return askAi(state.ai.question, state.ai.result.queries);
@@ -1320,7 +1290,6 @@ $("preview").addEventListener("click", async e => {
   const id = state.selected, doc = state.doc?.doc;
   if (b.id === "back") { $("app").classList.remove("detail"); return; }
   if (b.id === "semOpen") return openSemantic();
-  if (b.id === "semQuickOpen") return openQuick();
   if (b.dataset.note) return select(b.dataset.note);
   if (b.dataset.tag) { showView("tag:" + b.dataset.tag); $("app").classList.remove("detail"); return; }
   if (b.id === "openOriginal") return openOriginal(id, Number(b.dataset.page) || null);
@@ -1518,42 +1487,6 @@ $("semDlg").querySelector("form").addEventListener("submit", async e => {
   } catch (err) { $("semErr").textContent = err.message; $("semErr").hidden = false; }
 });
 
-// ---- semantic search in one click ----
-/** Chunks embedded per second by the local model on a 2024 laptop (measured: 3.5 end to end). */
-const EMBED_RATE = 3.5;
-async function openQuick() {
-  let installed = false;
-  try { installed = !!(await api("/semantic")).local?.installed; } catch {}
-  const chunks = state.status?.semantic?.chunks ?? 0;
-  const lines = [T.quickWhy, T.quickLocal, installed ? T.quickDownloaded : T.quickDownload,
-    chunks ? T.quickTime(Math.max(1, Math.ceil(chunks / EMBED_RATE / 60))) : T.quickTimeNone];
-  $("quickList").innerHTML = lines.map(l => `<li>${esc(l)}</li>`).join("");
-  $("semQuick").returnValue = "";
-  $("semQuick").showModal();
-}
-$("semQuick").addEventListener("click", e => {
-  if (e.target.closest("[data-close]")) return $("semQuick").close();
-  if (e.target.closest("#quickMore")) { $("semQuick").close(); openSemantic(); }
-});
-$("semQuick").addEventListener("close", async () => {
-  if ($("semQuick").returnValue !== "on") return;
-  try {
-    await api("/semantic", { body: { provider: "local" } });
-    state.semTurningOn = true; etags.status = "";
-    await refresh(); renderList(); toast(T.quickStarted);
-  } catch (e) { toast(e.message); }
-});
-/** Turned on from the page: once indexing is done (or the install failed), say so and search again by meaning. */
-function checkTurnedOn() {
-  const sem = state.status?.semantic;
-  if (!state.semTurningOn || !sem) return;
-  if (sem.installError || sem.state === "error") { state.semTurningOn = false; toast(sem.installError ? T.semInstallFailed : T.semError); renderList(); return; }
-  if (sem.provider === "off" || sem.installing != null || sem.download != null || sem.state === "indexing" || sem.done < sem.total) return;
-  state.semTurningOn = false;
-  toast(T.quickDone);
-  if (state.q.trim()) search(); else renderList();
-}
-
 // ---- location ----
 let where = null;
 function renderLocation(loc) {
@@ -1614,7 +1547,7 @@ refresh().then(() => {
 // Every 10 s, or every 2 s while importing or reading pictures (unchanged answers cost a 304).
 let polls = 0;
 setInterval(() => {
-  const working = state.status?.imports?.active || state.status?.ocr?.current || state.semTurningOn;
+  const working = state.status?.imports?.active || state.status?.ocr?.current;
   if (!document.hidden && (working || ++polls % 5 === 0)) refresh();
 }, 2000);
 setInterval(() => document.querySelectorAll("[data-since]").forEach(el => { el.textContent = elapsed(Number(el.dataset.since)); }), 1000);
