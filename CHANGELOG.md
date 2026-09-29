@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.8.0 — 2026-09-29
 
 The local semantic model is now IBM Granite Embedding 97M: more accurate, ten times faster, a quarter of the memory.
 
