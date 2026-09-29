@@ -46,6 +46,7 @@ function fakeProvider(key: string, local: boolean) {
 	return Object.assign(provider, {
 		key,
 		embedded: 0,
+		batch: 2,
 		watchDownload: () => () => {},
 		async embed(texts: string[]) {
 			provider.embedded += texts.length;

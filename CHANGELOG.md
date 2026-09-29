@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+The local semantic model is now IBM Granite Embedding 97M: more accurate, ten times faster, a quarter of the memory.
+
+- Default local model `onnx-community/granite-embedding-97m-multilingual-r2-ONNX` (Apache 2.0, 121 MB, pinned) instead of Qwen3-Embedding-0.6B (597 MB). Seven local models were run on the scale test (682 documents and notes, 15,691 chunks, 96 answerable questions): keyword plus semantic search found the right page first for 84 with Granite, 78 with gte-multilingual-base, 69 with Qwen3, 61 with F2LLM-v2-160M, and 55 with multilingual-e5-small, potion-multilingual-128M or keywords alone; Chinese questions 46 of 51 with Granite, 30 with Qwen3. Granite embeds 42 chunks a second in 0.8 GB (Qwen3 3.4–4.4 in 2.4–3.1 GB): the scale-test knowledge base indexed through pi-kb in 9 minutes at 809 MB, instead of about 2.5 hours.
+- Similarity floor 0.84 for Granite (its scores sit high): on the scale test it kept 94 of 95 right pages and returned nothing for 3 of 8 unanswerable questions (Qwen3's 0.43: 1 of 8).
+- Local models set their batch size (`localBatch`): Granite one chunk at a time (fastest), Qwen3 two as before.
+- A config that still names Qwen3 moves to Granite once (`migrations` in `config.json`), its vectors are rebuilt in the background and the Qwen3 files (about 600 MB) are deleted, but never through a `models` folder that links elsewhere. Choosing Qwen3 again afterwards is kept.
+- Download and memory figures in the settings, `/kb semantic local` and the READMEs updated (about 620 MB in all, 0.8 GB while indexing).
+- AI search keeps searching by keywords: with the AI's searches, adding Granite found the right page first as often (84 vs 85) and in the top 8 slightly more often (95 vs 92).
+
 ## v0.7.1 — 2026-09-28
 
 Questions about parts the knowledge base does not have are answered as such, and Find with AI knows what the knowledge base holds.

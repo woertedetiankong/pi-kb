@@ -103,7 +103,7 @@ export function runtimeInstalled(runtimeDir: string): boolean {
 	return existsSync(join(runtimeDir, "node_modules", "@huggingface", "transformers", "package.json"));
 }
 
-/** Folders the local model option downloads into the knowledge base (runtime ~500 MB, model ~610 MB). */
+/** Folders the local model option downloads into the knowledge base (runtime ~500 MB, model ~120 MB). */
 export function localModelDirs(root: string): string[] {
 	return [join(root, "runtime"), join(root, "models")];
 }
@@ -161,6 +161,8 @@ type Extractor = (texts: string[], options: { pooling: ModelProfile["pooling"]; 
 /** A local sentence-embedding model run with transformers.js (ONNX). Downloads the model on first use. */
 export class LocalProvider implements EmbeddingProvider {
 	readonly key: string;
+	/** Chunks per embedding call while indexing. */
+	readonly batch: number;
 	private readonly options: SemanticConfig["local"] & { runtimeDir: string; cacheDir: string };
 	private readonly profile: ModelProfile;
 	private extractor?: Promise<Extractor>;
@@ -182,6 +184,7 @@ export class LocalProvider implements EmbeddingProvider {
 		this.profile = profileFor(options.model);
 		// The pooling is part of the vector space: vectors made another way must be rebuilt.
 		this.key = `local:${options.model}#${this.profile.pooling}`;
+		this.batch = this.profile.localBatch ?? 2;
 	}
 
 	private load(): Promise<Extractor> {
@@ -223,7 +226,7 @@ const localProviders = new Map<string, LocalProvider>();
 export function createProvider(config: SemanticConfig, root: string): EmbeddingProvider | undefined {
 	if (config.provider === "api") return new ApiProvider(config.api);
 	if (config.provider === "local") {
-		// One model in memory (2-3 GB while indexing) however many knowledge bases use it.
+		// One model in memory (about 0.8 GB while indexing) however many knowledge bases use it.
 		const options = { ...config.local, runtimeDir: join(root, "runtime"), cacheDir: join(root, "models") };
 		const key = JSON.stringify(options);
 		let provider = localProviders.get(key);

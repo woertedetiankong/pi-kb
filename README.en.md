@@ -58,7 +58,7 @@ More commands (project knowledge bases, search settings, upkeep; completed once 
 | `/kb move <title or id> [project\|global]` | Move a document or note to the project's or your global knowledge base (without a target: to the other one) |
 | `/kb use [name… \| all \| none]` | Which collections of your global knowledge base this project uses (see Collections below); without arguments, lists them |
 | `/kb group <title or id> <collection>` | Put a document or note in a collection (`-` for none); `/kb group --rename <old> <new>` and `/kb group --delete <name>` rename or remove one |
-| `/kb semantic [status\|api\|local\|off\|remove]` | Semantic search: show status, use an online API, use a local model, turn off, delete the local model (frees about 1.1 GB; documents and notes stay) |
+| `/kb semantic [status\|api\|local\|off\|remove]` | Semantic search: show status, use an online API, use a local model, turn off, delete the local model (frees about 620 MB; documents and notes stay) |
 | `/kb reread <title or id>` | Read a PDF, image or Office document again from its original with the current OCR settings (after changing the OCR language or server). Keeps its id, title and import date; runs in the background |
 | `/kb lint` | Check the notes: likely duplicates, broken `[[links]]`, project notes linking to global ones (teammates can't open them), notes without tags |
 | `/kb eval [init\|draft\|run]` | Measure retrieval: create the question file, let the agent draft questions, run the evaluation |
@@ -72,39 +72,41 @@ The flags `pi --kb off` / `--kb on` apply to this run only.
 
 By default only keyword search is used, and that is usually enough: AI takes care of other wordings and Chinese questions about English documents. The agent in pi searches several times and switches language by itself; on the web page, use "✨ Find with AI". Measured on 682 documents and notes:
 
-| | Keywords | Keywords + semantic |
+| | Keywords | Keywords + semantic (Qwen3 at the time) |
 |---|---|---|
 | The agent in pi cited the right document (DeepSeek flash, 56 answerable questions) | 54 | 55 |
 | Average time per question | 9.8 s | 16.3 s |
 | Questions the knowledge base cannot answer: the agent said so (8) | 8 | 8 |
 
-Semantic search keeps a model of about 1.6 GB in memory, and indexing takes 2–3 GB and half the CPU, which makes computers with little memory noticeably slow. It is worth turning on only when you often search by meaning without AI (the web page's search box as you type).
+The local model (IBM Granite Embedding 97M since v0.8.0) is small: about 120 MB to download, about 0.8 GB of memory while indexing, about 40 chunks a second. It helps most where no AI is involved, such as the web page's search box as you type: there, keyword plus semantic search found the right page first for 84 of 96 questions, against 55 for keywords alone.
 
-With it on, you can ask in plain language ("how many volts can the chip take at most" finds the page that says "absolute maximum rating 4.0V"), and Chinese and English find each other. Keyword and semantic results are merged by rank (RRF); results found only by meaning are marked "semantic", and the agent checks them with `kb_read` before citing. On a Mac with 24 GB of memory the local model embeds about 3.5 chunks a second: a 162-page datasheet in about 2 minutes.
+With it on, you can ask in plain language ("how many volts can the chip take at most" finds the page that says "absolute maximum rating 4.0V"), and Chinese and English find each other. Keyword and semantic results are merged by rank (RRF); results found only by meaning are marked "semantic", and the agent checks them with `kb_read` before citing. On an M5 Mac the local model embeds about 40 chunks a second: 15,691 chunks (682 documents and notes) in 9 minutes.
 
 Two ways, pick one. Turn it on with the commands below in pi, or on the web page (`/kb web`) under "Settings" in the sidebar, where you can also enter the endpoint and key and set mirrors. Both edit the same settings, and other pi windows follow within a few seconds:
 
 | | Online API `/kb semantic api` | Local model `/kb semantic local` |
 |---|---|---|
-| Model | Any OpenAI-compatible `/embeddings` endpoint; default OpenAI `text-embedding-3-small` | `Qwen3-Embedding-0.6B` (Alibaba Qwen, Apache 2.0; strong in Chinese, English and across the two) |
-| Install | Nothing extra | On first use, installs a runtime (about 500 MB) into `~/.pi/kb`, then downloads the model (about 610 MB, pinned to the tested revision) |
+| Model | Any OpenAI-compatible `/embeddings` endpoint; default OpenAI `text-embedding-3-small` | `granite-embedding-97m-multilingual-r2` (IBM, Apache 2.0; 52 languages including Chinese and English) |
+| Install | Nothing extra | On first use, installs a runtime (about 500 MB) into `~/.pi/kb`, then downloads the model (about 120 MB, pinned to the tested revision) |
 | Privacy | **The text of your documents and notes is sent to the provider** (you are asked to confirm when turning it on) | Everything stays on your machine |
 | Cost | Billed by the provider | Free |
 
-- Why Qwen3-Embedding-0.6B: three local models were compared on the same material (40+ English pi docs plus Chinese material, 502 chunks; 23 questions with known answers, including Chinese↔English; 8 questions the knowledge base cannot answer; Apple silicon Mac):
+- Why Granite 97M (since v0.8.0; Qwen3-Embedding-0.6B before): seven local models were run on the scale test (682 documents and notes, 15,691 chunks; 96 answerable questions, 51 of them Chinese, many about English datasheets), each embedding everything, then searched together with keywords the way pi-kb does:
 
-  | | Qwen3-Embedding-0.6B (chosen) | bge-m3 | Granite R2 311M |
-  |---|---|---|---|
-  | Right document first / in top 3 | **15 / 21** | 13 / 20 | 14 / 21 |
-  | MRR | **0.794** | 0.737 | 0.768 |
-  | Score gap between relevant and unrelated questions | **0.068** | 0.051 | 0.018 |
-  | Indexing 502 chunks | 127 s | 87 s | 41 s |
-  | Download | 614 MB | 570 MB | 313 MB |
-  | License | Apache 2.0 | MIT | Apache 2.0 (tokenizer under Gemma terms) |
+  | | Download | Chunks/s | Peak memory | Right page first (keywords + model) | Chinese questions |
+  |---|---|---|---|---|---|
+  | Keywords only | – | – | – | 55 | 16 / 51 |
+  | **Granite 97M multilingual R2** | **121 MB** | **42** | **0.8 GB** | **84** | **46** |
+  | gte-multilingual-base | 353 MB | 8 | 6 GB | 78 | 37 |
+  | Qwen3-Embedding-0.6B (before) | 597 MB | 3.4–4.4 | 2.4–3.1 GB | 69 | 30 |
+  | F2LLM-v2-160M | 171 MB | 8.5 | 11 GB | 61 | 27 |
+  | multilingual-e5-small | 145 MB | ~20 | 2.2 GB | 55 | 18 |
+  | potion-multilingual-128M (static) | 512 MB | 1000 | small | 55 | 23 |
 
-  The sample is small and the top two differ by one or two questions; Qwen3 won mainly because it best separates "has an answer" from "has no answer", and its license is the cleanest.
-- For Qwen3, semantic results below a similarity of 0.43 are dropped by default (questions with an answer scored ≥ 0.46 for their best result, questions without one ≤ 0.39), so asking about something the knowledge base does not have returns nothing instead of a forced match. Adjust with `semantic.minScore` in `config.json`.
-- Indexing uses about 2–3 GB of memory (2 chunks at a time; 8 at a time goes above 5 GB without being faster). A 300-page manual takes about 3–6 minutes, in the background; keyword search keeps working meanwhile. A query takes about 45 ms.
+  harrier-oss-v1-270m was stopped after 30 minutes. An earlier, smaller comparison (502 chunks, 23 questions) had picked Qwen3 over bge-m3 and Granite R2 311M by one or two questions.
+- A config that still named Qwen3 moves to Granite once, on the first start of v0.8.0: its vectors are rebuilt in the background and the Qwen3 files (about 600 MB) are deleted. Setting Qwen3 again in `config.json` afterwards is kept.
+- Granite's similarities sit high, so its floor is 0.84: on the scale test the right page scored 0.82–0.93 and unrelated questions 0.78–0.86; 0.84 kept 94 of 95 right pages and returned nothing for 3 of 8 unanswerable questions (Qwen3's 0.43 there: 1 of 8). Questions naming a part the knowledge base does not have score as high as real ones (similar parts are similar); the part-number check covers those. Adjust with `semantic.minScore` in `config.json`.
+- Indexing takes about 0.8 GB of memory, one chunk at a time (the fastest for Granite: 42 chunks/s at 1, 20 at 8). Keyword search keeps working meanwhile.
 - The local model takes about half of the CPU while it indexes, and OCR about as much, so the two take turns: indexing pauses while files are read with OCR (the status bar shows `🧠 120/600 ⏸`), and background OCR starts its next document only once indexing is done. With several pi windows open, one of them indexes each knowledge base; the others show its progress and take over if it closes. Measured on a 10-core M5 (the BMI270 datasheet plus 137 other chunks): seconds with the whole CPU busy went from 21 to 7–11 (what is left are OCR's own peaks), at the cost of finishing in about 4¼ minutes instead of 3½.
 - The API key is read from, in order: the `PI_KB_EMBEDDING_API_KEY` environment variable → the key entered in `/kb semantic api` (stored in `config.json` with file mode 0600) → `OPENAI_API_KEY` when using OpenAI. Local services such as Ollama (`http://localhost…`) need no key.
 - Other common online endpoints (enter the address and model in `/kb semantic api`):
@@ -122,7 +124,7 @@ Two ways, pick one. Turn it on with the commands below in pi, or on the web page
 "semantic": {
   "provider": "local",
   "api": { "baseUrl": "https://api.openai.com/v1", "model": "text-embedding-3-small" },
-  "local": { "model": "onnx-community/Qwen3-Embedding-0.6B-ONNX" }
+  "local": { "model": "onnx-community/granite-embedding-97m-multilingual-r2-ONNX" }
 }
 ```
 
@@ -245,7 +247,7 @@ Symptom / root cause / fix / how to recognize it next time
 
 Appending to a note adds a dated section: if the new content opens with its own heading, that heading stays with the date on the line below; otherwise the date is the heading.
 
-**No duplicate notes**: before a new note is saved, similar existing notes are looked up: alike titles (such as "XR100 SPI clock divider" and "XR-100 SPI divider") and notes a search for the new title finds. With semantic search on, Chinese and English notes recognise each other (only with a model that has a similarity floor, such as the local Qwen3; otherwise the closest notes would be listed whether related or not). The save dialog in the terminal lists them and adds "Add to … instead", which shows the combined note before saving; a new note on the web page lists them first, so you can open one and add to it, or "Save as new anyway". `/kb lint` checks the whole wiki at any time.
+**No duplicate notes**: before a new note is saved, similar existing notes are looked up: alike titles (such as "XR100 SPI clock divider" and "XR-100 SPI divider") and notes a search for the new title finds. With semantic search on, Chinese and English notes recognise each other (only with a model that has a similarity floor, such as the local Granite; otherwise the closest notes would be listed whether related or not). The save dialog in the terminal lists them and adds "Add to … instead", which shows the combined note before saving; a new note on the web page lists them first, so you can open one and add to it, or "Save as new anyway". `/kb lint` checks the whole wiki at any time.
 
 Notes link to each other with `[[file name]]`, `[[subfolder/file name]]` or `[[note title]]` (also `[[target|label]]` and `[[target#section]]`), as in Obsidian.
 
@@ -278,7 +280,7 @@ The "this machine" part above stays behind, each for its own reason:
 
 - **Settings**: where the knowledge base lives is itself stored in `config.json`, and pi reads it at startup to find your documents, so it has to be in a fixed place. It also holds the API key, which does not belong in a cloud folder.
 - **Search index**: a cache built from your documents, not your data; each computer rebuilds its own. In a synced folder it would be at risk: two computers writing the same SQLite file while the sync tool copies it half-written can corrupt it.
-- **Models and OCR data**: large (the local model is about 1.1 GB) and can be downloaded again at any time, so not worth syncing.
+- **Models and OCR data**: large (the local model and runtime are about 620 MB) and can be downloaded again at any time, so not worth syncing.
 
 To keep everything in one folder, index and models included (on an external disk, say), set the `PI_KB_DIR` environment variable. The page then cannot change the location, and that folder should not be a synced one.
 
@@ -305,8 +307,8 @@ To keep everything in one folder, index and models included (on an external disk
 ### Known limitations
 
 - Tesseract is mediocre on Chinese scans: word order within a line can be scrambled. For many scans, configure a PaddleOCR server: enter its address as the OCR server in the web page's Settings, or set `"ocrServerUrl"` (LiteParse's OCR HTTP interface) in `config.json`. The OCR languages can be changed there too; changes apply to the next import without restarting pi; for documents already imported, click "Read again" on their page. With a model that accepts images this matters less: OCR only has to be good enough to find the page, and the agent is told to view OCR'd pages before quoting exact values.
-- Vector search always returns the "closest" chunks, even when nothing is relevant: semantic-only results are capped in number and marked separately; the tested models (Qwen3-0.6B, bge-m3) also have a similarity floor, other models (such as OpenAI) only the cap for now.
-- The floors were measured on the material above (Qwen3 has a margin of about 0.03–0.04 on each side); for very different material you may need to tune `semantic.minScore`.
+- Vector search always returns the "closest" chunks, even when nothing is relevant: semantic-only results are capped in number and marked separately; the tested models (Granite 97M, Qwen3-0.6B, bge-m3) also have a similarity floor, other models (such as OpenAI) only the cap for now.
+- The floors were measured on the material above (Granite on the scale test; Qwen3 has a margin of about 0.03–0.04 on each side); for very different material you may need to tune `semantic.minScore`.
 - Quitting pi, `/reload`, `/new` or `/resume` pauses an import in progress: files already imported are kept, and the rest are recorded in `~/.pi/kb/pending-imports/` on this computer and imported when pi next starts (web uploads are copied first). The file that was being converted starts over. Files bound for a project knowledge base wait until pi starts in that project. Non-interactive runs such as `pi -p` leave them alone.
 
 ## Development

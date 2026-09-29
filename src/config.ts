@@ -5,6 +5,8 @@ import type { LanguageSetting } from "./i18n.ts";
 import { profileFor } from "./semantic/models.ts";
 
 export interface KbConfig {
+	/** One-time changes already made to this config (see KnowledgeBase), so a later choice is kept. */
+	migrations?: string[];
 	/** Whether the knowledge base tools and prompt section are active. */
 	enabled: boolean;
 	/** Tesseract language codes used for scanned pages and images, e.g. "eng+chi_sim". */
@@ -61,9 +63,14 @@ export function defaultMinScore(model: string): number | undefined {
 export const DEFAULT_SEMANTIC: SemanticConfig = {
 	provider: "off",
 	api: { baseUrl: "https://api.openai.com/v1", model: "text-embedding-3-small" },
-	// Best of bge-m3, Granite R2 and Qwen3 on our benchmark, Apache 2.0; the ONNX build of Qwen/Qwen3-Embedding-0.6B.
-	local: { model: "onnx-community/Qwen3-Embedding-0.6B-ONNX" },
+	// IBM Granite Embedding 97M Multilingual R2 (Apache 2.0). On the 682-document scale test with
+	// keyword search it found the right page first for 84 of 96 questions (Qwen3-0.6B: 69), ten
+	// times faster and in a quarter of the memory (42 chunks/s, 0.8 GB; Qwen3 3.4 chunks/s, 3.1 GB).
+	local: { model: "onnx-community/granite-embedding-97m-multilingual-r2-ONNX" },
 };
+
+/** The local model until v0.8.0. Configs that still name it move to the current default once. */
+export const PREVIOUS_LOCAL_MODEL = "onnx-community/Qwen3-Embedding-0.6B-ONNX";
 
 const DEFAULTS: KbConfig = { enabled: true, ocrLanguage: "eng+chi_sim", language: "auto", semantic: DEFAULT_SEMANTIC };
 

@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
-import { appendFileSync, copyFileSync, type Dirent, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, type Dirent, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { chunkPages } from "./chunk.ts";
-import { configStamp, defaultMinScore, type KbConfig, loadConfig, saveConfig } from "./config.ts";
+import { configStamp, DEFAULT_SEMANTIC, defaultMinScore, type KbConfig, loadConfig, PREVIOUS_LOCAL_MODEL, saveConfig } from "./config.ts";
 import { type ConvertedPage, Converter, hasTextLayer, isMarkdown, markFigures, normalizeText, type OcrShare, type PageImage, sourceKind } from "./convert.ts";
 import { type Note, normalizeShelves, normalizeTags, now, parseNote, renderNote, slugify, today, withShelves } from "./notes.ts";
 import { anyClaimed, busy, claim, pause, release } from "./claims.ts";
@@ -199,7 +199,34 @@ export class KnowledgeBase {
 			key: sha(indexFile(localDir, this.root)).slice(0, 12),
 			holdOff: () => busy(readingDir(localDir)),
 		});
+		this.leavePreviousModel();
 		this.applySemantic();
+	}
+
+	/**
+	 * Move a config that still names the previous local model (Qwen3, 600 MB, 3 GB while indexing) to
+	 * the current one, once, and delete its files. The vectors are rebuilt in the background.
+	 */
+	private leavePreviousModel(): void {
+		const done = this.config.migrations ?? [];
+		if (this.config.semantic.local.model !== PREVIOUS_LOCAL_MODEL || done.includes("local-model-granite")) return;
+		this.config = {
+			...this.config,
+			migrations: [...done, "local-model-granite"],
+			semantic: { ...this.config.semantic, local: { ...this.config.semantic.local, model: DEFAULT_SEMANTIC.local.model } },
+		};
+		saveConfig(this.localDir, this.config);
+		this.configStamp = configStamp(this.localDir);
+		// Only files that are this folder's own: models/ may link to another knowledge base's copy.
+		const parts = ["models", ...PREVIOUS_LOCAL_MODEL.split("/")];
+		const linked = parts.some((_, i) => {
+			try {
+				return lstatSync(join(this.localDir, ...parts.slice(0, i + 1))).isSymbolicLink();
+			} catch {
+				return false;
+			}
+		});
+		if (!linked) rmSync(join(this.localDir, ...parts), { recursive: true, force: true });
 	}
 
 	/** (Re)create the embedding provider from the config; call kick() on the indexer to start embedding. */

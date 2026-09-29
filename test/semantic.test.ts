@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
-import { DEFAULT_SEMANTIC, defaultMinScore } from "../src/config.ts";
+import { DEFAULT_SEMANTIC, defaultMinScore, PREVIOUS_LOCAL_MODEL } from "../src/config.ts";
 import { KnowledgeBase } from "../src/kb.ts";
 import { fuse } from "../src/search.ts";
 import { profileFor } from "../src/semantic/models.ts";
@@ -183,6 +183,56 @@ test("model profiles: Qwen3 queries get the instruction locally and over an API;
 	const local = new LocalProvider({ model: "onnx-community/Qwen3-Embedding-0.6B-ONNX", runtimeDir: "/nonexistent", cacheDir: "/nonexistent" });
 	assert.equal(local.key, "local:onnx-community/Qwen3-Embedding-0.6B-ONNX#last_token");
 	await assert.rejects(local.embed(["x"], "query"), (e: unknown) => e instanceof SemanticError && e.problem === "runtime_missing");
+});
+
+test("the local model is Granite 97M: CLS vectors, no instructions, one chunk at a time, pinned, with a floor", () => {
+	const granite = profileFor(DEFAULT_SEMANTIC.local.model);
+	assert.equal(DEFAULT_SEMANTIC.local.model, "onnx-community/granite-embedding-97m-multilingual-r2-ONNX");
+	assert.deepEqual([granite.pooling, granite.queryPrefix, granite.localBatch, granite.minScore], ["cls", "", 1, 0.84]);
+	assert.equal(granite.revision, "536a9f241cb3f02a9c5995a1e708c784bd274859");
+	const local = new LocalProvider({ model: DEFAULT_SEMANTIC.local.model, runtimeDir: "/nonexistent", cacheDir: "/nonexistent" });
+	assert.equal(local.batch, 1);
+	assert.equal(new LocalProvider({ model: PREVIOUS_LOCAL_MODEL, runtimeDir: "/x", cacheDir: "/x" }).batch, 2);
+});
+
+test("a config still on Qwen3 moves to Granite once, and its files go; choosing Qwen3 afterwards is kept", () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-kb-migrate-"));
+	try {
+		writeFileSync(join(root, "config.json"), JSON.stringify({ semantic: { provider: "local", local: { model: PREVIOUS_LOCAL_MODEL, hfEndpoint: "https://hf-mirror.com" } } }));
+		const old = join(root, "models", "onnx-community", "Qwen3-Embedding-0.6B-ONNX");
+		mkdirSync(old, { recursive: true });
+		writeFileSync(join(old, "model.onnx"), "x");
+		mkdirSync(join(root, "models", "other"), { recursive: true });
+		let kb = new KnowledgeBase(root);
+		kb.close();
+		const saved = JSON.parse(readFileSync(join(root, "config.json"), "utf8"));
+		assert.equal(saved.semantic.local.model, DEFAULT_SEMANTIC.local.model);
+		assert.equal(saved.semantic.local.hfEndpoint, "https://hf-mirror.com", "other local settings kept");
+		assert.equal(saved.semantic.provider, "local");
+		assert.deepEqual(saved.migrations, ["local-model-granite"]);
+		assert.equal(existsSync(old), false, "the old model's files are deleted");
+		assert.equal(existsSync(join(root, "models", "other")), true, "nothing else");
+
+		// A models folder linked from elsewhere (another knowledge base's copy) is not reached into.
+		const elsewhere = join(root, "shared-models");
+		const shared = join(elsewhere, "onnx-community", "Qwen3-Embedding-0.6B-ONNX");
+		mkdirSync(shared, { recursive: true });
+		const linkedKb = join(root, "linked");
+		mkdirSync(linkedKb);
+		symlinkSync(elsewhere, join(linkedKb, "models"));
+		writeFileSync(join(linkedKb, "config.json"), JSON.stringify({ semantic: { provider: "local", local: { model: PREVIOUS_LOCAL_MODEL } } }));
+		new KnowledgeBase(linkedKb).close();
+		assert.equal(existsSync(shared), true, "the linked copy is kept");
+		assert.equal(JSON.parse(readFileSync(join(linkedKb, "config.json"), "utf8")).semantic.local.model, DEFAULT_SEMANTIC.local.model);
+
+		// Chosen again by hand after the move: left alone.
+		writeFileSync(join(root, "config.json"), JSON.stringify({ ...saved, semantic: { ...saved.semantic, local: { model: PREVIOUS_LOCAL_MODEL } } }));
+		kb = new KnowledgeBase(root);
+		assert.equal(kb.config.semantic.local.model, PREVIOUS_LOCAL_MODEL);
+		kb.close();
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
 });
 
 test("removing the local model deletes only runtime/ and models/, not what their links point to", () => {

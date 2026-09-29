@@ -106,10 +106,9 @@ export class SemanticIndexer {
 		if (!provider) return;
 		const aborter = new AbortController();
 		this.aborter = aborter;
-		// Local models run on this machine's CPU. Qwen3's memory grows with the batch (2.1 GB at 1 chunk,
-		// 5.3 GB at 8) while throughput stays the same, so embed two at a time.
+		// Local models run on this machine's CPU, a few chunks at a time (see ModelProfile.localBatch).
 		const local = provider instanceof LocalProvider;
-		const batch = local ? 2 : 32;
+		const batch = local ? provider.batch : 32;
 		const claimFile = this.turns && join(this.turns.claimDir, `${this.turns.key}${local ? ".local" : ""}`);
 		let token: string | undefined;
 		try {

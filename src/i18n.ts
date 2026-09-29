@@ -218,7 +218,7 @@ const en = {
 	apiOn: (model: string) => `Semantic search on via ${model}; indexing in the background`,
 	localTitle: "Install the local semantic model?",
 	localBody: (dir: string) =>
-		`Installs the model runtime (about 500 MB) into ${dir} and downloads the Qwen3-Embedding-0.6B model (about 610 MB) on first use. Indexing uses about 2-3 GB of memory; a 300-page manual takes a few minutes in the background. Everything stays on this machine.`,
+		`Installs the model runtime (about 500 MB) into ${dir} and downloads the Granite Embedding 97M model (about 120 MB) on first use. Indexing uses about 0.8 GB of memory; a 300-page manual takes a few minutes in the background. Everything stays on this machine.`,
 	localInstalling: "📦 Installing the local model runtime…",
 	localOn: "Semantic search on with the local model; indexing in the background",
 	installFailed: (error: string) => `Installing the runtime failed: ${error}. Behind a firewall? Set "npmRegistry" (e.g. https://registry.npmmirror.com) under semantic.local in config.json.`,
@@ -481,7 +481,7 @@ const zh: Messages = {
 	apiOn: (model) => `语义检索已开启（${model}），正在后台建立索引`,
 	localTitle: "安装本机语义模型？",
 	localBody: (dir) =>
-		`会把模型运行时（约 500MB）安装到 ${dir}，首次使用时再下载 Qwen3-Embedding-0.6B 模型（约 610MB）。建索引时约占用 2–3GB 内存；一本 300 页的手册在后台需要几分钟。所有内容都留在本机，不会外传。`,
+		`会把模型运行时（约 500MB）安装到 ${dir}，首次使用时再下载 Granite Embedding 97M 模型（约 120MB）。建索引时约占用 0.8GB 内存；一本 300 页的手册在后台需要几分钟。所有内容都留在本机，不会外传。`,
 	localInstalling: "📦 正在安装本机模型运行时…",
 	localOn: "语义检索已开启（本机模型），正在后台建立索引",
 	installFailed: (error) => `安装运行时失败：${error}。网络受限时，可在 config.json 的 semantic.local 里设置 "npmRegistry"（例如 https://registry.npmmirror.com）。`,
