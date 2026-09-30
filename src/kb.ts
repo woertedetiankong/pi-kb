@@ -5,7 +5,7 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } 
 import { chunkPages } from "./chunk.ts";
 import { configStamp, DEFAULT_SEMANTIC, defaultMinScore, type KbConfig, loadConfig, PREVIOUS_LOCAL_MODEL, saveConfig } from "./config.ts";
 import { type ConvertedPage, Converter, hasTextLayer, isMarkdown, markFigures, normalizeText, type OcrShare, type PageImage, sourceKind } from "./convert.ts";
-import { type Note, normalizeShelves, normalizeTags, now, parseNote, renderNote, slugify, today, withShelves } from "./notes.ts";
+import { type Note, type NoteMeta, normalizeShelves, normalizeTags, now, parseNote, renderNote, slugify, today, withoutReview, withShelves } from "./notes.ts";
 import { anyClaimed, busy, claim, pause, release } from "./claims.ts";
 import { fuse } from "./search.ts";
 import { type IndexerStatus, isLocalClaim, SemanticIndexer } from "./semantic/indexer.ts";
@@ -20,6 +20,8 @@ export interface NoteInput {
 	project?: string;
 	/** Shelves of the global knowledge base for a new note; none: every project sees it. */
 	shelves?: string[];
+	/** Saved with nobody to review it (no UI): the note is marked until the user approves it. */
+	unreviewed?: boolean;
 }
 
 export type NoteMode = "create" | "append" | "replace";
@@ -149,6 +151,32 @@ export function formatCitation(hit: Pick<SearchHit, "title" | "page">): string {
 	return hit.page ? `[${hit.title} p.${hit.page}]` : `[${hit.title}]`;
 }
 
+
+/**
+ * The layout of a knowledge base folder (docs/, converted/, wiki/ and their files). A folder shared
+ * through git or a synced drive may be written by several pi-kb versions: bump this when a change
+ * would confuse an older one, which then stops instead of rewriting what it does not understand.
+ */
+export const KB_FORMAT = 1;
+const FORMAT_FILE = "pi-kb.json";
+
+/** Refuse a folder written in a newer format; mark one without a mark (or with an older one). */
+export function checkFormat(root: string): void {
+	const file = join(root, FORMAT_FILE);
+	let format = 0;
+	try {
+		format = Number(JSON.parse(readFileSync(file, "utf8")).format) || 0;
+	} catch {
+		// no mark yet: a folder from before formats, or a new one
+	}
+	if (format > KB_FORMAT)
+		throw new Error(`The knowledge base in ${root} was written by a newer pi-kb (format ${format}; this version reads up to ${KB_FORMAT}). Update pi-kb with: pi update --extensions`);
+	if (format < KB_FORMAT) {
+		mkdirSync(root, { recursive: true });
+		writeFileSync(file, `${JSON.stringify({ format: KB_FORMAT, note: "Written by pi-kb. Do not edit." }, null, 2)}\n`);
+	}
+}
+
 /**
  * The knowledge base on disk:
  *   raw/<id>/<file>     untouched copy of each imported file
@@ -183,6 +211,7 @@ export class KnowledgeBase {
 		this.localDir = localDir;
 		this.root = options.dir ?? localDir;
 		this.project = options.project ?? false;
+		checkFormat(this.root);
 		for (const dir of ["raw", "converted", "wiki"]) mkdirSync(join(this.root, dir), { recursive: true });
 		this.configStamp = configStamp(localDir);
 		this.config = loadConfig(localDir);
@@ -867,7 +896,10 @@ export class KnowledgeBase {
 			return {
 				action: mode,
 				file,
-				note: { meta: { title, tags, created: date, updated: date, project: input.project, ...(shelves.length ? { shelves } : {}) }, body: content },
+				note: {
+					meta: { title, tags, created: date, updated: date, project: input.project, ...(shelves.length ? { shelves } : {}), ...(input.unreviewed ? { review: "pending" as const } : {}) },
+					body: content,
+				},
 			};
 		}
 		const existing = id ? this.store.getDoc(id) : undefined;
@@ -884,6 +916,8 @@ export class KnowledgeBase {
 			project: current.meta.project ?? input.project,
 			// An existing note keeps its shelves; one on none may get some.
 			shelves: current.meta.shelves ?? (normalizeShelves(input.shelves).length ? this.canonicalShelves(input.shelves) : undefined),
+			// A user who saved the change saw the whole note; an unreviewed change marks it all.
+			review: input.unreviewed ? ("pending" as const) : undefined,
 		};
 		const body = mode === "append" ? `${current.body}\n\n${appendSection(content, today())}` : content;
 		return { action: mode, file, note: { meta, body }, existing };
@@ -906,6 +940,7 @@ export class KnowledgeBase {
 					updated: meta.updated || note.meta.updated,
 					project: meta.project ?? note.meta.project,
 					shelves: meta.shelves ?? note.meta.shelves,
+					review: meta.review,
 				},
 				body,
 			};
@@ -948,20 +983,41 @@ export class KnowledgeBase {
 		return name ? join(dir, name) : undefined;
 	}
 
-	private tags = new Map<string, { hash: string; tags: string[] }>();
+	private metas = new Map<string, { hash: string; meta?: NoteMeta }>();
 
-	/** A note's tags from its front matter, read again only when the note changed. */
-	noteTags(doc: DocRecord): string[] {
-		const cached = this.tags.get(doc.id);
-		if (cached?.hash === doc.hash) return cached.tags;
-		let tags: string[] = [];
+	/** A note's front matter, read again only when the note changed; undefined if it cannot be read. */
+	private noteMeta(doc: DocRecord): NoteMeta | undefined {
+		const cached = this.metas.get(doc.id);
+		if (cached?.hash === doc.hash) return cached.meta;
+		let meta: NoteMeta | undefined;
 		try {
-			tags = normalizeTags(parseNote(readFileSync(join(this.root, doc.path), "utf8"), doc.title).meta.tags);
+			meta = parseNote(readFileSync(join(this.root, doc.path), "utf8"), doc.title).meta;
 		} catch {
-			// removed meanwhile: no tags
+			// removed meanwhile
 		}
-		this.tags.set(doc.id, { hash: doc.hash, tags });
-		return tags;
+		this.metas.set(doc.id, { hash: doc.hash, meta });
+		return meta;
+	}
+
+	/** A note's tags from its front matter. */
+	noteTags(doc: DocRecord): string[] {
+		return normalizeTags(this.noteMeta(doc)?.tags);
+	}
+
+	/** Whether a note was saved by an agent and the user has not approved it yet. */
+	unreviewed(doc: DocRecord): boolean {
+		return doc.collection === "wiki" && this.noteMeta(doc)?.review === "pending";
+	}
+
+	/** The user approves an agent's note: its review mark goes, nothing else changes. */
+	approveNote(id: string): DocRecord {
+		const doc = this.store.getDoc(id);
+		if (!doc || doc.collection !== "wiki") throw new Error(`No wiki note with id ${id}`);
+		const file = join(this.root, doc.path);
+		writeFileSync(file, withoutReview(readFileSync(file, "utf8")));
+		const updated = this.indexWikiFile(file);
+		this.log("approved", file, updated.title);
+		return updated;
 	}
 
 	/** The note file as stored, front matter included. */

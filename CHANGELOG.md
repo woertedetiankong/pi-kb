@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+You decide what the agent sees: collections are now a boundary, and notes the agent saved with nobody watching wait for your approval.
+
+- Collections a project does not use are closed to the agent. Before, the system prompt asked it to stay out, but `kb_search` and `kb_list` with `shelf`, and `kb_read` by id, still reached them. Now a closed collection asks the user first ("Let the agent search the collection …?", for this session only; `/kb use` keeps it), without a UI it stays closed, and `kb_read` or `kb_note` append/replace on a document or note in one answers that it is kept out of this project.
+- Notes saved by `kb_note` without a UI (`pi -p`, scripts) get `review: pending` in their front matter. `kb_search` marks them "unreviewed note", the system prompt says to check them before relying on them, `/kb lint` lists them first and offers to approve or delete each, and the web page shows an "unreviewed" badge and an "Approve note" button (`POST /approve`). Notes saved in the terminal dialog are approved by that dialog, as before.
+- A knowledge base folder now carries `pi-kb.json` with its format (1). A pi-kb that finds a newer format stops with "Update pi-kb" instead of rewriting files it does not understand; for a project knowledge base (shared through git) only the project one is skipped, with a warning. Versions from now on check it.
+
 ## v0.8.0 — 2026-09-29
 
 The local semantic model is now IBM Granite Embedding 97M: more accurate, ten times faster, a quarter of the memory.

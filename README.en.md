@@ -188,7 +188,7 @@ What the agent sees in a project = the project's knowledge base (if any)
 - **Putting things in collections**: `/kb add ~/docs` offers one collection per subfolder (`~/docs/ESP32/…` → "ESP32") and asks first; files directly in the folder you added get none. Or `/kb add <path> --to ESP32`, or `/kb group <title> ESP32` for something already imported. On the web page, "Change" in a document's "Collections" row, and "Collection" on the left when importing.
 - **A document can be in several collections**; names ignore case (`esp32` is "ESP32").
 - **A project's choice**: `/kb use ESP32 "Company rules"`, or "Change" next to "This project uses" in the sidebar. `/kb use all` goes back to all, `/kb use none` keeps only what is in no collection. The choice is kept in this computer's `config.json` (by project root), so another computer needs its own.
-- **The agent** searches only what the project sees; when you ask it to "look in the STM32 documents", it passes `shelf` to `kb_search` for just that collection. A lesson about one of the project's collections' topics goes into that collection (you can change it in the save dialog); preferences and general lessons go in none, so every project sees them.
+- **The agent** sees only what the project sees. This is enforced, not a hint: searching, listing and reading by id all stop at it. When you ask it to "look in the STM32 documents" and the project does not use STM32, you are asked first, and a yes counts for this session only (`/kb use` adds it for good); without a UI (`pi -p`) the answer is always no. The limit applies to the knowledge base's tools: an agent with bash can still read the files in the knowledge base folder directly; keeping it out entirely needs a sandbox or file permissions. A lesson about one of the project's collections' topics goes into that collection (you can change it in the save dialog); preferences and general lessons go in none, so every project sees them.
 - **Where it is kept**: a document's collections in `docs/<id>.json`, a note's in its front matter as `shelves: [ESP32]`, so they travel with a synced folder. Collections group the global knowledge base only: a project's own knowledge base already belongs to the project, and moving a document there drops its collections.
 
 ## Web page
@@ -251,6 +251,8 @@ Appending to a note adds a dated section: if the new content opens with its own 
 
 Notes link to each other with `[[file name]]`, `[[subfolder/file name]]` or `[[note title]]` (also `[[target|label]]` and `[[target#section]]`), as in Obsidian.
 
+**You approve the agent's notes**: before the agent saves a note, the terminal asks you (edit it, move it, add it to an existing note, or skip it). Without a UI (`pi -p` and the like) the note is saved with `review: pending`: the agent sees it as an "unreviewed note" and is told to check it before relying on it; `/kb lint` lists these notes and lets you approve or delete them one by one, and the web page marks them "unreviewed" with an "Approve note" button. Approving only removes that line.
+
 Hand-written notes (front matter optional) placed in `wiki/` are indexed too. Each write appends a line to `wiki/log.md`. The index holds the body and `#tags`, not front matter field names.
 
 A small catalog (counts, note titles, recent documents) is added to the system prompt so the agent knows what the knowledge base holds.
@@ -265,6 +267,7 @@ raw/<id>/<original file>  copy of the original
 converted/<id>.md         converted Markdown with <!-- kb:page N --> page markers (and <!-- kb:ocr n/total --> where text came from OCR)
 docs/<id>.json            each document's description (title, source, pages); the index is rebuilt from it
 wiki/**/*.md              notes; edit them with Obsidian or any editor
+pi-kb.json                the folder's format version: a pi-kb that finds a newer one stops and asks to be updated instead of rewriting files it does not understand
 
 # This machine: always stays in ~/.pi/kb
 kb.db                     search index (SQLite FTS5, trigram tokenizer, Chinese and English) and semantic vectors;

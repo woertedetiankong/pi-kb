@@ -11,7 +11,7 @@
  * Without a UI, kb_note saves without asking, into the throwaway copy.
  */
 import { spawn } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -177,6 +177,7 @@ function check(s: Scenario, calls: ToolCall[], answer: string, titles: string[])
 	if (s.noCitations && cited.length) problems.push(`cited ${cited.join(" ")}`);
 	for (const loose of looseCitations(answer, titles)) problems.push(`loose citation "${loose}"`);
 	if (s.answer && !s.answer.test(answer)) problems.push(`answer lacks ${s.answer}`);
+	if (s.notAnswer?.test(answer)) problems.push(`answer has ${s.notAnswer}`);
 	return problems;
 }
 
@@ -205,6 +206,18 @@ await pool(jobs, Number(args.jobs), async ({ scenario, run }) => {
 	for (const [name, text] of Object.entries(scenario.files ?? {})) writeFileSync(join(project, name), text);
 	for (const [name, from] of Object.entries(scenario.copy ?? {})) cpSync(join(repo, from), join(project, name));
 	cpSync(seed, join(dir, "kb"), { recursive: true });
+	for (const [name, text] of Object.entries(scenario.kbNotes ?? {})) writeFileSync(join(dir, "kb", "wiki", name), text);
+	if (scenario.collections || scenario.projectUses) {
+		const kb = new KnowledgeBase(join(dir, "kb"));
+		for (const [title, shelves] of Object.entries(scenario.collections ?? {})) {
+			const doc = kb.store.listDocs().find((d) => d.title === title);
+			if (!doc) throw new Error(`no document ${title}`);
+			kb.setShelves(doc.id, shelves);
+		}
+		// Keyed by the project root as pi sees it (macOS: /private/var/…, not /var/…).
+		if (scenario.projectUses) kb.updateConfig({ projects: { [realpathSync(project)]: { shelves: scenario.projectUses } } });
+		kb.close();
+	}
 	const started = Date.now();
 	let result: RunResult;
 	try {

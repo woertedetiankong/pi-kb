@@ -146,7 +146,9 @@ export class KbWebApp implements WebApp {
 					// Notes carry their tags, so the page can browse by tag; PDFs still waiting for OCR say so.
 					const waiting = new Set(lib.ocrPending().map((d) => d.id));
 					return {
-						docs: lib.listDocs().map((d) => (d.collection === "wiki" ? { ...d, tags: lib.noteTags(d) } : waiting.has(d.id) ? { ...d, ocrPending: true } : d)),
+						docs: lib
+							.listDocs()
+							.map((d) => (d.collection === "wiki" ? { ...d, tags: lib.noteTags(d), ...(lib.unreviewed(d) ? { unreviewed: true } : {}) } : waiting.has(d.id) ? { ...d, ocrPending: true } : d)),
 					};
 				}
 				case "GET /search": {
@@ -382,6 +384,12 @@ export class KbWebApp implements WebApp {
 					const result = await lib.convert(String(body.id ?? ""));
 					this.host.changed();
 					return { result: { ...result, path: basename(result.path) } };
+				}
+				case "POST /approve": {
+					const body = await req.json();
+					const doc = lib.approveNote(String(body.id ?? ""));
+					this.host.changed();
+					return { doc };
 				}
 				case "POST /reread": {
 					const body = await req.json();

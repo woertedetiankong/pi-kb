@@ -99,6 +99,7 @@ main { overflow-y: auto; border-right: 1px solid var(--line); }
 .sem { font-size: 11px; font-weight: 600; border-radius: 4px; padding: 0 6px; background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
 .sem-line { font-size: 13px; color: var(--muted); margin: 0 0 14px; }
 .ocr-wait { font-size: 11px; font-weight: 600; border-radius: 4px; padding: 0 6px; background: color-mix(in srgb, var(--warn) 15%, transparent); color: var(--warn); }
+.unreviewed { font-size: 11px; font-weight: 600; border-radius: 4px; padding: 0 6px; background: color-mix(in srgb, var(--warn) 15%, transparent); color: var(--warn); }
 .ocr-wait.now { background: var(--accent-soft); color: var(--accent-text); }
 .ask-model { height: 32px; max-width: 170px; border: 1px solid var(--line-strong); border-radius: 7px; padding: 0 6px; font: inherit; font-size: 12.5px; background: var(--panel); color: var(--muted); outline: none; margin-left: -8px; }
 .ask-model:focus { border-color: var(--accent); }
@@ -404,6 +405,7 @@ const T = {
     toDocsTip: "这其实是参考文档（比如 README）？改为只读的资料", toNoteTip: "这是你自己的经验记录？改为可以编辑、追加的笔记",
     toDocsConfirm: t => `把笔记“${t}”改为资料？它会变成只读的资料，引用和检索照常。`, toNoteConfirm: t => `把“${t}”改为笔记？之后可以编辑、追加。`,
     converted: { docs: t => `“${t}”已改为资料`, wiki: t => `“${t}”已改为笔记` },
+    unreviewed: "未确认", unreviewedTip: "agent 在没人确认时保存的；认可之前，agent 会被告知它未经确认", review: "确认", approve: "认可这条笔记", approved: t => `已认可“${t}”`,
     reread: "重新识别", rereadTip: "用现在的 OCR 设置重新识别这份资料（比如改了识别语言或 OCR 服务之后）",
     rereadConfirm: t => `用现在的 OCR 设置重新识别“${t}”？新识别出的文字会替换现在的；完成之前照常可以搜索。`, rereadDone: t => `已重新识别“${t}”`,
     askFew: "结果不多？让 AI 把问题换成几组关键词（中英文、资料里的说法）再找", askFewBtn: "✨ 用 AI 找",
@@ -507,6 +509,7 @@ const T = {
     toDocsTip: "Reference material (a README, say) rather than your own lesson? Make it a read-only document", toNoteTip: "Your own lesson? Make it an editable note",
     toDocsConfirm: t => `Make the note “${t}” a document? It becomes read-only reference material; search and citations work as before.`, toNoteConfirm: t => `Make “${t}” a note? You can then edit it and add to it.`,
     converted: { docs: t => `“${t}” is now a document`, wiki: t => `“${t}” is now a note` },
+    unreviewed: "unreviewed", unreviewedTip: "Saved by an agent with nobody to review it; until you approve it, agents are told it is unreviewed", review: "Review", approve: "Approve note", approved: t => `Approved "${t}"`,
     reread: "Read again", rereadTip: "Read this document again with the current OCR settings (e.g. after changing the OCR language or server)",
     rereadConfirm: t => `Read "${t}" again with the current OCR settings? The new text replaces the current one; searching works as usual meanwhile.`, rereadDone: t => `Read "${t}" again`,
     askFew: "Few results? Let AI search again with other wordings, in Chinese and English", askFewBtn: "✨ Find with AI",
@@ -814,7 +817,7 @@ function card(d, extra = "") {
   return `<button class="card${state.selected === d.id ? " on" : ""}" data-id="${esc(d.id)}">
     <div class="row1">${scopeTag(d.scope)}<span class="kind${k === "note" ? " note" : ""}">${esc(T.kinds[k] ?? k)}</span><span class="title">${esc(d.title)}</span>${(d.shelves || []).map(n => `<span class="shelf">${esc(n)}</span>`).join("")}<span class="time num">${esc(fmtDate(d.added_at))}</span></div>
     ${extra}
-    <div class="meta">${d.pages ? `<span>${esc(T.pages(d.pages))}</span>` : ""}${d.ocrPending ? ocrTag(d) : ""}<span class="num">${esc(d.id)}</span></div>
+    <div class="meta">${d.pages ? `<span>${esc(T.pages(d.pages))}</span>` : ""}${d.ocrPending ? ocrTag(d) : ""}${d.unreviewed ? `<span class="unreviewed" title="${esc(T.unreviewedTip)}">${esc(T.unreviewed)}</span>` : ""}<span class="num">${esc(d.id)}</span></div>
   </button>`;
 }
 
@@ -946,6 +949,7 @@ async function renderPreview() {
       fields.updated && [T.updated, esc(fields.updated)],
       fields.created && [T.created, esc(fields.created)],
       fields.project && [T.project, esc(fields.project)],
+      fields.review === "pending" && [T.review, `<span class="unreviewed">${esc(T.unreviewed)}</span> ${esc(T.unreviewedTip)}`],
       shelfFact(),
       [T.id, `<span class="num">${esc(doc.id)}</span>`],
     ].filter(Boolean);
@@ -954,7 +958,7 @@ async function renderPreview() {
       <dl class="facts">${facts.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>
       ${state.editing
         ? `<textarea class="editor" id="noteText">${esc(text)}</textarea><div class="actions" style="margin-top:10px"><button class="btn primary" id="saveNote">${esc(T.save)}</button><button class="btn" id="cancelEdit">${esc(T.cancel)}</button></div>`
-        : `<div class="actions"><button class="btn" id="editNote">${esc(T.edit)}</button><button class="btn" id="convertDoc" title="${esc(T.toDocsTip)}">${esc(T.toDocs)}</button>${moveButton()}<button class="btn danger" id="removeDoc">${esc(T.remove)}</button></div><div class="md">${markdown(withoutTitle(body, doc.title), { links: state.doc.links || {} })}</div>`}
+        : `<div class="actions">${fields.review === "pending" ? `<button class="btn primary" id="approveNote">${esc(T.approve)}</button>` : ""}<button class="btn" id="editNote">${esc(T.edit)}</button><button class="btn" id="convertDoc" title="${esc(T.toDocsTip)}">${esc(T.toDocs)}</button>${moveButton()}<button class="btn danger" id="removeDoc">${esc(T.remove)}</button></div><div class="md">${markdown(withoutTitle(body, doc.title), { links: state.doc.links || {} })}</div>`}
     </div>`;
     return;
   }
@@ -1336,6 +1340,16 @@ $("preview").addEventListener("click", async e => {
       select(result.doc.id);
       toast(T.converted[result.doc.collection](result.doc.title));
     } catch (err) { toast(err.message); }
+    return;
+  }
+  if (b.id === "approveNote" && doc) {
+    b.disabled = true;
+    try {
+      await api("/approve", { body: { id } });
+      state.doc = null; etags = {}; await refresh();
+      if (state.selected === id) renderPreview();
+      toast(T.approved(doc.title));
+    } catch (err) { toast(err.message); b.disabled = false; }
     return;
   }
   if (b.id === "rereadDoc" && doc) {

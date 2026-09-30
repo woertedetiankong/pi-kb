@@ -32,6 +32,8 @@ export interface WikiReport {
 	/** Project notes linking to a note in the global knowledge base, which teammates do not have. */
 	private: { note: ScopedDoc; target: ScopedDoc }[];
 	untagged: ScopedDoc[];
+	/** Notes an agent saved with nobody to review them, not approved yet. */
+	unreviewed: ScopedDoc[];
 }
 
 /**
@@ -59,17 +61,43 @@ export class Library {
 	 * undefined: all of them (the default).
 	 */
 	readonly shelves?: string[];
+	/** Shelves the project does not use that the user let the agent into for this session. */
+	readonly granted: string[];
 
-	constructor(global: KnowledgeBase, project?: { kb: KnowledgeBase; info: ProjectKb }, shelves?: string[]) {
+	constructor(global: KnowledgeBase, project?: { kb: KnowledgeBase; info: ProjectKb }, shelves?: string[], granted: string[] = []) {
 		this.global = global;
 		this.project = project;
 		this.shelves = shelves;
+		this.granted = granted;
 	}
 
-	/** What the global knowledge base shows here: the project's shelves, or one shelf asked for. */
+	/** The shelves in reach here: the project's choice and this session's grants; undefined: all. */
+	private get reach(): string[] | undefined {
+		return this.shelves && [...this.shelves, ...this.granted];
+	}
+
+	/** What the global knowledge base shows here: the shelves in reach, or one shelf asked for. */
 	private globalFilter(shelf?: string): ShelfFilter | undefined {
 		if (shelf !== undefined) return { only: shelf };
-		return this.shelves ? { any: this.shelves } : undefined;
+		return this.reach ? { any: this.reach } : undefined;
+	}
+
+	/** Whether a shelf of the global knowledge base is in reach here (all are when the project chose none). */
+	uses(shelf: string): boolean {
+		const reach = this.reach;
+		return !reach || reach.some((s) => s.toLowerCase() === shelf.toLowerCase());
+	}
+
+	/**
+	 * Whether the agent may see this document or note here: the project's are always in reach, the
+	 * global knowledge base's when they are in no shelf or on one the project uses.
+	 */
+	sees(id: string): boolean {
+		const found = this.locate(id);
+		if (!found) return false;
+		if (found.scope === "project" || !this.shelves) return true;
+		const on = this.global.store.shelvesOf(id);
+		return !on.length || on.some((s) => this.uses(s));
 	}
 
 	/** Project first: on equal footing its documents win. */
@@ -218,14 +246,27 @@ export class Library {
 		return this.kb(doc.scope).noteTags(doc);
 	}
 
+	/** Whether an agent saved this note with nobody to review it, and the user has not approved it. */
+	unreviewed(doc: { docId?: string; id?: string; scope: Scope; collection: Collection }): boolean {
+		const id = doc.docId ?? doc.id;
+		const record = id ? this.kb(doc.scope).store.getDoc(id) : undefined;
+		return !!record && this.kb(doc.scope).unreviewed(record);
+	}
+
+	/** The user approves an agent's note. */
+	approveNote(id: string): ScopedDoc {
+		const { kb, scope } = this.need(id);
+		return { ...kb.approveNote(id), scope };
+	}
+
 	/**
 	 * Look over the wiki for what needs a person: likely duplicates (alike titles, or two notes that
 	 * semantic search finds first for each other's title), broken [[links]], project notes linking
-	 * to global ones, and notes without tags.
+	 * to global ones, notes without tags, and notes an agent saved that nobody has approved.
 	 */
 	async checkWiki(): Promise<WikiReport> {
 		const notes = this.listDocs("wiki");
-		const report: WikiReport = { notes: notes.length, duplicates: [], broken: [], private: [], untagged: [] };
+		const report: WikiReport = { notes: notes.length, duplicates: [], broken: [], private: [], untagged: [], unreviewed: [] };
 		const pairs = new Map<string, [ScopedDoc, ScopedDoc]>();
 		const pair = (a: ScopedDoc, b: ScopedDoc) => {
 			const key = [a.id, b.id].sort().join(" ");
@@ -241,6 +282,7 @@ export class Library {
 			if (top && top.match !== "keyword") first.set(note.id, top);
 			const { meta, body } = parseNote(this.noteText(note.id), note.title);
 			if (!meta.tags.length) report.untagged.push(note);
+			if (meta.review === "pending") report.unreviewed.push(note);
 			for (const target of wikiLinks(body)) {
 				const to = this.resolveLink(target, note.scope);
 				if (!to) report.broken.push({ note, target });
@@ -284,7 +326,8 @@ export class Library {
 
 	/** The global knowledge base's shelves with their sizes, and whether this project uses each. */
 	shelfList(): { name: string; docs: number; notes: number; used: boolean }[] {
-		return this.global.store.shelfCounts().map((s) => ({ ...s, used: !this.shelves || this.shelves.some((u) => u.toLowerCase() === s.name.toLowerCase()) }));
+		const same = (name: string) => (s: string) => s.toLowerCase() === name.toLowerCase();
+		return this.global.store.shelfCounts().map((s) => ({ ...s, used: !this.shelves || this.shelves.some(same(s.name)) }));
 	}
 
 	/** The spelling of an existing shelf that matches `name` ignoring case, else `name` itself (a new shelf). */

@@ -92,7 +92,7 @@ test("lint finds alike titles, broken links, project notes linking to global one
 		lib.remove(b.id);
 		lib.remove(c.id);
 		global.writeNote(global.prepareNote({ title: "Flash erase", content: "More.", tags: ["flash"] }, "append", erase.id));
-		assert.deepEqual(await lib.checkWiki(), { notes: 2, duplicates: [], broken: [], private: [], untagged: [] });
+		assert.deepEqual(await lib.checkWiki(), { notes: 2, duplicates: [], broken: [], private: [], untagged: [], unreviewed: [] });
 	} finally {
 		close();
 	}
@@ -105,6 +105,32 @@ test("tags are read from each note and follow edits", () => {
 		assert.deepEqual(global.noteTags(doc), ["spi", "board"]);
 		const edited = global.editNote(doc.id, global.noteText(doc.id).replace("tags: [spi, board]", "tags: [uart]"));
 		assert.deepEqual(global.noteTags(edited), ["uart"]);
+	} finally {
+		close();
+	}
+});
+
+test("a note saved with nobody to review it is marked until approved; approving changes nothing else", async () => {
+	const { lib, global, close } = twoKnowledgeBases("review");
+	try {
+		const agent = global.writeNote(global.prepareNote({ title: "Flash needs 3.3 V", content: "Seen on the bench.", tags: ["flash"], unreviewed: true }));
+		const user = global.writeNote(global.prepareNote({ title: "Answer in Chinese", content: "Preference." }));
+		assert.match(global.noteText(agent.id), /\nreview: pending\n---/);
+		assert.equal(lib.unreviewed({ ...agent, scope: "global" }), true);
+		assert.equal(lib.unreviewed({ ...user, scope: "global" }), false);
+
+		// An unreviewed append marks the whole note; one the user saved clears it.
+		global.writeNote(global.prepareNote({ title: "", content: "More.", unreviewed: true }, "append", user.id));
+		assert.equal(global.unreviewed(global.store.getDoc(user.id)!), true);
+		global.writeNote(global.prepareNote({ title: "", content: "Checked." }, "append", user.id));
+		assert.equal(global.unreviewed(global.store.getDoc(user.id)!), false);
+
+		const report = await lib.checkWiki();
+		assert.deepEqual(report.unreviewed.map((d) => d.id), [agent.id]);
+		const before = global.noteText(agent.id);
+		lib.approveNote(agent.id);
+		assert.equal(global.noteText(agent.id), before.replace("review: pending\n", ""));
+		assert.equal(lib.unreviewed({ ...agent, scope: "global" }), false);
 	} finally {
 		close();
 	}

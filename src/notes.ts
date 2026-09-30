@@ -9,6 +9,8 @@ export interface NoteMeta {
 	project?: string;
 	/** Shelves of the global knowledge base the note is on; none: every project sees it. */
 	shelves?: string[];
+	/** "pending": saved by an agent with nobody to review it; the user has not approved it yet. */
+	review?: "pending";
 }
 
 export interface Note {
@@ -59,6 +61,7 @@ export function parseNote(raw: string, fallbackTitle: string): Note {
 			updated: fields.updated ?? "",
 			project: unquote(fields.project) || undefined,
 			...(shelves.length ? { shelves } : {}),
+			...(fields.review === "pending" ? { review: "pending" as const } : {}),
 		},
 		body: body.trim(),
 	};
@@ -76,6 +79,7 @@ export function renderNote({ meta, body }: Note): string {
 	lines.push(`created: ${meta.created}`, `updated: ${meta.updated}`);
 	if (meta.project) lines.push(`project: ${quote(meta.project)}`);
 	if (meta.shelves?.length) lines.push(`shelves: [${meta.shelves.join(", ")}]`);
+	if (meta.review) lines.push(`review: ${meta.review}`);
 	lines.push("---", "");
 	const heading = /^#\s+/m.test(body.split("\n", 1)[0]) ? "" : `# ${meta.title}\n\n`;
 	return `${lines.join("\n")}\n${heading}${body.trim()}\n`;
@@ -92,6 +96,15 @@ export function withShelves(raw: string, shelves: string[]): string {
 	if (!match) return line ? `---\n${line}\n---\n\n${text}` : text;
 	const fields = match[1].split("\n").filter((l) => !/^shelves:/.test(l));
 	if (line) fields.push(line);
+	return `---\n${fields.join("\n")}\n---\n${text.slice(match[0].length)}`;
+}
+
+/** A note's text with its `review: pending` line removed (approved by the user), the rest as it was. */
+export function withoutReview(raw: string): string {
+	const text = raw.replace(/\r\n?/g, "\n");
+	const match = FRONT_MATTER.exec(text);
+	if (!match) return text;
+	const fields = match[1].split("\n").filter((l) => !/^review:/.test(l));
 	return `---\n${fields.join("\n")}\n---\n${text.slice(match[0].length)}`;
 }
 

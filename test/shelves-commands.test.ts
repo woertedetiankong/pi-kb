@@ -3,7 +3,7 @@
  * /kb add --to, /kb use, /kb group, kb_search's shelf, kb_note's shelf and the system prompt.
  */
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
@@ -34,6 +34,8 @@ const notes: string[] = [];
 let widget: string[] = [];
 const asked: { title: string; options: string[] }[] = [];
 let answer: (options: string[]) => string | undefined = () => undefined;
+let allow = true;
+const confirms: string[] = [];
 const ctx = {
 	cwd,
 	hasUI: true,
@@ -43,7 +45,10 @@ const ctx = {
 		notify: (text: string) => notes.push(text),
 		setStatus() {},
 		setWidget: (_key: string, lines?: string[]) => (widget = lines ?? []),
-		confirm: async () => true,
+		confirm: async (title: string) => {
+			confirms.push(title);
+			return allow;
+		},
 		select: async (title: string, options: string[]) => {
 			asked.push({ title, options });
 			return answer(options);
@@ -104,13 +109,45 @@ test("kb_search covers what the project uses; shelf asks for one collection; the
 	assert.match(text, /c3\.md/);
 	assert.doesNotMatch(text, /f1\.md/, "STM32 is not used here");
 	assert.match(text, /loose\.md/, "no collection: seen everywhere");
-	assert.match(await search({ query: "GPIO current", shelf: "stm32" }), /f1\.md/);
 	assert.match(await search({ query: "GPIO", shelf: "AVR" }), /No collection named "AVR"\. The collections are: ESP32, STM32, Tools\./);
 
 	const sections: Record<string, string> = {};
 	await fire("before_agent_start", { systemPromptOptions: { sections } });
-	assert.match(sections.knowledge_base, /grouped into collections\. This project uses ESP32, plus everything in no collection.*Other collections: STM32, Tools/);
+	assert.match(sections.knowledge_base, /grouped into collections\. This project uses ESP32, plus everything in no collection.*kept out of this project by the user: STM32, Tools/);
 	assert.match(sections.knowledge_base, /2 more on shelves this project does not use/);
+});
+
+test("collections the project does not use stay closed to the agent unless the user allows them for the session", async () => {
+	const espId = /id=(k-\w+)/.exec(await search({ query: "GPIO current", shelf: "esp32" }))![1];
+	assert.equal(confirms.length, 0, "a used collection needs no permission");
+
+	// Declined: nothing from STM32, and its documents cannot be read or listed by id either.
+	allow = false;
+	assert.match(await search({ query: "GPIO current", shelf: "stm32" }), /did not allow searching the collection "STM32"/);
+	assert.match(confirms.at(-1)!, /STM32/);
+	const list = await tools.get("kb_list")!.execute("id", { shelf: "STM32" }, undefined, undefined, ctx);
+	assert.match(list.content[0].text, /did not allow/);
+	const f1 = JSON.parse(readFileSync(join(root, "kb", "docs", readdirSync(join(root, "kb", "docs")).find((f) => readFileSync(join(root, "kb", "docs", f), "utf8").includes("f1.md"))!), "utf8")).id as string;
+	const read = await tools.get("kb_read")!.execute("id", { id: f1 }, undefined, undefined, ctx);
+	assert.match(read.content[0].text, /keeps out of this project/);
+	assert.doesNotMatch(read.content[0].text, /25 mA/);
+	assert.match((await tools.get("kb_read")!.execute("id", { id: espId }, undefined, undefined, ctx)).content[0].text, /40 mA/, "used ones read as before");
+
+	// Without a user nobody can allow it.
+	const headless = { ...ctx, hasUI: false };
+	const quiet = await tools.get("kb_search")!.execute("id", { query: "GPIO current", shelf: "stm32" }, undefined, undefined, headless);
+	assert.match(quiet.content[0].text, /no user to allow it/);
+
+	// Allowed: for this session, search and read work; /kb use is unchanged.
+	allow = true;
+	assert.match(await search({ query: "GPIO current", shelf: "stm32" }), /f1\.md/);
+	assert.match((await tools.get("kb_read")!.execute("id", { id: f1 }, undefined, undefined, ctx)).content[0].text, /25 mA/);
+	assert.match(await search({ query: "GPIO current" }), /f1\.md/, "granted: part of the default search now");
+	assert.deepEqual(config().projects[cwd], { shelves: ["ESP32"] }, "the project's choice is not changed");
+
+	// A new session starts closed again.
+	await fire("session_start");
+	assert.doesNotMatch(await search({ query: "GPIO current" }), /f1\.md/);
 });
 
 test("kb_note puts a lesson in the collection it names, and the user can change it", async () => {
@@ -125,6 +162,24 @@ test("kb_note puts a lesson in the collection it names, and the user can change 
 	const pref = await tools.get("kb_note")!.execute("id", { title: "Answer in Chinese", content: "The user prefers Chinese answers.", shelf: "ESP32" }, undefined, undefined, ctx);
 	assert.deepEqual(asked.at(-2)!.options, ["None: every project sees it", "ESP32"], "the project's collections to choose from");
 	assert.doesNotMatch(pref.content[0].text, /collection/);
+});
+
+test("a note saved with nobody to review it is marked for the agent, listed by /kb lint and approved there", async () => {
+	const headless = { ...ctx, hasUI: false };
+	const saved = await tools.get("kb_note")!.execute("id", { title: "C3 boots slowly on USB power", content: "Seen once; USB power is noisy." }, undefined, undefined, headless);
+	assert.match(saved.content[0].text, /marked unreviewed until the user approves it/);
+	assert.match(await search({ query: "C3 boots slowly" }), /unreviewed note/);
+
+	const sections: Record<string, string> = {};
+	await fire("before_agent_start", { systemPromptOptions: { sections } });
+	assert.match(sections.knowledge_base, /'unreviewed note' were saved by an agent with no user to review them/);
+
+	let step = 0;
+	answer = (options) => (step++ === 0 ? "Review now" : options.includes("Approve") ? "Approve" : options[0]);
+	await kb.handler("lint", ctx);
+	assert.match(asked.find((a) => /^Review 1 unreviewed note now\?/.test(a.title))!.title, /1 unreviewed note/);
+	assert.match(asked.at(-1)!.title, /^Keep "C3 boots slowly on USB power"\?/);
+	assert.doesNotMatch(await search({ query: "C3 boots slowly" }), /unreviewed note/, "approved: a plain note now");
 });
 
 test("/kb group puts an item in a collection; renaming follows into the projects' choice", async () => {

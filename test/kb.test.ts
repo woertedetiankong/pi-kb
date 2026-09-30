@@ -173,3 +173,20 @@ test("remove deletes the document and its index entries", async () => {
 	assert.equal(kb.search("供电电压").length, 0);
 	assert.equal(kb.store.stats().docs, 0);
 });
+
+test("a knowledge base folder carries its format; one from a newer pi-kb is refused, not rewritten", async () => {
+	const { checkFormat, KB_FORMAT } = await import("../src/kb.ts");
+	const { mkdtempSync, readFileSync, writeFileSync, rmSync } = await import("node:fs");
+	const { tmpdir } = await import("node:os");
+	const { join } = await import("node:path");
+	const root = mkdtempSync(join(tmpdir(), "pi-kb-format-"));
+	try {
+		checkFormat(root);
+		assert.equal(JSON.parse(readFileSync(join(root, "pi-kb.json"), "utf8")).format, KB_FORMAT);
+		writeFileSync(join(root, "pi-kb.json"), JSON.stringify({ format: KB_FORMAT + 1 }));
+		assert.throws(() => checkFormat(root), /written by a newer pi-kb .*pi update --extensions/);
+		assert.equal(JSON.parse(readFileSync(join(root, "pi-kb.json"), "utf8")).format, KB_FORMAT + 1, "left as it was");
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});

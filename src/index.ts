@@ -29,6 +29,8 @@ const TOOLS = ["kb_search", "kb_list", "kb_read", "kb_add", "kb_note"];
 const READ_LIMIT = 30_000;
 /** kb_read view: pages rendered per call. Each page image costs roughly 1.5k tokens or more. */
 const VIEW_LIMIT = 4;
+/** kb_read or kb_note on an item in a collection the project does not use: the same answer as for an unknown id, but saying why. */
+const HIDDEN = "That document or note is in a collection the user keeps out of this project, so it cannot be used here. Do not look for other ways to read it; if the user needs it, they can add its collection with /kb use.";
 /** How long kb_add waits for an import before leaving it to finish in the background. */
 const KB_ADD_WAIT = 30_000;
 /** /kb list shows this many items; the web page shows everything. */
@@ -194,10 +196,10 @@ export function textTable(rows: string[][]): string[] {
 	return rows.map((r) => r.map((cell, i) => (i === r.length - 1 ? cell : padDisplay(cell, widths[i]))).join("").trimEnd());
 }
 
-function formatHits(hits: (SearchHit & { scope?: Scope })[], m: Messages, scoped = false): string {
+function formatHits(hits: (SearchHit & { scope?: Scope; unreviewed?: boolean })[], m: Messages, scoped = false): string {
 	return hits
 		.map((hit, i) => {
-			const where = [scoped && hit.scope && m.scopeTag[hit.scope], hit.heading && `§ ${hit.heading}`, hit.collection === "wiki" && m.wikiNote, hit.match === "semantic" && m.semanticMatch]
+			const where = [scoped && hit.scope && m.scopeTag[hit.scope], hit.heading && `§ ${hit.heading}`, hit.collection === "wiki" && (hit.unreviewed ? m.unreviewedNote : m.wikiNote), hit.match === "semantic" && m.semanticMatch]
 				.filter(Boolean)
 				.join(" · ");
 			return `${i + 1}. ${formatCitation(hit)} id=${hit.docId}${where ? ` · ${where}` : ""}\n   ${hit.snippet}`;
@@ -279,7 +281,14 @@ export default function piKb(pi: ExtensionAPI) {
 		if (project && info && resolve(project.info.dir) === resolve(info.dir)) return;
 		closeProject();
 		if (!info) return;
-		const kb = new KnowledgeBase(global.localDir, { dir: info.dir, project: true });
+		let kb: KnowledgeBase;
+		try {
+			kb = new KnowledgeBase(global.localDir, { dir: info.dir, project: true });
+		} catch (error) {
+			// A teammate's newer pi-kb wrote it: keep the global knowledge base working and say why.
+			lastCtx?.ui.notify(error instanceof Error ? error.message : String(error), "warning");
+			return;
+		}
 		kb.onSemantic = repaint;
 		project = { kb, info };
 		kb.sync();
@@ -302,10 +311,10 @@ export default function piKb(pi: ExtensionAPI) {
 		const library = lib();
 		const shelves = library.shelfList();
 		if (!shelves.length) return [];
-		const used = shelves.filter((s) => s.used).map((s) => s.name);
-		const other = shelves.filter((s) => !s.used).map((s) => s.name);
+		const used = shelves.filter((s) => library.uses(s.name)).map((s) => s.name);
+		const other = shelves.filter((s) => !library.uses(s.name)).map((s) => s.name);
 		return [
-			`- The global knowledge base is grouped into collections. ${library.shelves ? `This project uses ${used.length ? used.join(", ") : "none of them"}` : `This project uses all of them: ${used.join(", ")}`}, plus everything in no collection; kb_search covers exactly that.${other.length ? ` Other collections: ${other.join(", ")}. Search one with kb_search shelf only when the user asks for it or the question is clearly about its topic.` : ""}`,
+			`- The global knowledge base is grouped into collections. ${library.shelves ? `This project uses ${used.length ? used.join(", ") : "none of them"}` : `This project uses all of them: ${used.join(", ")}`}, plus everything in no collection; kb_search covers exactly that.${other.length ? ` Other collections, kept out of this project by the user: ${other.join(", ")}. Search one with kb_search shelf only when the user asks for it or the question is clearly about its topic; the user is asked to allow it first.` : ""}`,
 			"- When saving a new global note about one of this project's collections' topics, pass it as kb_note shelf; leave shelf out for user preferences and general lessons, so every project sees them.",
 		];
 	};
@@ -315,8 +324,25 @@ export default function piKb(pi: ExtensionAPI) {
 		// and notes from another computer through a synced folder, notes edited by hand.
 		const changed = [project?.kb.syncIfChanged(), open().syncIfChanged()].some((r) => r && (r.updated || r.removed));
 		if (changed) repaint();
-		return new Library(open(), project, projectShelves());
+		return new Library(open(), project, projectShelves(), [...granted]);
 	};
+	/** Collections this project does not use that the user let the agent search for this session. */
+	const granted = new Set<string>();
+	/**
+	 * Whether the agent may look in a collection the project does not use: the user decides, for this
+	 * session only (/kb use changes it for good). Without a user, it stays closed.
+	 */
+	const reachShelf = async (shelf: string, ctx: ExtensionContext): Promise<boolean> => {
+		if (lib().uses(shelf)) return true;
+		if (!ctx.hasUI || !(await ctx.ui.confirm(t().reachTitle(shelf), t().reachBody(shelf, basename(projectRoot ?? ctx.cwd))))) return false;
+		granted.add(shelf);
+		return true;
+	};
+	/** What the agent is told when a collection stays closed. */
+	const closedShelf = (shelf: string, ctx: ExtensionContext) =>
+		ctx.hasUI
+			? `The user did not allow searching the collection "${shelf}" here; it is not used in this project. Do not retry on your own; if the user asks for it again, you may try once more (they will be asked again), or they can add it for good with /kb use.`
+			: `The collection "${shelf}" is not used in this project and there is no user to allow it. Tell the user; they can add it with /kb use.`;
 	const close = () => {
 		if (configWatch) unwatchFile(configWatch.file, configWatch.listener);
 		configWatch = undefined;
@@ -643,6 +669,7 @@ export default function piKb(pi: ExtensionAPI) {
 
 	pi.on("session_start", (_event, ctx) => {
 		lastCtx = ctx;
+		granted.clear();
 		// Mount early (no server yet) so other pi-web pages, such as pi-sessions, link here.
 		hub().mount(webApp);
 		const flag = pi.getFlag("kb");
@@ -705,6 +732,7 @@ export default function piKb(pi: ExtensionAPI) {
 					]
 				: []),
 			"- When you solve a non-obvious problem (a root cause found by debugging, a gotcha, a workaround) or learn a lasting fact or preference about the user's setup, save it with kb_note before your final reply, once the fix is verified. The user reviews every note, so just call it; if they decline, do not retry unless they ask. Do not note routine work.",
+			"- Hits marked 'unreviewed note' were saved by an agent with no user to review them: treat them as leads, check them against the documents or the code before relying on them, and say they are unreviewed.",
 			"- The knowledge base is your only memory across sessions: never tell the user you will remember something unless you saved it with kb_note.",
 			...(project
 				? [
@@ -763,7 +791,10 @@ export default function piKb(pi: ExtensionAPI) {
 				const text = `No collection named "${params.shelf}". ${known.length ? `The collections are: ${known.map((s) => s.name).join(", ")}.` : "The knowledge base has no collections."} Search again with one of them, or without shelf.`;
 				return { content: [{ type: "text", text }], details: { hits: [], pending: [] } };
 			}
-			const hits = await library.find(params.query, { limit: params.limit, collection: scope, shelf });
+			if (shelf && !(await reachShelf(shelf, ctx))) return { content: [{ type: "text", text: closedShelf(shelf, ctx) }], details: { hits: [], pending: [] } };
+			const hits = (await library.find(params.query, { limit: params.limit, collection: scope, shelf })).map((h) =>
+				h.collection === "wiki" && library.unreviewed(h) ? { ...h, unreviewed: true } : h,
+			);
 			// A part the knowledge base never mentions: its results are about other parts, with other values.
 			const missing = library.unmentioned(params.query);
 			const unknown = missing.length
@@ -810,7 +841,7 @@ export default function piKb(pi: ExtensionAPI) {
 			shelf: Type.Optional(Type.String({ description: "Only this collection of the user's global knowledge base (names are in the system prompt)" })),
 			offset: Type.Optional(Type.Integer({ minimum: 0, description: "Continue a long list from here" })),
 		}),
-		async execute(_id, params) {
+		async execute(_id, params, _signal, _update, ctx) {
 			const library = lib();
 			const collection = params.scope && params.scope !== "all" ? params.scope : undefined;
 			const known = library.shelfList();
@@ -819,6 +850,7 @@ export default function piKb(pi: ExtensionAPI) {
 				const text = `No collection named "${params.shelf}". ${known.length ? `The collections are: ${known.map((s) => s.name).join(", ")}.` : "The knowledge base has no collections."}`;
 				return { content: [{ type: "text", text }], details: { docs: 0, notes: 0 } };
 			}
+			if (shelf && !(await reachShelf(shelf, ctx))) return { content: [{ type: "text", text: closedShelf(shelf, ctx) }], details: { docs: 0, notes: 0 } };
 			const docs = library.visibleDocs({ collection, shelf });
 			let text = formatList(docs, { match: params.match, offset: params.offset, scoped: !!project });
 			const pending = imports.pending();
@@ -848,6 +880,8 @@ export default function piKb(pi: ExtensionAPI) {
 			),
 		}),
 		async execute(_id, params, signal, _onUpdate, ctx) {
+			// Only what kb_search can find here: the user keeps other collections out of this project.
+			if (lib().locate(params.id) && !lib().sees(params.id)) return { content: [{ type: "text", text: HIDDEN }], details: { id: params.id, offset: 0, truncated: false, viewed: [] } };
 			const { doc, text, ocr } = lib().read(params.id, params.pages);
 			const offset = params.offset ?? 0;
 			const slice = text.slice(offset, offset + READ_LIMIT);
@@ -1010,17 +1044,21 @@ export default function piKb(pi: ExtensionAPI) {
 			const library = lib();
 			let mode: NoteMode = params.mode ?? "create";
 			let noteId = params.id;
+			if (mode !== "create" && noteId && library.locate(noteId) && !library.sees(noteId)) return { content: [{ type: "text", text: HIDDEN }], details: { saved: false } };
 			// An existing note stays in its knowledge base; a new one goes where the model said (or the project's).
 			let scope: Scope = mode !== "create" && noteId ? (library.locate(noteId)?.scope ?? "global") : project ? (params.scope ?? "project") : "global";
 			// The project's name, not the subfolder pi happens to run in.
 			// A collection named by the model: an existing one's spelling; any other name starts a new one.
 			let shelf = params.shelf?.trim() ? library.shelfName(params.shelf) : undefined;
 			const shelvesFor = (where: Scope) => (where === "global" && shelf ? [shelf] : undefined);
-			let input = { ...params, project: basename(project?.info.root ?? projectRootFor(ctx.cwd)) || undefined, shelves: shelvesFor(scope) };
+			// Without a UI nobody reviews the note: it is marked until the user approves it (/kb lint, web page).
+			let input = { ...params, project: basename(project?.info.root ?? projectRootFor(ctx.cwd)) || undefined, shelves: shelvesFor(scope), unreviewed: !ctx.hasUI };
 			let base = library.kb(scope);
 			let prepared = base.prepareNote(input, mode, noteId);
 			// Notes that may already say this (in either language, with semantic search): adding to one keeps the wiki from splitting.
+			// Notes in collections the project does not use stay out of the model's sight (the user still sees them).
 			const similar = mode === "create" ? await library.similarNotes(params.title) : [];
+			const similarSeen = similar.filter((d) => library.sees(d.id));
 			let edited: string | undefined;
 			if (ctx.hasUI) {
 				const m = t();
@@ -1092,10 +1130,10 @@ export default function piKb(pi: ExtensionAPI) {
 			const text = [
 				redirected
 					? `The user chose to add this to the existing note "${doc.title}" (${doc.id}) instead of creating a new one: it was appended as a section${where}${edited !== undefined ? " after the user edited it" : ""}.`
-					: `Saved wiki note "${doc.title}" (${doc.id})${where} at ${doc.path}${edited !== undefined ? " after the user edited it" : ""}.`,
+					: `Saved wiki note "${doc.title}" (${doc.id})${where} at ${doc.path}${edited !== undefined ? " after the user edited it" : ""}${ctx.hasUI ? "" : ", marked unreviewed until the user approves it"}.`,
 				// Without a UI nobody chose: tell the model, so related lessons end up in one note next time.
-				!ctx.hasUI && similar.length
-					? `Similar notes already exist: ${similar.map((d) => `"${d.title}" (${d.id})`).join(", ")}. If one covers the same topic, extend it with mode append and its id instead of creating another note.`
+				!ctx.hasUI && similarSeen.length
+					? `Similar notes already exist: ${similarSeen.map((d) => `"${d.title}" (${d.id})`).join(", ")}. If one covers the same topic, extend it with mode append and its id instead of creating another note.`
 					: "",
 			].filter(Boolean).join("\n");
 			return { content: [{ type: "text", text }], details: { saved: true, id: doc.id, title: doc.title } };
@@ -1396,6 +1434,7 @@ export default function piKb(pi: ExtensionAPI) {
 					const tag = (d: { scope: Scope }) => (project ? `${m.scopeTag[d.scope]} ` : "");
 					const note = (d: { scope: Scope; title: string; id: string }) => `${tag(d)}${d.title} (${d.id})`;
 					const sections: [string, string[]][] = [
+						[m.lintUnreviewed, report.unreviewed.map((d) => `- ${note(d)}`)],
 						[m.lintDuplicates, report.duplicates.map(([a, b]) => `- ${note(a)} ↔ ${note(b)}`)],
 						[m.lintBroken, report.broken.map((b) => `- ${note(b.note)}: [[${b.target}]]`)],
 						[m.lintPrivate, report.private.map((p) => `- ${note(p.note)} → ${p.target.title}`)],
@@ -1404,6 +1443,19 @@ export default function piKb(pi: ExtensionAPI) {
 					const found = sections.filter(([, lines]) => lines.length);
 					const body = found.length ? found.flatMap(([head, lines]) => [head, ...lines, ""]).join("\n").trimEnd() : m.lintClean;
 					show(ctx, m.lintTitle(report.notes), body);
+					// Notes an agent saved with nobody watching: the user decides, one by one.
+					if (!ctx.hasUI || !report.unreviewed.length) return;
+					if ((await ctx.ui.select(m.reviewAsk(report.unreviewed.length), [m.reviewNow, m.reviewLater])) !== m.reviewNow) return;
+					for (const d of report.unreviewed) {
+						ctx.ui.setWidget("kb", [`📚 ${m.reviewing(d.title)}`, "", ...library.noteText(d.id).split("\n").slice(0, 40)]);
+						const [approve, remove, skip, stop] = m.reviewChoices;
+						const choice = await ctx.ui.select(m.reviewPick(d.title), [approve, remove, skip, stop]);
+						if (choice === approve) library.approveNote(d.id);
+						else if (choice === remove) library.remove(d.id);
+						else if (choice !== skip) break;
+					}
+					ctx.ui.setWidget("kb", undefined);
+					refresh(ctx);
 					return;
 				}
 				case "help": {

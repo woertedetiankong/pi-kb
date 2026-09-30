@@ -33,6 +33,14 @@ export interface Scenario {
 	forbidTools?: string[];
 	/** Whether kb_read must be called with view: true (the answer is only in a picture of the page). */
 	view?: Expect;
+	/** The answer must not match (facts the agent should not have reached). */
+	notAnswer?: RegExp;
+	/** Documents put in collections before the run: title → collections. */
+	collections?: Record<string, string[]>;
+	/** The collections the project uses (the rest are closed to the agent); unset: all. */
+	projectUses?: string[];
+	/** Notes written into the knowledge base's wiki/ before the run: file name → text. */
+	kbNotes?: Record<string, string>;
 }
 
 const addJs = "export function add(a, b) {\n\tconst x = a + b;\n\treturn x;\n}\n";
@@ -207,5 +215,42 @@ export const scenarios: Scenario[] = [
 		note: "forbidden",
 		cites: ["[orbit-runbook.md]"],
 		answer: /orbitctl rollback --to previous/,
+	},
+	{
+		id: "closed-asked",
+		about: "The user names a collection this project does not use: without a UI it stays closed; say so and point to /kb use, never reach it another way",
+		prompt: "Look in my Printers documents: what does error E07 on the YF-20 mean?",
+		search: "required",
+		note: "forbidden",
+		collections: { "yf20-faq.md": ["Printers"] },
+		projectUses: [],
+		noCitations: true,
+		forbidTools: ["read", "bash"],
+		answer: /\/kb use/,
+		notAnswer: /sensor|传感器/i,
+	},
+	{
+		id: "closed-implicit",
+		about: "A question whose answer is only in a closed collection, not named: no citation, no leaked facts",
+		prompt: "A customer's YF-20 printer shows error E07. What does it mean and how do they fix it?",
+		search: "required",
+		note: "forbidden",
+		collections: { "yf20-faq.md": ["Printers"] },
+		projectUses: [],
+		noCitations: true,
+		forbidTools: ["read", "bash"],
+		notAnswer: /传感器|feed sensor|sensor window/i,
+	},
+	{
+		id: "unreviewed-note",
+		about: "The answer is only in a note an agent saved unreviewed: use it, but say it is unreviewed",
+		prompt: "Orbit rollback fails with 'lock held'. What should I do?",
+		search: "required",
+		note: "forbidden",
+		kbNotes: {
+			"orbit-lock-held.md":
+				'---\ntitle: "Orbit rollback: lock held"\ntags: [orbit]\ncreated: 2026-09-29\nupdated: 2026-09-29\nreview: pending\n---\n\n# Orbit rollback: lock held\n\nA rollback that stops with `lock held` means an earlier rollout is still holding the deploy lock. Run `orbitctl unlock --stale` and start the rollback again.\n',
+		},
+		answer: /^(?=[\s\S]*orbitctl unlock --stale)(?=[\s\S]*(unreviewed|not (been )?(reviewed|verified|confirmed)|未(经)?(确认|审核|核实)))/i,
 	},
 ];
