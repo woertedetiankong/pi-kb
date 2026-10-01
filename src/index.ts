@@ -1,5 +1,5 @@
 import { type ExtensionAPI, type ExtensionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
-import { statSync, unwatchFile, watchFile } from "node:fs";
+import { existsSync, statSync, unwatchFile, watchFile } from "node:fs";
 import { basename, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkWritable, copyContent, expandDir, kbLocation, LocationError } from "./config.ts";
@@ -504,6 +504,23 @@ export default function piKb(pi: ExtensionAPI) {
 		}));
 		return { job: imports.enqueue(items, skipped), placed };
 	};
+
+	// pi-lab announces the board under test with its pack (datasheets and verified notes): put them on a shelf named
+	// after the board, and tell pi-lab which shelf to point the agent at.
+	pi.events.on("pi-lab:board", (data) => {
+		const board = data as { name?: unknown; files?: { path: string; note: boolean }[] };
+		if (!enabled() || typeof board.name !== "string" || !Array.isArray(board.files)) return;
+		const library = lib();
+		const shelf = library.shelfName(board.name);
+		// Each file once: a note already in the wiki may carry the user's own edits.
+		const have = new Set(library.listDocs().map((d) => basename(d.source)));
+		const items = board.files
+			.filter((f) => existsSync(f.path) && !have.has(basename(f.path)))
+			.map((f) => ({ path: f.path, wiki: f.note, scope: "global" as const, shelves: [shelf] }));
+		if (items.length) imports.enqueue(items);
+		granted.add(shelf);
+		pi.events.emit("pi-kb:board-shelf", { board: board.name, shelf });
+	});
 
 	/** True the first time a hint is asked for, false ever after (remembered in config.json). */
 	const firstTime = (tip: string): boolean => {
