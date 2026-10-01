@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.9.1 — 2026-09-30
 
 - Tables that run on to the next page keep their header there. LiteParse makes the first data row on the new page the header, so the columns of a page read alone were unnamed; the previous page's header is now carried over, in the index (inserted into the chunk after splitting, so pages split as before) and in `kb_read`. Only when the previous page ends with the table, the next opens with one of as many columns with no heading before it, its first row reads as data (a digit, `-` or an empty cell), and the carried header looks like one (no empty or number-only cells, which skips tables of contents and garbled headers). ESP32-S3 Technical Reference Manual (1530 pages): 8 pages, all checked by hand; 6 "instruction + column name" searches for them from 5 outside the top 10 to all first; 486 section-title searches unchanged (top 1 476, top 3 481).
 - `CHUNKS_VERSION` (2) is kept in the index (`PRAGMA user_version`). An index from before is updated once at the next sync: chunks whose text changed are updated in place and only they lose their semantic vectors; a document whose chunks no longer line up is indexed anew. That manual: 27 ms, 8 of 3186 vectors to make again.
