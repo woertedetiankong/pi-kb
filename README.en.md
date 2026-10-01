@@ -13,7 +13,7 @@ Requires Node.js 22.19+ and pi 0.87 or later. Used daily on macOS. Every push ru
 pi install git:github.com/woertedetiankong/pi-kb
 
 # Or pin a version that does not follow the repository
-pi install git:github.com/woertedetiankong/pi-kb@v0.9.3
+pi install git:github.com/woertedetiankong/pi-kb@v0.9.4
 
 # Or try it for this run only, without installing
 pi -e git:github.com/woertedetiankong/pi-kb
