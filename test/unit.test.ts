@@ -141,3 +141,36 @@ test("matchDocs finds what /kb remove and /kb move name: id, exact title, or wor
 	assert.deepEqual(ids("  "), docs.map((d) => d.id), "nothing named: everything");
 	assert.deepEqual(ids("docker"), []);
 });
+
+test("a table's header is carried to the page it runs on to, and only then", async () => {
+	const { carryTableHeaders, chunkPages } = await import("../src/chunk.ts");
+	const head = "| Instruction | Stage Use | Stage Def |";
+	const rule = "|---|---|---|";
+	const page = (page: number, markdown: string) => ({ page, markdown });
+	const pages = [
+		page(66, ["Pipeline stages", "", head, rule, "| EE.ZERO.Q | qz 1 | - |", "| EE.MOV.S8 | qs 1 | qa 1 |"].join("\n")),
+		// Running header, then the reader made the first row the header.
+		page(67, ["Chapter 1 `GoBack`", "", "---", "", "| EE.FFT.R2BF.S16 | qx 1, qy 1 | qa0 1 |", rule, "| EE.VADDS.S8 | qx 1 | qa 1 |"].join("\n")),
+		// And on again: the carried header goes along.
+		page(68, ["| EE.VMULAS.S16 | as 1 | qu 2 |", rule, "| EE.VPRELU.S16 | qx 1 | qz 2 |", "", "Text after the table."].join("\n")),
+	];
+	const out = carryTableHeaders(pages);
+	assert.equal(out[0], pages[0], "untouched pages are the same objects");
+	assert.match(out[1].markdown, /---\n\n\| Instruction \| Stage Use \| Stage Def \|\n\|---\|---\|---\|\n\| EE\.FFT\.R2BF\.S16 \| qx 1, qy 1 \| qa0 1 \|\n\| EE\.VADDS\.S8/);
+	assert.match(out[2].markdown, /^\| Instruction .*\n\|---\|---\|---\|\n\| EE\.VMULAS\.S16 .*\n\| EE\.VPRELU/);
+	assert.match(chunkPages(pages).find((c) => c.page === 67)!.content, /Stage Use/, "the index has the header too");
+
+	const unchanged = (before: string, after: string) => {
+		const two = [page(1, before), page(2, after)];
+		assert.equal(carryTableHeaders(two)[1], two[1], after);
+	};
+	const ending = [head, rule, "| A1 | 1 | 2 |"].join("\n");
+	unchanged(`${ending}\n\nThe table ended here.`, "| B1 | 3 | 4 |\n|---|---|---|");
+	unchanged(ending, "# New section\n\n| B1 | 3 | 4 |\n|---|---|---|");
+	unchanged(ending, "| Instruction | Stage use | Stage Def |\n|---|---|---|\n| B1 | 3 | 4 |");
+	unchanged(ending, "| Name | Description | Access |\n|---|---|---|\n| REG_A | 0x00 | R/W |");
+	unchanged(ending, "| B1 | 3 |\n|---|---|");
+	unchanged("| 9.3.3.1 | Allocate a source | 545 |\n|---|---|---|\n| 9.3.4 | Disable NMI | 546 |", "| 9.3.5 | Query status | 546 |\n|---|---|---|");
+	unchanged("| Transfer Type | Mode |  |\n|---|---|---|\n| X | 1 | 2 |", "| B1 | 3 | 4 |\n|---|---|---|");
+	unchanged("| Formula |\n|---|\n| a = b + 1 |", "| c = d + 2 |\n|---|");
+});

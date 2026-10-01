@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { appendFileSync, copyFileSync, type Dirent, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { chunkPages } from "./chunk.ts";
+import { CHUNKS_VERSION, type Chunk, carryTableHeaders, chunkPages } from "./chunk.ts";
 import { configStamp, DEFAULT_SEMANTIC, defaultMinScore, type KbConfig, loadConfig, PREVIOUS_LOCAL_MODEL, saveConfig } from "./config.ts";
 import { type ConvertedPage, Converter, hasTextLayer, isMarkdown, markFigures, normalizeText, type OcrShare, type PageImage, sourceKind } from "./convert.ts";
 import { type Note, type NoteMeta, normalizeShelves, normalizeTags, now, parseNote, renderNote, slugify, today, withoutReview, withReview, withShelves } from "./notes.ts";
@@ -699,12 +699,43 @@ export class KnowledgeBase {
 	sync(): { updated: number; removed: number } {
 		// Taken first, so a change made while syncing is still noticed next time.
 		const stamp = this.contentStamp();
+		const rechunked = this.rechunk();
 		const docs = this.syncDocs();
 		const wiki = this.syncWiki();
 		this.syncedStamp = stamp;
 		this.checkedAt = Date.now();
-		if (docs.updated) void this.indexer.kick();
+		if (docs.updated || rechunked) void this.indexer.kick();
 		return { updated: docs.updated + wiki.updated, removed: docs.removed + wiki.removed };
+	}
+
+	/**
+	 * Once after chunking changed (CHUNKS_VERSION): index each document's chunks again. Where only
+	 * some chunks' text changes, those are updated in place, so only their vectors are made again;
+	 * otherwise the document is indexed anew. Returns how many documents changed.
+	 */
+	private rechunk(): number {
+		if (this.store.chunksVersion >= CHUNKS_VERSION) return 0;
+		let changed = 0;
+		for (const doc of this.store.listDocs("docs")) {
+			let chunks: Chunk[];
+			try {
+				chunks = chunkPages(pagesOf(readFileSync(join(this.root, doc.path), "utf8")));
+			} catch {
+				continue; // the text is missing here: syncDocs deals with it
+			}
+			const old = this.store.docChunks(doc.id);
+			const same = old.length === chunks.length && old.every((c, i) => c.page === chunks[i].page && c.heading === chunks[i].heading);
+			if (!same) {
+				this.store.putDoc(doc, chunks);
+				changed++;
+				continue;
+			}
+			const edits = old.filter((c, i) => c.content !== chunks[i].content);
+			for (const c of edits) this.store.setChunkContent(c.rowid, chunks[old.indexOf(c)].content);
+			if (edits.length) changed++;
+		}
+		this.store.chunksVersion = CHUNKS_VERSION;
+		return changed;
 	}
 
 	private syncedStamp?: string;
@@ -1127,7 +1158,8 @@ export class KnowledgeBase {
 		const ocrOf = (parts: ConvertedPage[]) => parts.flatMap((p) => (p.ocr ? [{ page: p.page, ...p.ocr }] : []));
 		if (!pages?.trim()) return { doc, text: markdown.replace(OCR_MARKS, ""), ocr: ocrOf(pagesOf(markdown)) };
 		const { from, to } = pageRange(doc, pages);
-		const parts = splitConverted(markdown).filter((p) => p.page !== null && p.page >= from && p.page <= to);
+		// Headers carried across pages, so a page read on its own still says what its table's columns are.
+		const parts = carryTableHeaders(splitConverted(markdown)).filter((p) => p.page !== null && p.page >= from && p.page <= to);
 		if (!parts.length) throw new Error(`${doc.title} has pages 1-${doc.pages}`);
 		return { doc, text: parts.map((p) => `<!-- kb:page ${p.page} -->\n${p.markdown}`).join("\n\n"), ocr: ocrOf(parts) };
 	}
@@ -1215,7 +1247,7 @@ function renderConverted(title: string, pages: ConvertedPage[]): string {
 }
 
 /** The pages a document was indexed from, read back from its converted Markdown. */
-function pagesOf(markdown: string): ConvertedPage[] {
+export function pagesOf(markdown: string): ConvertedPage[] {
 	const pages = splitConverted(markdown.replace(/^<!-- kb:source .* -->\n*/, ""));
 	// A paged document starts with an empty part before its first page marker.
 	return pages.some((p) => p.page !== null) ? pages.filter((p) => p.page !== null) : pages;

@@ -190,3 +190,43 @@ test("a knowledge base folder carries its format; one from a newer pi-kb is refu
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+test("after chunking changes, documents are indexed again once, changed chunks in place", async () => {
+	const { KnowledgeBase } = await import("../src/kb.ts");
+	const { CHUNKS_VERSION } = await import("../src/chunk.ts");
+	const { mkdtempSync, readFileSync, writeFileSync, rmSync } = await import("node:fs");
+	const { tmpdir } = await import("node:os");
+	const { join } = await import("node:path");
+	const root = mkdtempSync(join(tmpdir(), "pi-kb-rechunk-"));
+	try {
+		const kb = new KnowledgeBase(root);
+		const added = await kb.addFile(join(import.meta.dirname, "fixtures", "xr100-manual.pdf"));
+		const id = added.doc!.id;
+		const file = join(root, added.doc!.path);
+		// Make page 2 a table carried on from page 1, indexed as an older pi-kb did: without the header.
+		const text = readFileSync(file, "utf8")
+			.replace(/(<!-- kb:page 2 -->\n)/, "| Pin | Function | Level |\n|---|---|---|\n| VDD | supply | 3.3 V |\n\n$1| GPIO1 | output | 0 V |\n|---|---|---|\n\n");
+		writeFileSync(file, text);
+		const { chunkPages } = await import("../src/chunk.ts");
+		const { pagesOf } = await import("../src/kb.ts");
+		const old = chunkPages(pagesOf(text)).map((c) => (c.page === 2 ? { ...c, content: c.content.replace(/^\| Pin \| Function \| Level \|\n\|---\|---\|---\|\n/, "") } : c));
+		kb.store.putDoc(kb.store.getDoc(id)!, old);
+		const before = kb.store.docChunks(id);
+		kb.store.chunksVersion = 1;
+		kb.store.db.prepare("INSERT INTO vectors (chunk_rowid, doc_id, model, vec) SELECT rowid, doc_id, 'm', x'00' FROM chunks WHERE doc_id = ?").run(id);
+		kb.sync();
+		assert.equal(kb.store.chunksVersion, CHUNKS_VERSION);
+		const after = kb.store.docChunks(id);
+		assert.ok(after.some((c) => c.page === 2 && /\| Pin \| Function \| Level \|\n\|---\|---\|---\|\n\| GPIO1/.test(c.content)), "page 2 has the header now");
+		assert.notDeepEqual(after.map((c) => c.content), before.map((c) => c.content));
+		// Only the chunks whose text changed lose their vectors.
+		const kept = (kb.store.db.prepare("SELECT chunk_rowid FROM vectors WHERE doc_id = ?").all(id) as { chunk_rowid: number }[]).map((r) => r.chunk_rowid);
+		const changed = after.filter((c, i) => c.content !== before[i]?.content).map((c) => c.rowid);
+		assert.equal(after.length, before.length, "same chunks, so updated in place");
+		assert.ok(changed.length > 0 && changed.length < after.length);
+		assert.deepEqual(kept.sort(), after.map((c) => c.rowid).filter((r) => !changed.includes(r)).sort());
+		kb.close();
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});

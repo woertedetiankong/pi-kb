@@ -241,6 +241,26 @@ export class Store {
 		}
 	}
 
+	/** Which chunking the index was built with (SQLite user_version; 0 before it was recorded). */
+	get chunksVersion(): number {
+		return (this.db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
+	}
+
+	set chunksVersion(version: number) {
+		this.db.exec(`PRAGMA user_version = ${Math.trunc(version)}`);
+	}
+
+	/** A document's chunks in index order. */
+	docChunks(id: string): (Chunk & { rowid: number })[] {
+		return this.db.prepare("SELECT rowid, page, heading, content FROM chunks WHERE doc_id = ? ORDER BY rowid").all(id) as unknown as (Chunk & { rowid: number })[];
+	}
+
+	/** New text for one chunk; its vector goes, to be made again, and the other chunks keep theirs. */
+	setChunkContent(rowid: number, content: string): void {
+		this.db.prepare("UPDATE chunks SET content = ? WHERE rowid = ?").run(content, rowid);
+		this.db.prepare("DELETE FROM vectors WHERE chunk_rowid = ?").run(rowid);
+	}
+
 	deleteDoc(id: string): void {
 		this.db.exec("BEGIN");
 		try {
