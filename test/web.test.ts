@@ -391,3 +391,61 @@ test("PDFs waiting for OCR are marked in the list and on their page until it is 
 	assert.equal((await (await call(`/api/kb/doc?id=${id}`)).json()).ocrPending, false);
 	kb.remove(id);
 });
+
+test("shared hub: a newer copy takes over an older running hub, on its port, whoever holds the old one", async () => {
+	const agentDir = mkdtempSync(join(tmpdir(), "pi-web-takeover-"));
+	const shared = globalThis as { __piWebHub?: WebHub };
+	try {
+		// An older copy of hub.ts (version 1), loaded first by another package that keeps the object.
+		const old = createHub({ agentDir, port: 0 });
+		Object.defineProperty(old, "version", { value: 1 });
+		shared.__piWebHub = old;
+		old.mount(fakeSessions);
+		await old.start();
+		const port = new URL(old.url() ?? "").port;
+
+		const hub = sharedHub(agentDir);
+		assert.notEqual(hub, old);
+		assert.equal(hub.version, 2);
+		assert.deepEqual(hub.apps().map((a) => a.id), ["sessions"], "its apps come along");
+		await hub.start();
+		assert.equal(new URL(hub.url() ?? "").port, port, "same address, so open pages keep working");
+		assert.equal((await fetch(`http://127.0.0.1:${port}/sessions/`)).status, 200);
+
+		// The package holding the old object goes on using it: everything reaches the new hub.
+		old.mount({ ...fakeSessions, id: "kb", order: 999 });
+		assert.deepEqual(hub.apps().map((a) => a.id), ["sessions", "kb"]);
+		assert.equal(old.url("kb"), hub.url("kb"));
+		assert.equal(sharedHub(agentDir), hub, "older copies loaded later use the newer hub");
+
+		await old.unmount("kb");
+		await hub.unmount("sessions");
+		assert.equal(hub.url(), undefined, "the last app leaving stops it");
+	} finally {
+		shared.__piWebHub = undefined;
+		(globalThis as { __piWebResume?: number }).__piWebResume = undefined;
+		rmSync(agentDir, { recursive: true, force: true });
+	}
+});
+
+test("shared hub: taking over an old hub that is still starting waits for it, then uses its port", async () => {
+	const agentDir = mkdtempSync(join(tmpdir(), "pi-web-takeover2-"));
+	const shared = globalThis as { __piWebHub?: WebHub };
+	try {
+		const old = createHub({ agentDir, port: 0 });
+		Object.defineProperty(old, "version", { value: 1 });
+		shared.__piWebHub = old;
+		old.mount(fakeSessions);
+		const starting = old.start(); // not awaited: like a hub resuming after /reload
+		const hub = sharedHub(agentDir);
+		await starting;
+		await hub.start();
+		assert.ok(hub.url(), "running: the old one was starting");
+		assert.equal((await fetch(`${new URL(hub.url()!).origin}/sessions/`)).status, 200);
+		await hub.unmount("sessions");
+	} finally {
+		shared.__piWebHub = undefined;
+		(globalThis as { __piWebResume?: number }).__piWebResume = undefined;
+		rmSync(agentDir, { recursive: true, force: true });
+	}
+});

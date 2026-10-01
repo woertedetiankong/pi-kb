@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- The shared web hub (`src/hub.ts`, also in pi-sessions, pi-learn and pi-mange) is now version 2, and the newest copy loaded takes over an older hub: it waits for the old one to finish starting and close, listens on the same port (open pages keep working) and takes its apps along; the old object forwards every call to the new hub, since packages keep the hub they got. Before, the first package pi loaded decided which copy ran, so a fix in pi-kb's copy did nothing while pi-sessions loaded first. Checked against the real v1 copy pi had installed.
+- `npm run sync-hub` copies pi-kb's `hub.ts` to the sibling repositories; `-- --check` only compares and lists the installed copies.
+
 ## v0.9.1 — 2026-09-30
 
 - Tables that run on to the next page keep their header there. LiteParse makes the first data row on the new page the header, so the columns of a page read alone were unnamed; the previous page's header is now carried over, in the index (inserted into the chunk after splitting, so pages split as before) and in `kb_read`. Only when the previous page ends with the table, the next opens with one of as many columns with no heading before it, its first row reads as data (a digit, `-` or an empty cell), and the carried header looks like one (no empty or number-only cells, which skips tables of contents and garbled headers). ESP32-S3 Technical Reference Manual (1530 pages): 8 pages, all checked by hand; 6 "instruction + column name" searches for them from 5 outside the top 10 to all first; 486 section-title searches unchanged (top 1 476, top 3 481).

@@ -20,7 +20,8 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --test --disable-warning=ExperimentalWarning test/*.test.ts"
+    "test": "node --test --disable-warning=ExperimentalWarning test/*.test.ts",
+    "sync-hub": "node scripts/sync-hub.mjs"
   },
   "dependencies": {
     "@llamaindex/liteparse": "^2.14.4"
