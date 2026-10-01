@@ -251,7 +251,7 @@ Appending to a note adds a dated section: if the new content opens with its own 
 
 Notes link to each other with `[[file name]]`, `[[subfolder/file name]]` or `[[note title]]` (also `[[target|label]]` and `[[target#section]]`), as in Obsidian.
 
-**You approve the agent's notes**: before the agent saves a note, the terminal asks you (edit it, move it, add it to an existing note, or skip it). Without a UI (`pi -p` and the like) the note is saved with `review: pending`: the agent sees it as an "unreviewed note" and is told to check it before relying on it; `/kb lint` lists these notes and lets you approve or delete them one by one, and the web page marks them "unreviewed" with an "Approve note" button. Approving only removes that line.
+**You approve the agent's notes**: before the agent saves a note, the terminal asks you (edit it, move it, add it to an existing note, or skip it). Without a UI (`pi -p` and the like) the note is saved with `review: pending`: the agent sees it as an "unreviewed note" and is told to check it before relying on it; `/kb lint` lists these notes and lets you approve or delete them one by one, and the web page marks them "unreviewed" with an "Approve note" button. Markdown the agent imports as notes with `kb_add` without a UI is marked the same way, so writing a file and importing it does not skip the review. Ask AI on the web page says so when its answer uses an unreviewed note, and marks it in the sources. Approving only removes that line.
 
 Hand-written notes (front matter optional) placed in `wiki/` are indexed too. Each write appends a line to `wiki/log.md`. The index holds the body and `#tags`, not front matter field names.
 

@@ -5,7 +5,7 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } 
 import { chunkPages } from "./chunk.ts";
 import { configStamp, DEFAULT_SEMANTIC, defaultMinScore, type KbConfig, loadConfig, PREVIOUS_LOCAL_MODEL, saveConfig } from "./config.ts";
 import { type ConvertedPage, Converter, hasTextLayer, isMarkdown, markFigures, normalizeText, type OcrShare, type PageImage, sourceKind } from "./convert.ts";
-import { type Note, type NoteMeta, normalizeShelves, normalizeTags, now, parseNote, renderNote, slugify, today, withoutReview, withShelves } from "./notes.ts";
+import { type Note, type NoteMeta, normalizeShelves, normalizeTags, now, parseNote, renderNote, slugify, today, withoutReview, withReview, withShelves } from "./notes.ts";
 import { anyClaimed, busy, claim, pause, release } from "./claims.ts";
 import { fuse } from "./search.ts";
 import { type IndexerStatus, isLocalClaim, SemanticIndexer } from "./semantic/indexer.ts";
@@ -357,6 +357,8 @@ export class KnowledgeBase {
 			onNote?: (note: "ocr_download" | undefined) => void;
 			/** Shelves to put it on (added to the ones a document already present has). */
 			shelves?: string[];
+			/** A note imported by an agent with nobody to review it: marked until the user approves it. */
+			unreviewed?: boolean;
 		} = {},
 	): Promise<AddResult> {
 		const cancelled = (): AddResult => ({ path, status: "skipped", reason: "cancelled", message: "import cancelled" });
@@ -364,7 +366,7 @@ export class KnowledgeBase {
 			if (options.signal?.aborted) return cancelled();
 			if (options.wiki) {
 				if (!isMarkdown(path)) return { path, status: "skipped", reason: "not_markdown", message: "only Markdown files can become wiki notes" };
-				return this.addWikiFile(path, options.shelves);
+				return this.addWikiFile(path, options.shelves, options.unreviewed);
 			}
 			if (!sourceKind(path)) {
 				return { path, status: "skipped", reason: "unsupported", message: `unsupported type ${extname(path) || "(none)"}` };
@@ -469,9 +471,10 @@ export class KnowledgeBase {
 		for (let n = 2; ; n++) if (!taken.has(`${name} (${n})`)) return `${name} (${n})`;
 	}
 
-	private addWikiFile(path: string, shelves?: string[]): AddResult {
+	private addWikiFile(path: string, shelves?: string[], unreviewed?: boolean): AddResult {
 		const raw = readFileSync(path, "utf8");
-		const content = shelves?.length ? withShelves(raw, this.canonicalShelves([...(parseNote(raw, "").meta.shelves ?? []), ...shelves])) : raw;
+		const shelved = shelves?.length ? withShelves(raw, this.canonicalShelves([...(parseNote(raw, "").meta.shelves ?? []), ...shelves])) : raw;
+		const content = unreviewed ? withReview(shelved) : shelved;
 		let target = join(this.wikiDir, basename(path));
 		if (existsSync(target) && readFileSync(target, "utf8") !== content) {
 			const stem = basename(path, extname(path));

@@ -114,3 +114,13 @@ test("appending to a hand-written note without front matter dates its creation i
 	assert.equal(prepared.note.meta.created, today(new Date(importedAt)));
 	kb.remove(doc.id);
 });
+
+test("withReview marks a note once, with or without front matter; withoutReview takes it off again", async () => {
+	const { withReview, withoutReview, parseNote } = await import("../src/notes.ts");
+	const note = "---\ntitle: \"A\"\ntags: [x]\n---\n\n# A\n\nbody\n";
+	const marked = withReview(note);
+	assert.equal(parseNote(marked, "A").meta.review, "pending");
+	assert.equal(withReview(marked), marked, "marked once");
+	assert.equal(withoutReview(marked), note);
+	assert.equal(parseNote(withReview("# Hand-written\n\ntext"), "x").meta.review, "pending");
+});

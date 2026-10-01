@@ -137,3 +137,19 @@ test("an answer about a part nothing mentions is told so, and the search list sa
 	assert.deepEqual(found.missing, ["XR-999"]);
 	assert.ok(found.hits.length, "other parts' results are still listed");
 });
+
+test("an unreviewed note goes to the answer marked as such, and its source says so", async () => {
+	const note = kb.writeNote(kb.prepareNote({ title: "Orbit lock held", content: "Run orbitctl unlock --stale, then roll back again.", unreviewed: true }));
+	try {
+		const calls: { system: string; text: string }[] = [];
+		const ctx = fakeModel('{"queries":["orbitctl unlock"]}', (prompt) => {
+			const n = /^\[(\d+)\] Orbit lock held.*\(unreviewed note\)$/m.exec(prompt)?.[1];
+			return `Run orbitctl unlock --stale [${n}] (from an unreviewed note).`;
+		}, calls);
+		const r = await ask(new Library(kb), ctx, "Orbit lock held", new AbortController().signal);
+		assert.match(calls[1].system, /"unreviewed note" were saved by an agent/);
+		assert.deepEqual(r.sources.map((s) => [s.title, s.unreviewed]), [["Orbit lock held", true]]);
+	} finally {
+		kb.remove(note.id);
+	}
+});

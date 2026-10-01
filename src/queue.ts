@@ -14,6 +14,8 @@ export interface ImportItem {
 	reread?: string;
 	/** Shelves of the global knowledge base to put it on (ignored in a project's). */
 	shelves?: string[];
+	/** A note an agent imported with nobody to review it (see KnowledgeBase.addFile). */
+	unreviewed?: boolean;
 }
 
 /** One /kb add or kb_add call: its files are imported in order, after earlier jobs. */

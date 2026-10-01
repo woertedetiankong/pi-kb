@@ -540,6 +540,7 @@ export default function piKb(pi: ExtensionAPI) {
 						onNote: note,
 						// Shelves group the global knowledge base only.
 						shelves: (item.scope ?? "global") === "global" ? item.shelves : undefined,
+						unreviewed: item.unreviewed,
 					}),
 		() => {
 			if (imports.busy && !ticker) {
@@ -568,8 +569,11 @@ export default function piKb(pi: ExtensionAPI) {
 		note: boolean,
 		ctx: ExtensionContext,
 		scope?: Scope,
-		/** shelf: put everything on it; byFolder: offer shelves named after subfolders (/kb add). */
-		shelving: { shelf?: string; byFolder?: boolean } = {},
+		/**
+		 * shelf: put everything on it; byFolder: offer shelves named after subfolders (/kb add);
+		 * unreviewed: notes an agent imports with nobody to review them.
+		 */
+		shelving: { shelf?: string; byFolder?: boolean; unreviewed?: boolean } = {},
 	): Promise<{ job: ImportJob; placed: Record<Scope, number> } | undefined> => {
 		const library = lib();
 		const { files, skipped } = library.global.collectFiles(paths, cwd);
@@ -605,7 +609,14 @@ export default function piKb(pi: ExtensionAPI) {
 		}
 		const placed = { project: 0, global: 0 };
 		for (const s of where.values()) placed[s]++;
-		const items = files.map((path) => ({ path, wiki: note, replace: versions.has(path), scope: where.get(path), ...(shelved.has(path) ? { shelves: [shelved.get(path)!] } : {}) }));
+		const items = files.map((path) => ({
+			path,
+			wiki: note,
+			replace: versions.has(path),
+			scope: where.get(path),
+			...(shelved.has(path) ? { shelves: [shelved.get(path)!] } : {}),
+			...(note && shelving.unreviewed ? { unreviewed: true } : {}),
+		}));
 		return { job: imports.enqueue(items, skipped), placed };
 	};
 
@@ -972,7 +983,8 @@ export default function piKb(pi: ExtensionAPI) {
 				}
 			}
 			const shelf = params.shelf?.trim() || undefined;
-			const started = await startImport(params.paths, ctx.cwd, params.as_note ?? false, ctx, project && !shelf ? params.scope : "global", { shelf });
+			// Notes the agent imports with nobody watching are marked, as kb_note's are: otherwise writing a file and importing it skips the review.
+			const started = await startImport(params.paths, ctx.cwd, params.as_note ?? false, ctx, project && !shelf ? params.scope : "global", { shelf, unreviewed: !ctx.hasUI });
 			if (!started) {
 				const text = "The user cancelled this import; nothing was imported. Do not retry on your own, but if the user asks for it again, call kb_add again.";
 				return { content: [{ type: "text", text }], details: { added: 0, exists: 0, failed: 0, declined: true } as AddSummary };

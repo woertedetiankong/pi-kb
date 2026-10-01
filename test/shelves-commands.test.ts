@@ -182,6 +182,17 @@ test("a note saved with nobody to review it is marked for the agent, listed by /
 	assert.doesNotMatch(await search({ query: "C3 boots slowly" }), /unreviewed note/, "approved: a plain note now");
 });
 
+test("a note the agent imports with nobody to review it is marked too, so writing a file does not skip the review", async () => {
+	writeFileSync(join(cwd, "lesson.md"), "# C3 brownout at 2.9 V\n\nSeen on the bench.\n");
+	const headless = { ...ctx, hasUI: false };
+	await tools.get("kb_add")!.execute("id", { paths: [join(cwd, "lesson.md")], as_note: true }, undefined, undefined, headless);
+	assert.match(await search({ query: "C3 brownout" }), /unreviewed note/);
+	// With a user at the terminal, an import they asked for is theirs: not marked.
+	writeFileSync(join(cwd, "lesson2.md"), "# C3 deep sleep current\n\nAbout 5 µA.\n");
+	await tools.get("kb_add")!.execute("id", { paths: [join(cwd, "lesson2.md")], as_note: true }, undefined, undefined, ctx);
+	assert.doesNotMatch(await search({ query: "C3 deep sleep current" }), /unreviewed note/);
+});
+
 test("/kb group puts an item in a collection; renaming follows into the projects' choice", async () => {
 	answer = (options) => options[0];
 	await kb.handler("group loose STM32", ctx);

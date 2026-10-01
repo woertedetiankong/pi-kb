@@ -393,7 +393,7 @@ const T = {
     docsTip: "资料：导入的 PDF、图片、手册等，别人写的参考材料。只读，引用时带页码",
     shelvesLabel: "资料集", shelfNone: "未分组",
     shelvesStart: "给全局库按主题分组，每个项目只看自己用的资料集。在全局库资料的页面点「资料集 · 修改」；或者把「新资料放到」设为全局，再选「放进资料集」。", shelfNoneTip: "不属于任何资料集：所有项目都能看到", shelfNoneNote: "所有项目都能看到",
-    shelfUnusedTip: "本项目没有使用这个资料集：在这里 agent 默认不会搜它，除非你让它去查",
+    shelfUnusedTip: "本项目没有使用这个资料集：在这里 agent 看不到它，除非你在终端里允许（只限本次会话）",
     shelfUsing: names => names === null ? "本项目使用：全部资料集" : names.length ? `本项目使用：${names.join("、")}` : "本项目只用未分组的内容",
     shelfEdit: "修改", shelfFact: "资料集", shelfFactNone: "未分组（所有项目都能看到）",
     shelfPrompt: "资料集名称，多个用逗号分隔；留空表示不分组", shelfSaved: "资料集已更新",
@@ -497,7 +497,7 @@ const T = {
     docsTip: "Documents: imported PDFs, images, manuals and other reference material. Read-only, cited by page",
     shelvesLabel: "Collections", shelfNone: "No collection",
     shelvesStart: "Group your global knowledge base by topic, so each project sees only its own collections. Use \u201cChange\u201d in a global document\u2019s Collections row, or set \u201cNew material goes to\u201d to global and pick a Collection.", shelfNoneTip: "In no collection: every project sees these", shelfNoneNote: "Every project sees these",
-    shelfUnusedTip: "This project does not use this collection: the agent here does not search it unless you ask",
+    shelfUnusedTip: "This project does not use this collection: the agent here cannot see it unless you allow it in the terminal (for that session only)",
     shelfUsing: names => names === null ? "This project uses: all collections" : names.length ? `This project uses: ${names.join(", ")}` : "This project uses only what is in no collection",
     shelfEdit: "Change", shelfFact: "Collections", shelfFactNone: "none (every project sees it)",
     shelfPrompt: "Collection names, separated by commas; empty for none", shelfSaved: "Collections updated",
@@ -844,7 +844,7 @@ function answerCard() {
   if (!r.answer) return `<div class="answer">${head}<p class="none">${esc(T.askNone)}</p>${r.queries.length ? `<p class="fine">${esc(T.askSearched(r.queries.join(" · ")))}</p>` : ""}</div>`;
   const body = markdown(r.answer).replace(/\[(\d+)\]/g, (whole, n) => r.sources[n - 1] ? `<button class="ref" data-ref="${n}" title="${esc(r.sources[n - 1].title)}">${n}</button>` : whole);
   const cite = s => s.page ? `${s.title} · ${T.page(s.page)}` : s.title;
-  const sources = r.sources.map(s => `<button data-ref="${s.n}"><span class="num">[${s.n}]</span>${scopeTag(s.scope)}<span>${esc(cite(s))}</span></button>`).join("");
+  const sources = r.sources.map(s => `<button data-ref="${s.n}"><span class="num">[${s.n}]</span>${scopeTag(s.scope)}<span>${esc(cite(s))}</span>${s.unreviewed ? `<span class="unreviewed" title="${esc(T.unreviewedTip)}">${esc(T.unreviewed)}</span>` : ""}</button>`).join("");
   return `<div class="answer">${head}<div class="md">${body}</div>${sources ? `<div class="answer-src">${sources}</div>` : ""}
     <p class="fine">${esc(T.askCheck)} ${esc(T.answeredBy(modelName(r.model)))}${r.queries.length ? ` ${esc(T.askSearched(r.queries.join(" · ")))}` : ""}</p></div>`;
 }
