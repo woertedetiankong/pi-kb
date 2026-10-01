@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.9.3 — 2026-09-30
 
 Notes keep their sources, and say when those changed (the "grounded claims" idea from OpenWiki, for notes).
 
