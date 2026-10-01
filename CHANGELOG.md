@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.9.5 — 2026-10-01
 
 A simpler web page: fewer controls in sight, nothing removed.
 
