@@ -142,7 +142,9 @@ test("a note citing a document is flagged once the document is replaced by a new
 		const file = join(tmp, "board.md");
 		writeFileSync(file, "# Board\n\nVDD is 3.3 V.\n");
 		const doc = (await global.addFile(file)).doc!;
-		const note = global.writeNote(global.prepareNote({ title: "Board supply", content: `The board runs at 3.3 V [${doc.title}].\n\nAlso [gone.pdf p.4] and [a plain remark].` }));
+		const note = global.writeNote(
+			global.prepareNote({ title: "Board supply", content: `The board runs at 3.3 V [${doc.title}].\n\nAlso [gone.pdf p.4] and [a plain remark]; fixed in [main.c] and [config.json p.2].` }),
+		);
 		// Written a while ago.
 		global.editNote(note.id, global.noteText(note.id).replace(/updated: .*/, "updated: 2026-01-01"));
 		const at = { id: note.id, title: note.title, scope: "global" as const };
@@ -150,7 +152,7 @@ test("a note citing a document is flagged once the document is replaced by a new
 		assert.deepEqual(sources.map((s) => [s.text, !!s.changed, !!s.missing]), [
 			[`[${doc.title}]`, true, false],
 			["[gone.pdf p.4]", false, true],
-		], "imported after the note's date counts as changed; a plain remark in brackets is no citation");
+		], "imported after the note's date counts as changed; a plain remark, code and data files are no citations of documents");
 
 		lib.markChecked(note.id);
 		assert.deepEqual(lib.noteSources(at).map((s) => !!s.changed), [false, false], "checked today");
@@ -170,4 +172,10 @@ test("a note citing a document is flagged once the document is replaced by a new
 	} finally {
 		close();
 	}
+});
+
+test("looksLikeDocument: documents yes, code and data no", async () => {
+	const { looksLikeDocument } = await import("../src/convert.ts");
+	for (const name of ["manual.pdf", "Spec.DOCX", "pins.png", "faq.md", "notes.txt", "page.html", "README.md (2)"]) assert.equal(looksLikeDocument(name), true, name);
+	for (const name of ["main.c", "app.ts", "config.json", "setup.py", "a plain remark", "v2.3"]) assert.equal(looksLikeDocument(name), false, name);
 });

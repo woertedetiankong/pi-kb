@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- A note's citation counts as a removed document only when it names one (a PDF, Office file, image or prose text such as `.md`, `.txt`, `.html`): `[main.c]` or `[config.json]` in a debugging lesson is no longer reported as "document removed". A code file that is in the knowledge base is still a source like any other.
+
 ## v0.9.3 — 2026-09-30
 
 Notes keep their sources, and say when those changed (the "grounded claims" idea from OpenWiki, for notes).

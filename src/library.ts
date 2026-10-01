@@ -1,5 +1,6 @@
 import { cpSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { looksLikeDocument } from "./convert.ts";
 import { type AddResult, contentId, type KnowledgeBase, pathsOutside } from "./kb.ts";
 import { type NoteCitation, noteCitations, parseNote, titleSimilarity, today, wikiLinks } from "./notes.ts";
 import type { ProjectKb } from "./project.ts";
@@ -43,7 +44,7 @@ export interface NoteSource extends NoteCitation {
 	doc?: ScopedDoc;
 	/** Imported again (a new version) after the note's last update. */
 	changed?: boolean;
-	/** Looks like a citation of a file, but no document has that title any more. */
+	/** Names a document (PDF, Office, image, prose text), but none has that title any more. */
 	missing?: boolean;
 }
 
@@ -267,7 +268,8 @@ export class Library {
 	/**
 	 * The documents a note cites ([manual.pdf p.12], as kb_search prints them), each marked when it was
 	 * imported again after the note's last update (a new version: the note may describe the old one)
-	 * or is gone. Brackets that name no document and do not look like a file citation are skipped.
+	 * or is gone. Brackets that name no document are skipped unless they look like a document's title
+	 * (a PDF, Office file, image or prose text): those count as removed.
 	 */
 	noteSources(note: { id: string; title: string; scope: Scope }): NoteSource[] {
 		let raw: string;
@@ -282,7 +284,8 @@ export class Library {
 		for (const citation of noteCitations(body)) {
 			const doc = byTitle.get(citation.title.toLowerCase());
 			if (doc) out.push({ ...citation, doc, ...(meta.updated && today(new Date(doc.added_at)) > meta.updated ? { changed: true } : {}) });
-			else if (citation.page || /\.[a-z0-9]{2,5}$/i.test(citation.title)) out.push({ ...citation, missing: true });
+			// Only names of documents: "[main.c]" or "[config.json]" in a lesson names code, not a removed document.
+			else if (looksLikeDocument(citation.title)) out.push({ ...citation, missing: true });
 		}
 		return out;
 	}

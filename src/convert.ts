@@ -53,6 +53,18 @@ export function sourceKind(path: string): SourceKind | undefined {
 	return undefined;
 }
 
+/** Prose a note would cite as a document; code and data files, which notes name all the time, are not. */
+const PROSE = new Set([".md", ".markdown", ".mdx", ".txt", ".rst", ".org", ".adoc", ".tex", ...HTML]);
+
+/**
+ * Whether a name looks like a document's title: a PDF, Office file, image or prose text, also with
+ * the " (2)" a repeated upload gets. "[main.c]" in a note names code, not a missing document.
+ */
+export function looksLikeDocument(name: string): boolean {
+	const ext = extname(name.replace(/\s+\(\d+\)$/, "")).toLowerCase();
+	return PDF.has(ext) || OFFICE.has(ext) || IMAGE.has(ext) || PROSE.has(ext);
+}
+
 export function isMarkdown(path: string): boolean {
 	return [".md", ".markdown", ".mdx"].includes(extname(path).toLowerCase());
 }
