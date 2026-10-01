@@ -60,7 +60,7 @@ More commands (project knowledge bases, search settings, upkeep; completed once 
 | `/kb group <title or id> <collection>` | Put a document or note in a collection (`-` for none); `/kb group --rename <old> <new>` and `/kb group --delete <name>` rename or remove one |
 | `/kb semantic [status\|api\|local\|off\|remove]` | Semantic search: show status, use an online API, use a local model, turn off, delete the local model (frees about 620 MB; documents and notes stay) |
 | `/kb reread <title or id>` | Read a PDF, image or Office document again from its original with the current OCR settings (after changing the OCR language or server). Keeps its id, title and import date; runs in the background |
-| `/kb lint` | Check the notes: likely duplicates, broken `[[links]]`, project notes linking to global ones (teammates can't open them), notes without tags |
+| `/kb lint` | Check the notes: unreviewed ones an agent saved, ones whose sources changed, likely duplicates, broken `[[links]]`, project notes linking to global ones (teammates can't open them), notes without tags |
 | `/kb eval [init\|draft\|run]` | Measure retrieval: create the question file, let the agent draft questions, run the evaluation |
 | `/kb open` | Open the knowledge base folder |
 | `/kb lang zh\|en\|auto` | Switch the interface language |
@@ -248,6 +248,8 @@ Symptom / root cause / fix / how to recognize it next time
 Appending to a note adds a dated section: if the new content opens with its own heading, that heading stays with the date on the line below; otherwise the date is the heading.
 
 **No duplicate notes**: before a new note is saved, similar existing notes are looked up: alike titles (such as "XR100 SPI clock divider" and "XR-100 SPI divider") and notes a search for the new title finds. With semantic search on, Chinese and English notes recognise each other (only with a model that has a similarity floor, such as the local Granite; otherwise the closest notes would be listed whether related or not). The save dialog in the terminal lists them and adds "Add to … instead", which shows the combined note before saving; a new note on the web page lists them first, so you can open one and add to it, or "Save as new anyway". `/kb lint` checks the whole wiki at any time.
+
+**Sources in notes**: a note can cite documents the way answers do, such as `[xr100-manual.pdf p.2]`, and the agent does so when a lesson comes from a document. An agent that finds the note opens that page before relying on it. When a new version of a cited document is imported after the note was last updated (or the document is removed), the note is flagged "sources changed": the agent checks the current document first, `/kb lint` lists such notes and lets you mark each "still holds" or delete it, and the note's web page lists its sources, each opening the cited page.
 
 Notes link to each other with `[[file name]]`, `[[subfolder/file name]]` or `[[note title]]` (also `[[target|label]]` and `[[target#section]]`), as in Obsidian.
 

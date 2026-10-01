@@ -178,6 +178,10 @@ function check(s: Scenario, calls: ToolCall[], answer: string, titles: string[])
 	for (const loose of looseCitations(answer, titles)) problems.push(`loose citation "${loose}"`);
 	if (s.answer && !s.answer.test(answer)) problems.push(`answer lacks ${s.answer}`);
 	if (s.notAnswer?.test(answer)) problems.push(`answer has ${s.notAnswer}`);
+	if (s.noteContent) {
+		const notes = calls.filter((c) => c.name === "kb_note");
+		if (notes.length && !notes.some((c) => s.noteContent!.test(String(c.args.content ?? "")))) problems.push(`note lacks ${s.noteContent}`);
+	}
 	return problems;
 }
 

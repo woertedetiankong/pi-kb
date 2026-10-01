@@ -92,7 +92,7 @@ test("lint finds alike titles, broken links, project notes linking to global one
 		lib.remove(b.id);
 		lib.remove(c.id);
 		global.writeNote(global.prepareNote({ title: "Flash erase", content: "More.", tags: ["flash"] }, "append", erase.id));
-		assert.deepEqual(await lib.checkWiki(), { notes: 2, duplicates: [], broken: [], private: [], untagged: [], unreviewed: [] });
+		assert.deepEqual(await lib.checkWiki(), { notes: 2, duplicates: [], broken: [], private: [], untagged: [], unreviewed: [], staleSources: [] });
 	} finally {
 		close();
 	}
@@ -131,6 +131,42 @@ test("a note saved with nobody to review it is marked until approved; approving 
 		lib.approveNote(agent.id);
 		assert.equal(global.noteText(agent.id), before.replace("review: pending\n", ""));
 		assert.equal(lib.unreviewed({ ...agent, scope: "global" }), false);
+	} finally {
+		close();
+	}
+});
+
+test("a note citing a document is flagged once the document is replaced by a new version or removed, until checked", async () => {
+	const { lib, global, close } = twoKnowledgeBases("sources");
+	try {
+		const file = join(tmp, "board.md");
+		writeFileSync(file, "# Board\n\nVDD is 3.3 V.\n");
+		const doc = (await global.addFile(file)).doc!;
+		const note = global.writeNote(global.prepareNote({ title: "Board supply", content: `The board runs at 3.3 V [${doc.title}].\n\nAlso [gone.pdf p.4] and [a plain remark].` }));
+		// Written a while ago.
+		global.editNote(note.id, global.noteText(note.id).replace(/updated: .*/, "updated: 2026-01-01"));
+		const at = { id: note.id, title: note.title, scope: "global" as const };
+		const sources = lib.noteSources(at);
+		assert.deepEqual(sources.map((s) => [s.text, !!s.changed, !!s.missing]), [
+			[`[${doc.title}]`, true, false],
+			["[gone.pdf p.4]", false, true],
+		], "imported after the note's date counts as changed; a plain remark in brackets is no citation");
+
+		lib.markChecked(note.id);
+		assert.deepEqual(lib.noteSources(at).map((s) => !!s.changed), [false, false], "checked today");
+		assert.match(global.noteText(note.id), /The board runs at 3\.3 V/, "the text stays");
+
+		// A new version of the document, imported after the note was last checked.
+		global.editNote(note.id, global.noteText(note.id).replace(/updated: .*/, "updated: 2026-01-01"));
+		writeFileSync(file, "# Board\n\nVDD is 5 V now.\n");
+		await global.addFile(file, { replace: true });
+		const report = await lib.checkWiki();
+		assert.deepEqual(report.staleSources.map((s) => [s.note.id, s.sources.map((x) => x.text)]), [[note.id, [`[${doc.title}]`, "[gone.pdf p.4]"]]]);
+
+		const { formatHits } = await import("../src/tools.ts");
+		const { messages } = await import("../src/i18n.ts");
+		const hit = { chunk: 1, docId: note.id, title: note.title, collection: "wiki" as const, page: null, heading: "", snippet: "…", score: 0, match: "keyword" as const, staleSources: [`[${doc.title}]`] };
+		assert.match(formatHits([hit], messages("en")), /sources changed since this note: \[board\.md\]/);
 	} finally {
 		close();
 	}

@@ -5,7 +5,7 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } 
 import { CHUNKS_VERSION, type Chunk, carryTableHeaders, chunkPages } from "./chunk.ts";
 import { configStamp, DEFAULT_SEMANTIC, defaultMinScore, type KbConfig, loadConfig, PREVIOUS_LOCAL_MODEL, saveConfig } from "./config.ts";
 import { type ConvertedPage, Converter, hasTextLayer, isMarkdown, markFigures, normalizeText, type OcrShare, type PageImage, sourceKind } from "./convert.ts";
-import { type Note, type NoteMeta, normalizeShelves, normalizeTags, now, parseNote, renderNote, slugify, today, withoutReview, withReview, withShelves } from "./notes.ts";
+import { type Note, type NoteMeta, normalizeShelves, normalizeTags, now, parseNote, renderNote, slugify, today, withoutReview, withReview, withShelves, withUpdated } from "./notes.ts";
 import { anyClaimed, busy, claim, pause, release } from "./claims.ts";
 import { fuse } from "./search.ts";
 import { type IndexerStatus, isLocalClaim, SemanticIndexer } from "./semantic/indexer.ts";
@@ -1041,6 +1041,17 @@ export class KnowledgeBase {
 	/** Whether a note was saved by an agent and the user has not approved it yet. */
 	unreviewed(doc: DocRecord): boolean {
 		return doc.collection === "wiki" && this.noteMeta(doc)?.review === "pending";
+	}
+
+	/** The user checked a note against its sources: its `updated` date becomes today, nothing else changes. */
+	markChecked(id: string): DocRecord {
+		const doc = this.store.getDoc(id);
+		if (!doc || doc.collection !== "wiki") throw new Error(`No wiki note with id ${id}`);
+		const file = join(this.root, doc.path);
+		writeFileSync(file, withUpdated(readFileSync(file, "utf8"), today()));
+		const updated = this.indexWikiFile(file);
+		this.log("checked", file, updated.title);
+		return updated;
 	}
 
 	/** The user approves an agent's note: its review mark goes, nothing else changes. */

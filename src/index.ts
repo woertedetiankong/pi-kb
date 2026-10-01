@@ -8,7 +8,7 @@ import { isMarkdown } from "./convert.ts";
 import { type AddResult, expandHome, KnowledgeBase } from "./kb.ts";
 import { sharedHub } from "./hub.ts";
 import { KbWebApp } from "./web.ts";
-import { importScope, Library, type Scope } from "./library.ts";
+import { importScope, Library, type Scope, type ScopedDoc } from "./library.ts";
 import { findProjectKb, initProjectKb, type ProjectKb, projectRootFor } from "./project.ts";
 import { initQuestions, parseQuestions, questionsFile, readQuestions, runEval, summaryRows, writeReport } from "./eval.ts";
 import { folderSize, installRuntime, localModelDirs, removeLocalModel, runtimeInstalled } from "./semantic/providers.ts";
@@ -628,6 +628,7 @@ export default function piKb(pi: ExtensionAPI) {
 					]
 				: []),
 			"- When you solve a non-obvious problem (a root cause found by debugging, a gotcha, a workaround) or learn a lasting fact or preference about the user's setup, save it with kb_note before your final reply, once the fix is verified. The user reviews every note, so just call it; if they decline, do not retry unless they ask. Do not note routine work.",
+			"- A note may cite documents like [manual.pdf p.12]; open that page with kb_read before relying on the note for exact values. A hit marked 'sources changed since this note' cites a document that was replaced by a new version or removed after the note was written: check the current document first, and tell the user if the note no longer holds.",
 			"- Hits marked 'unreviewed note' were saved by an agent with no user to review them: treat them as leads, check them against the documents or the code before relying on them, and say they are unreviewed.",
 			"- The knowledge base is your only memory across sessions: never tell the user you will remember something unless you saved it with kb_note.",
 			...(project
@@ -959,6 +960,7 @@ export default function piKb(pi: ExtensionAPI) {
 					const note = (d: { scope: Scope; title: string; id: string }) => `${tag(d)}${d.title} (${d.id})`;
 					const sections: [string, string[]][] = [
 						[m.lintUnreviewed, report.unreviewed.map((d) => `- ${note(d)}`)],
+						[m.lintStale, report.staleSources.map((s) => `- ${note(s.note)}: ${s.sources.map((x) => m.lintStaleLine(x.text, !!x.missing)).join(", ")}`)],
 						[m.lintDuplicates, report.duplicates.map(([a, b]) => `- ${note(a)} ↔ ${note(b)}`)],
 						[m.lintBroken, report.broken.map((b) => `- ${note(b.note)}: [[${b.target}]]`)],
 						[m.lintPrivate, report.private.map((p) => `- ${note(p.note)} → ${p.target.title}`)],
@@ -967,19 +969,32 @@ export default function piKb(pi: ExtensionAPI) {
 					const found = sections.filter(([, lines]) => lines.length);
 					const body = found.length ? found.flatMap(([head, lines]) => [head, ...lines, ""]).join("\n").trimEnd() : m.lintClean;
 					show(ctx, m.lintTitle(report.notes), body);
+					if (!ctx.hasUI) return;
+					/** Go through notes one by one: keep (approve / mark checked), delete, skip or stop. */
+					const walk = async (notes: { note: ScopedDoc; heading: string }[], ask: string, pick: (title: string) => string, choices: [string, string, string, string], keep: (id: string) => void) => {
+						if (!notes.length || (await ctx.ui.select(ask, [m.reviewNow, m.reviewLater])) !== m.reviewNow) return;
+						const [ok, remove, skip] = choices;
+						for (const { note: d, heading } of notes) {
+							ctx.ui.setWidget("kb", [`📚 ${heading}`, "", ...library.noteText(d.id).split("\n").slice(0, 40)]);
+							const choice = await ctx.ui.select(pick(d.title), choices);
+							if (choice === ok) keep(d.id);
+							else if (choice === remove) library.remove(d.id);
+							else if (choice !== skip) break;
+						}
+						ctx.ui.setWidget("kb", undefined);
+						refresh(ctx);
+					};
 					// Notes an agent saved with nobody watching: the user decides, one by one.
-					if (!ctx.hasUI || !report.unreviewed.length) return;
-					if ((await ctx.ui.select(m.reviewAsk(report.unreviewed.length), [m.reviewNow, m.reviewLater])) !== m.reviewNow) return;
-					for (const d of report.unreviewed) {
-						ctx.ui.setWidget("kb", [`📚 ${m.reviewing(d.title)}`, "", ...library.noteText(d.id).split("\n").slice(0, 40)]);
-						const [approve, remove, skip, stop] = m.reviewChoices;
-						const choice = await ctx.ui.select(m.reviewPick(d.title), [approve, remove, skip, stop]);
-						if (choice === approve) library.approveNote(d.id);
-						else if (choice === remove) library.remove(d.id);
-						else if (choice !== skip) break;
-					}
-					ctx.ui.setWidget("kb", undefined);
-					refresh(ctx);
+					await walk(report.unreviewed.map((d) => ({ note: d, heading: m.reviewing(d.title) })), m.reviewAsk(report.unreviewed.length), m.reviewPick, m.reviewChoices, (id) => library.approveNote(id));
+					// Notes whose documents changed: still right, or not.
+					const stale = report.staleSources.filter((s) => library.locate(s.note.id));
+					await walk(
+						stale.map((s) => ({ note: s.note, heading: `${m.checking(s.note.title)} · ${s.sources.map((x) => m.lintStaleLine(x.text, !!x.missing)).join(", ")}` })),
+						m.checkAsk(stale.length),
+						m.checkPick,
+						m.checkChoices,
+						(id) => library.markChecked(id),
+					);
 					return;
 				}
 				case "help": {

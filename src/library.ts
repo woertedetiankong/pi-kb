@@ -1,7 +1,7 @@
 import { cpSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type AddResult, contentId, type KnowledgeBase, pathsOutside } from "./kb.ts";
-import { parseNote, titleSimilarity, wikiLinks } from "./notes.ts";
+import { type NoteCitation, noteCitations, parseNote, titleSimilarity, today, wikiLinks } from "./notes.ts";
 import type { ProjectKb } from "./project.ts";
 import { partNumbers, partSpellings } from "./search.ts";
 import type { Collection, DocRecord, SearchHit, ShelfFilter } from "./store.ts";
@@ -34,6 +34,17 @@ export interface WikiReport {
 	untagged: ScopedDoc[];
 	/** Notes an agent saved with nobody to review them, not approved yet. */
 	unreviewed: ScopedDoc[];
+	/** Notes citing documents that were imported again (a new version) or removed since the note was last updated. */
+	staleSources: { note: ScopedDoc; sources: NoteSource[] }[];
+}
+
+/** A document a note cites, and whether it changed since the note was last updated. */
+export interface NoteSource extends NoteCitation {
+	doc?: ScopedDoc;
+	/** Imported again (a new version) after the note's last update. */
+	changed?: boolean;
+	/** Looks like a citation of a file, but no document has that title any more. */
+	missing?: boolean;
 }
 
 /**
@@ -253,6 +264,35 @@ export class Library {
 		return !!record && this.kb(doc.scope).unreviewed(record);
 	}
 
+	/**
+	 * The documents a note cites ([manual.pdf p.12], as kb_search prints them), each marked when it was
+	 * imported again after the note's last update (a new version: the note may describe the old one)
+	 * or is gone. Brackets that name no document and do not look like a file citation are skipped.
+	 */
+	noteSources(note: { id: string; title: string; scope: Scope }): NoteSource[] {
+		let raw: string;
+		try {
+			raw = this.kb(note.scope).noteText(note.id);
+		} catch {
+			return [];
+		}
+		const { meta, body } = parseNote(raw, note.title);
+		const byTitle = new Map(this.listDocs("docs").map((d) => [d.title.toLowerCase(), d]));
+		const out: NoteSource[] = [];
+		for (const citation of noteCitations(body)) {
+			const doc = byTitle.get(citation.title.toLowerCase());
+			if (doc) out.push({ ...citation, doc, ...(meta.updated && today(new Date(doc.added_at)) > meta.updated ? { changed: true } : {}) });
+			else if (citation.page || /\.[a-z0-9]{2,5}$/i.test(citation.title)) out.push({ ...citation, missing: true });
+		}
+		return out;
+	}
+
+	/** The user checked a note against its sources. */
+	markChecked(id: string): ScopedDoc {
+		const { kb, scope } = this.need(id);
+		return { ...kb.markChecked(id), scope };
+	}
+
 	/** The user approves an agent's note. */
 	approveNote(id: string): ScopedDoc {
 		const { kb, scope } = this.need(id);
@@ -266,7 +306,7 @@ export class Library {
 	 */
 	async checkWiki(): Promise<WikiReport> {
 		const notes = this.listDocs("wiki");
-		const report: WikiReport = { notes: notes.length, duplicates: [], broken: [], private: [], untagged: [], unreviewed: [] };
+		const report: WikiReport = { notes: notes.length, duplicates: [], broken: [], private: [], untagged: [], unreviewed: [], staleSources: [] };
 		const pairs = new Map<string, [ScopedDoc, ScopedDoc]>();
 		const pair = (a: ScopedDoc, b: ScopedDoc) => {
 			const key = [a.id, b.id].sort().join(" ");
@@ -283,6 +323,8 @@ export class Library {
 			const { meta, body } = parseNote(this.noteText(note.id), note.title);
 			if (!meta.tags.length) report.untagged.push(note);
 			if (meta.review === "pending") report.unreviewed.push(note);
+			const stale = this.noteSources(note).filter((s) => s.changed || s.missing);
+			if (stale.length) report.staleSources.push({ note, sources: stale });
 			for (const target of wikiLinks(body)) {
 				const to = this.resolveLink(target, note.scope);
 				if (!to) report.broken.push({ note, target });

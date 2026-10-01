@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+Notes keep their sources, and say when those changed (the "grounded claims" idea from OpenWiki, for notes).
+
+- Citations in a note, written as kb_search prints them (`[manual.pdf p.12]`, `[faq.md]`), are its sources. A source imported again after the note's last update (a new version: the note may describe the old one) or removed is flagged.
+- `kb_search` marks such notes "sources changed since this note: …"; the system prompt says to open a note's cited page before relying on it and, for a flagged one, to check the current document first and tell the user if the note no longer holds. `kb_note` asks the model to cite the document a lesson rests on.
+- `/kb lint` lists notes whose sources changed and offers to go through them: still holds (its `updated` date becomes today), delete, skip. The web page lists a note's sources (each opens the cited page), marks changed or removed ones, and has a "Still holds" button (`POST /checked`).
+- Model check (DeepSeek flash): new scenarios `note-cites` (the note cites `[xr100-manual.pdf p.N]` in 3 of 3 runs) and `stale-note` (3 of 3 gave the current runbook command and called the note outdated; 2 replaced the note with the right one). All 23 scenarios × 2: 41 of 46, against 37 of 42 before; every failure was the model adding a section name or id inside citation brackets.
+
 ## v0.9.2 — 2026-09-30
 
 - The shared web hub (`src/hub.ts`, also in pi-sessions, pi-learn and pi-mange) is now version 2, and the newest copy loaded takes over an older hub: it waits for the old one to finish starting and close, listens on the same port (open pages keep working) and takes its apps along; the old object forwards every call to the new hub, since packages keep the hub they got. Before, the first package pi loaded decided which copy ran, so a fix in pi-kb's copy did nothing while pi-sessions loaded first. Checked against the real v1 copy pi had installed.

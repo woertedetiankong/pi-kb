@@ -41,6 +41,8 @@ export interface Scenario {
 	projectUses?: string[];
 	/** Notes written into the knowledge base's wiki/ before the run: file name → text. */
 	kbNotes?: Record<string, string>;
+	/** A kb_note call's content must match (e.g. it cites the document the lesson came from). */
+	noteContent?: RegExp;
 }
 
 const addJs = "export function add(a, b) {\n\tconst x = a + b;\n\treturn x;\n}\n";
@@ -252,5 +254,25 @@ export const scenarios: Scenario[] = [
 				'---\ntitle: "Orbit rollback: lock held"\ntags: [orbit]\ncreated: 2026-09-29\nupdated: 2026-09-29\nreview: pending\n---\n\n# Orbit rollback: lock held\n\nA rollback that stops with `lock held` means an earlier rollout is still holding the deploy lock. Run `orbitctl unlock --stale` and start the rollback again.\n',
 		},
 		answer: /^(?=[\s\S]*orbitctl unlock --stale)(?=[\s\S]*(unreviewed|not (been )?(reviewed|verified|confirmed)|未(经)?(确认|审核|核实)))/i,
+	},
+	{
+		id: "note-cites",
+		about: "A lesson taken from a document: the note cites it as kb_search printed it, so it can be checked later",
+		prompt: "查一下 XR-100 手册里 CTRL_REG 的地址和复位值，记成一条笔记，以后配置 SPI 时要用。",
+		search: "required",
+		note: "required",
+		noteContent: /\[xr100-manual\.pdf p\.\d+\]/,
+	},
+	{
+		id: "stale-note",
+		about: "An old note cites a document replaced since: check the document, give its current answer, say the note is outdated",
+		prompt: "How do I roll back an Orbit deploy?",
+		search: "required",
+		note: "any",
+		kbNotes: {
+			"orbit-rollback.md":
+				'---\ntitle: "Orbit rollback"\ntags: [orbit]\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n\n# Orbit rollback\n\nRoll back with `orbitctl rollback --legacy` [orbit-runbook.md].\n',
+		},
+		answer: /^(?=[\s\S]*orbitctl rollback --to previous)(?=[\s\S]*(outdated|out of date|no longer|stale|changed|new version|older|过时|旧))/i,
 	},
 ];

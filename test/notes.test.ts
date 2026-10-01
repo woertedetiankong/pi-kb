@@ -124,3 +124,14 @@ test("withReview marks a note once, with or without front matter; withoutReview 
 	assert.equal(withoutReview(marked), note);
 	assert.equal(parseNote(withReview("# Hand-written\n\ntext"), "x").meta.review, "pending");
 });
+
+test("noteCitations reads citations as kb_search prints them, not links or task boxes", async () => {
+	const { noteCitations, withUpdated } = await import("../src/notes.ts");
+	const body = "VDD is 3.6 V [xr100-manual.pdf p.1], CTRL_REG on [xr100-manual.pdf p.2-3] and [faq.md].\n- [x] done\n- [ ] todo\nSee [[spi-lesson]] and [docs](https://x.y). Again [xr100-manual.pdf p.1].";
+	assert.deepEqual(noteCitations(body), [
+		{ text: "[xr100-manual.pdf p.1]", title: "xr100-manual.pdf", page: 1 },
+		{ text: "[xr100-manual.pdf p.2-3]", title: "xr100-manual.pdf", page: 2 },
+		{ text: "[faq.md]", title: "faq.md" },
+	]);
+	assert.equal(withUpdated("---\ntitle: \"A\"\nupdated: 2026-01-01\n---\n\nbody\n", "2026-09-30"), "---\ntitle: \"A\"\nupdated: 2026-09-30\n---\n\nbody\n");
+});

@@ -169,6 +169,42 @@ export function titleSimilarity(a: string, b: string): number {
 	return (2 * shared) / (x.size + y.size);
 }
 
+/** A citation in a note, written as kb_search prints them: [manual.pdf p.12], [manual.pdf p.3-4] or [notes.md]. */
+export interface NoteCitation {
+	/** As written, brackets included. */
+	text: string;
+	title: string;
+	page?: number;
+}
+
+/**
+ * The citations in a note's body, once each, in order. [[links]], Markdown links [text](url) and
+ * task boxes [ ] / [x] are not citations.
+ */
+export function noteCitations(body: string): NoteCitation[] {
+	const out = new Map<string, NoteCitation>();
+	for (const m of body.matchAll(/(?<![[\]])\[([^[\]\n]+)\](?![\](])/g)) {
+		const inner = m[1].trim();
+		if (!inner || /^[ xX]$/.test(inner)) continue;
+		const paged = /^(.+?)\s+p\.\s?(\d+)(?:\s*[-–]\s*\d+)?$/.exec(inner);
+		const citation = paged ? { text: m[0], title: paged[1].trim(), page: Number(paged[2]) } : { text: m[0], title: inner };
+		if (!out.has(citation.text)) out.set(citation.text, citation);
+	}
+	return [...out.values()];
+}
+
+/** A note's text with its `updated:` date set (the user checked it), the rest as it was. */
+export function withUpdated(raw: string, date: string): string {
+	const text = raw.replace(/\r\n?/g, "\n");
+	const match = FRONT_MATTER.exec(text);
+	if (!match) return `---\nupdated: ${date}\n---\n\n${text}`;
+	const fields = match[1].split("\n");
+	const at = fields.findIndex((l) => /^updated:/.test(l));
+	if (at >= 0) fields[at] = `updated: ${date}`;
+	else fields.push(`updated: ${date}`);
+	return `---\n${fields.join("\n")}\n---\n${text.slice(match[0].length)}`;
+}
+
 /** The notes a note links to with [[target]], [[target|label]] or [[target#heading]], in order, once each. */
 export function wikiLinks(body: string): string[] {
 	const out = new Set<string>();

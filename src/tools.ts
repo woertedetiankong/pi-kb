@@ -102,10 +102,10 @@ export function seesImages(ctx: Pick<ExtensionContext, "model">): boolean {
 	return !ctx.model || ctx.model.input.includes("image");
 }
 
-export function formatHits(hits: (SearchHit & { scope?: Scope; unreviewed?: boolean })[], m: Messages, scoped = false): string {
+export function formatHits(hits: (SearchHit & { scope?: Scope; unreviewed?: boolean; staleSources?: string[] })[], m: Messages, scoped = false): string {
 	return hits
 		.map((hit, i) => {
-			const where = [scoped && hit.scope && m.scopeTag[hit.scope], hit.heading && `§ ${hit.heading}`, hit.collection === "wiki" && (hit.unreviewed ? m.unreviewedNote : m.wikiNote), hit.match === "semantic" && m.semanticMatch]
+			const where = [scoped && hit.scope && m.scopeTag[hit.scope], hit.heading && `§ ${hit.heading}`, hit.collection === "wiki" && (hit.unreviewed ? m.unreviewedNote : m.wikiNote), hit.staleSources?.length && m.staleNote(hit.staleSources.join(", ")), hit.match === "semantic" && m.semanticMatch]
 				.filter(Boolean)
 				.join(" · ");
 			return `${i + 1}. ${formatCitation(hit)} id=${hit.docId}${where ? ` · ${where}` : ""}\n   ${hit.snippet}`;
@@ -195,9 +195,12 @@ export function registerTools(pi: ExtensionAPI, host: ToolHost): void {
 				return { content: [{ type: "text", text }], details: { hits: [], pending: [] } };
 			}
 			if (shelf && !(await reachShelf(shelf, ctx))) return { content: [{ type: "text", text: closedShelf(shelf, ctx) }], details: { hits: [], pending: [] } };
-			const hits = (await library.find(params.query, { limit: params.limit, collection: scope, shelf })).map((h) =>
-				h.collection === "wiki" && library.unreviewed(h) ? { ...h, unreviewed: true } : h,
-			);
+			const hits = (await library.find(params.query, { limit: params.limit, collection: scope, shelf })).map((h) => {
+				if (h.collection !== "wiki") return h;
+				// Notes an agent saved unreviewed, and notes whose cited documents changed since: the model is told.
+				const stale = library.noteSources({ id: h.docId, title: h.title, scope: h.scope }).filter((s) => s.changed || s.missing).map((s) => s.text);
+				return { ...h, ...(library.unreviewed(h) ? { unreviewed: true } : {}), ...(stale.length ? { staleSources: stale } : {}) };
+			});
 			// A part the knowledge base never mentions: its results are about other parts, with other values.
 			const missing = library.unmentioned(params.query);
 			const unknown = missing.length
@@ -421,6 +424,7 @@ export function registerTools(pi: ExtensionAPI, host: ToolHost): void {
 			"Write kb_note content so it is useful without this conversation: symptom, root cause, fix, and how to recognize it next time, with concrete names, versions and commands.",
 			"Before creating a note, check kb_search with scope wiki; if a related note exists, use mode append with its id.",
 			"With mode append, write only what is new, under a heading that names the new point; do not repeat the existing note.",
+			"When a lesson rests on a document, cite it next to the fact exactly as kb_search printed it, e.g. [manual.pdf p.12]: the note can then be checked against that page, and is flagged when the document is replaced by a new version.",
 		],
 		parameters: Type.Object({
 			title: Type.String({ description: "Short, searchable title, e.g. 'XR-100 SPI 需要先设置时钟分频'" }),

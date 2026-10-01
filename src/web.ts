@@ -172,7 +172,9 @@ export class KbWebApp implements WebApp {
 							return [target, to ? { id: to.id, title: to.title, scope: to.scope } : null];
 						}),
 					);
-					return { doc, text: body, note: meta, raw, scope, links, shelves };
+					// The documents it cites, so the page can open them and say which changed since.
+					const sources = lib.noteSources({ id, title: doc.title, scope }).map((s) => ({ text: s.text, page: s.page ?? null, id: s.doc?.id ?? null, changed: !!s.changed, missing: !!s.missing }));
+					return { doc, text: body, note: meta, raw, scope, links, shelves, sources };
 				}
 				case "GET /file": {
 					const { file, name } = lib.originalFile(id);
@@ -384,6 +386,12 @@ export class KbWebApp implements WebApp {
 					const result = await lib.convert(String(body.id ?? ""));
 					this.host.changed();
 					return { result: { ...result, path: basename(result.path) } };
+				}
+				case "POST /checked": {
+					const body = await req.json();
+					const doc = lib.markChecked(String(body.id ?? ""));
+					this.host.changed();
+					return { doc };
 				}
 				case "POST /approve": {
 					const body = await req.json();
