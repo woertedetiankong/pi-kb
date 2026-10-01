@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.9.0 — 2026-09-30
 
 You decide what the agent sees: collections are now a boundary, and notes the agent saved with nobody watching wait for your approval.
 
