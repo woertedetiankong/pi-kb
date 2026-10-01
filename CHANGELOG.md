@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.9.2 — 2026-09-30
 
 - The shared web hub (`src/hub.ts`, also in pi-sessions, pi-learn and pi-mange) is now version 2, and the newest copy loaded takes over an older hub: it waits for the old one to finish starting and close, listens on the same port (open pages keep working) and takes its apps along; the old object forwards every call to the new hub, since packages keep the hub they got. Before, the first package pi loaded decided which copy ran, so a fix in pi-kb's copy did nothing while pi-sessions loaded first. Checked against the real v1 copy pi had installed.
 - `npm run sync-hub` copies pi-kb's `hub.ts` to the sibling repositories; `-- --check` only compares and lists the installed copies.
