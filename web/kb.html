@@ -402,7 +402,7 @@ const T = {
     enabledTip: "开启后 pi 的 agent 会使用知识库；关闭后相关工具和提示词都会移除",
     all: "全部", docs: "资料", notes: "笔记",
     kinds: { pdf: "PDF", office: "Office", image: "图片", text: "文本", note: "笔记" },
-    newNote: "新建笔记", clickOff: "点击关闭", clickOn: "点击开启", undo: "撤销",
+    newNote: "新建笔记", clickOff: "点击关闭", clickOn: "点击开启",
     chooseFiles: "选择文件…", orDrop: "也可以直接把文件拖到页面上，会放到这里选的位置。", dropTo: w => `放到：${w}`,
     emptyImporting: "正在导入，导完的资料会陆续出现在这里",
     empty: "知识库还是空的", emptyHint: "把 PDF、图片或 Markdown 拖到页面上即可导入",
@@ -509,7 +509,7 @@ const T = {
     enabledTip: "When on, pi's agent uses the knowledge base; when off, its tools and prompt are removed",
     all: "All", docs: "Documents", notes: "Notes",
     kinds: { pdf: "PDF", office: "Office", image: "Image", text: "Text", note: "Note" },
-    newNote: "New note", clickOff: "Click to turn off", clickOn: "Click to turn on", undo: "Undo",
+    newNote: "New note", clickOff: "Click to turn off", clickOn: "Click to turn on",
     chooseFiles: "Choose files…", orDrop: "You can also drop files on the page; they go where you chose here.", dropTo: w => `Goes to: ${w}`,
     emptyImporting: "Importing: documents appear here as each one is done",
     empty: "The knowledge base is empty", emptyHint: "Drop PDFs, images or Markdown on the page to import them",
@@ -1208,7 +1208,7 @@ document.addEventListener("keydown", e => {
 async function setEnabled(enabled) {
   try {
     await api("/enabled", { body: { enabled } }); etags.status = ""; await refresh();
-    toast(enabled ? T.kbOn : T.kbOff, { label: T.undo, run: () => setEnabled(!enabled) });
+    toast(enabled ? T.kbOn : T.kbOff);
   } catch (err) { toast(err.message); }
 }
 $("enabledPill").addEventListener("click", () => setEnabled(!state.status?.enabled));

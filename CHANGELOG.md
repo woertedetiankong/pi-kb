@@ -4,7 +4,7 @@
 
 A simpler web page: fewer controls in sight, nothing removed.
 
-- Top bar: a wider search box with "Find with AI" inside it; the On/Off switch is a status ("● Knowledge base on") that turns it off or on when clicked, with Undo; the AI model picker sits above AI results and answers (changing it runs the request again) instead of in the top bar.
+- Top bar: a wider search box with "Find with AI" inside it; the On/Off switch is a status ("● Knowledge base on") that turns it off or on when clicked; the AI model picker sits above AI results and answers (changing it runs the request again) instead of in the top bar.
 - Import: where new files go (project or global, which collection) moved from the sidebar into the "Import files ▾" menu, shown only when there is a choice; dropped files go to the same place, and the drop overlay says where.
 - Sidebar: only browsing. File-kind rows only with more than one kind; "This project uses…" is a link on the Collections heading; the collections section is hidden until there is one; the storage path is in Settings only; New note and Settings at the bottom.
 - Lists show short dates and no ids (still on the item's page); the overview's number cards became one line, and its tips show only while the knowledge base has fewer than 5 items.
