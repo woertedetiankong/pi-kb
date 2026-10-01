@@ -507,7 +507,8 @@ export default function piKb(pi: ExtensionAPI) {
 
 	// pi-lab announces the board under test with its pack (datasheets and verified notes): put them on a shelf named
 	// after the board, and tell pi-lab which shelf to point the agent at.
-	pi.events.on("pi-lab:board", (data) => {
+	// (Test harnesses may provide no event bus.)
+	pi.events?.on("pi-lab:board", (data) => {
 		const board = data as { name?: unknown; files?: { path: string; note: boolean }[] };
 		if (!enabled() || typeof board.name !== "string" || !Array.isArray(board.files)) return;
 		const library = lib();
@@ -519,7 +520,7 @@ export default function piKb(pi: ExtensionAPI) {
 			.map((f) => ({ path: f.path, wiki: f.note, scope: "global" as const, shelves: [shelf] }));
 		if (items.length) imports.enqueue(items);
 		granted.add(shelf);
-		pi.events.emit("pi-kb:board-shelf", { board: board.name, shelf });
+		pi.events?.emit("pi-kb:board-shelf", { board: board.name, shelf });
 	});
 
 	/** True the first time a hint is asked for, false ever after (remembered in config.json). */
