@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Board shelves from [pi-lab](https://github.com/woertedetiankong/pi-lab): when pi-lab announces the board under test (`pi-lab:board`), its datasheets and verified notes are imported once onto a collection named after the board, that collection is opened for the session, and pi-kb answers with `pi-kb:board-shelf` so pi-lab can point the agent at it. A note already in the wiki is left alone, since it may carry your edits.
+
 ## v0.9.5 — 2026-10-01
 
 A simpler web page: fewer controls in sight, nothing removed.
