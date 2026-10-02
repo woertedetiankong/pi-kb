@@ -1,7 +1,7 @@
 /**
  * Keep src/hub.ts the same in every package that ships it. pi-kb's copy is the source.
  *
- *   node scripts/sync-hub.mjs           copy it to the sibling repositories (../pi-sessions, ../pi-learn, ../pi-mange)
+ *   node scripts/sync-hub.mjs           copy it to the sibling repositories (../pi-sessions, ../pi-learn, ../pi-mange, ../pi-embe = pi-lab)
  *   node scripts/sync-hub.mjs --check   only compare; exits 1 when a sibling differs
  *
  * Both also list the copies pi has installed from GitHub (~/.pi/agent/git/...), which change only
@@ -14,7 +14,7 @@ import { dirname, join, relative } from "node:path";
 
 const repo = join(import.meta.dirname, "..");
 const source = join(repo, "src", "hub.ts");
-const SIBLINGS = ["pi-sessions", "pi-learn", "pi-mange"];
+const SIBLINGS = ["pi-sessions", "pi-learn", "pi-mange", "pi-embe"];
 const check = process.argv.includes("--check");
 
 const text = (file) => readFileSync(file, "utf8");
