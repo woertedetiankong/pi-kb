@@ -191,6 +191,13 @@ What the agent sees in a project = the project's knowledge base (if any)
 - **The agent** sees only what the project sees. This is enforced, not a hint: searching, listing and reading by id all stop at it. When you ask it to "look in the STM32 documents" and the project does not use STM32, you are asked first, and a yes counts for this session only (`/kb use` adds it for good); without a UI (`pi -p`) the answer is always no. The limit applies to the knowledge base's tools: an agent with bash can still read the files in the knowledge base folder directly; keeping it out entirely needs a sandbox or file permissions. A lesson about one of the project's collections' topics goes into that collection (you can change it in the save dialog); preferences and general lessons go in none, so every project sees them.
 - **Where it is kept**: a document's collections in `docs/<id>.json`, a note's in its front matter as `shelves: [ESP32]`, so they travel with a synced folder. Collections group the global knowledge base only: a project's own knowledge base already belongs to the project, and moving a document there drops its collections.
 
+## With pi-lab
+
+With [pi-lab](https://github.com/woertedetiankong/pi-lab), the plugin for debugging on the real board, installed too, the two work together without any setup:
+
+- **Board packs**: once a board is chosen in pi-lab (`/lab board m5sticks3`), its datasheets and verified notes are imported into the global knowledge base, on a collection named after the board (such as "M5StickS3") that the agent may search this session, and answers cite them with page numbers. Each file is imported once: a note already here may carry your edits and is left alone.
+- **Experiment notes**: the notes pi-lab makes from controlled experiments (`.pi/lab/notes/` in the project) are mirrored here, so `kb_search` finds them: into the project's knowledge base when it has one, else onto a global collection named "<project> lab notes". The note in the project is the original: when a re-run no longer matches, pi-lab marks it "needs review" and the copy here follows, without a second note. Edit the original in `.pi/lab/notes/`; the copy is replaced on the next sync. The experiment block at the end of such a note (`pi-lab-experiment`, what pi-lab re-runs) is not searched; reading the note still shows it.
+
 ## Web page
 
 `/kb web` opens a local page (listening on `127.0.0.1` only, access token required):
