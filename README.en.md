@@ -327,7 +327,7 @@ npm test
 
 ### Shared web hub
 
-`src/hub.ts` is the local web server shared by pi-kb, pi-sessions, pi-learn and pi-mange; each repository has a copy and they must stay identical. pi-kb's is the source: after a change, add 1 to `HUB_VERSION`, run `npm run sync-hub` to copy it to the three sibling repositories (`../pi-sessions` and so on), and commit it in each; `npm run sync-hub -- --check` only compares, and also lists the copies pi has installed. With several of the packages installed, the copy with the highest version takes over the others (same port, open pages keep working), so load order does not matter.
+`src/hub.ts` is the local web server shared by pi-kb, pi-sessions, pi-learn, pi-manage and pi-lab; each repository has a copy and they must stay identical. pi-kb's is the source: after a change, add 1 to `HUB_VERSION`, run `npm run sync-hub` to copy it to the four sibling repositories (`../pi-sessions` and so on), and commit it in each; `npm run sync-hub -- --check` only compares, and also lists the copies pi has installed. With several of the packages installed, the copy with the highest version takes over the others (same port, open pages keep working), so load order does not matter.
 
 ### Model checking
 

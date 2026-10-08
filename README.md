@@ -327,7 +327,7 @@ npm test
 
 ### 共享网页 hub
 
-`src/hub.ts` 是 pi-kb、pi-sessions、pi-learn、pi-mange 共用的本地网页服务，四个仓库里各有一份，必须保持一致。以 pi-kb 这份为准：改完后把 `HUB_VERSION` 加 1，运行 `npm run sync-hub` 复制到旁边的三个仓库（`../pi-sessions` 等），再分别提交；`npm run sync-hub -- --check` 只检查不复制，还会列出 pi 当前安装的各份版本。同时装了几个插件时，版本号最高的那份会接管其他的（同一端口，已打开的页面不断开），所以不必关心加载顺序。
+`src/hub.ts` 是 pi-kb、pi-sessions、pi-learn、pi-manage、pi-lab 共用的本地网页服务，五个仓库里各有一份，必须保持一致。以 pi-kb 这份为准：改完后把 `HUB_VERSION` 加 1，运行 `npm run sync-hub` 复制到旁边的四个仓库（`../pi-sessions` 等），再分别提交；`npm run sync-hub -- --check` 只检查不复制，还会列出 pi 当前安装的各份版本。同时装了几个插件时，版本号最高的那份会接管其他的（同一端口，已打开的页面不断开），所以不必关心加载顺序。
 
 ### 模型检查
 
