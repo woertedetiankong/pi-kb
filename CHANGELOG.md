@@ -1,7 +1,9 @@
 # Changelog
 
-## Unreleased
+## v0.9.6 — 2026-10-08
 
+- Experiment notes from [pi-lab](https://github.com/woertedetiankong/pi-lab) 0.4.1: when pi-lab announces a project's notes (`pi-lab:notes`), they are mirrored into the project's knowledge base, or else onto a collection named "<project> lab notes" that is opened for the session, under `wiki/pi-lab/<project>/`. pi-lab owns these notes and rewrites one when a re-run of its experiment no longer matches ("Status: needs review"), so the copy follows the original instead of being imported once; edit the note in `.pi/lab/notes/`, not the copy. pi-kb answers with `pi-kb:lab-notes`.
+- A pi-lab note's experiment block (the scripts it re-runs) is left out of the search index, so one note no longer fills the results with chunks of script; reading the note still shows it.
 - Board shelves from [pi-lab](https://github.com/woertedetiankong/pi-lab): when pi-lab announces the board under test (`pi-lab:board`), its datasheets and verified notes are imported once onto a collection named after the board, that collection is opened for the session, and pi-kb answers with `pi-kb:board-shelf` so pi-lab can point the agent at it. A note already in the wiki is left alone, since it may carry your edits.
 
 ## v0.9.5 — 2026-10-01

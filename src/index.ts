@@ -1,6 +1,7 @@
 import { type ExtensionAPI, type ExtensionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { existsSync, statSync, unwatchFile, watchFile } from "node:fs";
 import { basename, join, relative, resolve, sep } from "node:path";
+import { slugify } from "./notes.ts";
 import { fileURLToPath } from "node:url";
 import { checkWritable, copyContent, expandDir, kbLocation, LocationError } from "./config.ts";
 import { type LanguageSetting, messages, resolveLanguage } from "./i18n.ts";
@@ -521,6 +522,25 @@ export default function piKb(pi: ExtensionAPI) {
 		if (items.length) imports.enqueue(items);
 		granted.add(shelf);
 		pi.events?.emit("pi-kb:board-shelf", { board: board.name, shelf });
+	});
+
+	// pi-lab's experiment notes (.pi/lab/notes/ in a project): measured tables the agent should find with kb_search.
+	// pi-lab owns them and rewrites one when a re-run no longer matches, so they are mirrored, not imported: the
+	// copy follows the original. Into the project's knowledge base when it has one, else a global shelf named after
+	// the project, which this session may search.
+	pi.events?.on("pi-lab:notes", (data) => {
+		const notes = data as { project?: unknown; root?: unknown; files?: unknown };
+		if (!enabled() || typeof notes.project !== "string" || typeof notes.root !== "string" || !Array.isArray(notes.files)) return;
+		const inProject = project && resolve(project.info.root) === resolve(notes.root) ? project.kb : undefined;
+		const folder = join("pi-lab", slugify(notes.project) || "project");
+		const shelf = inProject ? undefined : lib().shelfName(`${notes.project} lab notes`);
+		const target = inProject ?? open();
+		for (const file of notes.files) {
+			if (typeof file !== "string" || !existsSync(file)) continue;
+			try { target.mirrorNote(file, folder, shelf ? [shelf] : undefined); } catch {}
+		}
+		if (shelf) granted.add(shelf);
+		pi.events?.emit("pi-kb:lab-notes", { project: notes.project, shelf: shelf ?? null });
 	});
 
 	/** True the first time a hint is asked for, false ever after (remembered in config.json). */

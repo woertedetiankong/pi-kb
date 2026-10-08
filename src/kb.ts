@@ -485,6 +485,25 @@ export class KnowledgeBase {
 		return { path, status: "added", doc };
 	}
 
+	/**
+	 * Keep a copy of a note another tool owns (pi-lab's experiment notes) under wiki/<folder>/, replaced
+	 * whenever the original changes. Unlike an import, the original is the note: edits belong there, and an
+	 * updated original replaces the copy instead of adding a second one.
+	 */
+	mirrorNote(path: string, folder: string, shelves?: string[]): AddResult {
+		if (!isMarkdown(path)) return { path, status: "skipped", reason: "not_markdown", message: "only Markdown files can become wiki notes" };
+		const raw = readFileSync(path, "utf8");
+		const content = shelves?.length ? withShelves(raw, this.canonicalShelves([...(parseNote(raw, "").meta.shelves ?? []), ...shelves])) : raw;
+		const target = join(this.wikiDir, folder, basename(path));
+		const before = existsSync(target) ? readFileSync(target, "utf8") : undefined;
+		if (before !== content) {
+			mkdirSync(dirname(target), { recursive: true });
+			writeFileSync(target, content);
+		}
+		const doc = this.indexWikiFile(target);
+		return { path, status: before === undefined ? "added" : before === content ? "exists" : "updated", doc };
+	}
+
 	/** Index (or re-index) one Markdown file inside the wiki folder. */
 	indexWikiFile(file: string): DocRecord {
 		const rel = relative(this.root, file);
@@ -509,8 +528,11 @@ export class KnowledgeBase {
 		};
 		// Index the body and tags, not the front matter keys, so "created:" and the like never match.
 		// (Shelves are not indexed as text: they decide what is seen, not what matches.)
+		// A pi-lab note ends with its experiment as data (the scripts it runs), for re-running it: that block is
+		// left out, or one note would fill the results with chunks of script. kb_read still shows it.
+		const body = note.body.replace(/```pi-lab-experiment\n[\s\S]*?\n```\n?/g, "");
 		const tags = note.meta.tags.map((t) => `#${t}`).join(" ");
-		this.store.putDoc(doc, chunkPages([{ page: null, markdown: tags ? `${note.body}\n\n${tags}` : note.body }]));
+		this.store.putDoc(doc, chunkPages([{ page: null, markdown: tags ? `${body}\n\n${tags}` : body }]));
 		void this.indexer.kick();
 		return doc;
 	}
